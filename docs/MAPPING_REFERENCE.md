@@ -3,6 +3,38 @@
 Complete mapping of Tableau objects to their Microsoft Fabric equivalents.
 The migration tool generates **six artifact types** (Lakehouse, Dataflow Gen2, Notebook, Semantic Model, Pipeline, Power BI Report).
 
+## Mapping Overview
+
+```
+┌──────────────────────────────────────────────────────────────────────────────────────┐
+│                            TABLEAU → FABRIC MAPPING                                  │
+│                                                                                      │
+│   TABLEAU OBJECTS                    FABRIC ARTIFACTS                                │
+│   ───────────────                    ────────────────                                 │
+│                                                                                      │
+│   Data Sources ──────────────────>   Lakehouse (DDL) + Dataflow Gen2 (M queries)     │
+│   Custom SQL ────────────────────>   Dataflow Gen2 (native query) + Notebook cells   │
+│   Calculated columns (dim) ──────>   Lakehouse DDL + Dataflow M + Notebook PySpark   │
+│   Calculated fields (measure) ───>   Semantic Model DAX measures                     │
+│   LOD expressions ───────────────>   Semantic Model DAX CALCULATE(...)               │
+│   Parameters ────────────────────>   Semantic Model What-If tables                   │
+│   Worksheets ────────────────────>   Power BI Report visuals (60+ types)             │
+│   Dashboards ────────────────────>   Power BI Report pages                           │
+│   Stories ───────────────────────>   Power BI Report pages + bookmarks               │
+│   Filters ───────────────────────>   Slicers + visual / report filters               │
+│   User filters (RLS) ───────────>   Semantic Model RLS roles (USERPRINCIPALNAME)     │
+│   Actions ───────────────────────>   Cross-filtering / buttons (approximate)         │
+│   Relationships ─────────────────>   Semantic Model TMDL relationships               │
+│   Sort orders ───────────────────>   Semantic Model sortByColumn                     │
+│   Hierarchies ───────────────────>   Semantic Model display folders                  │
+│   Sets ──────────────────────────>   Semantic Model calculated tables / filters      │
+│   Groups ────────────────────────>   Semantic Model calculated columns               │
+│   Bins ──────────────────────────>   Semantic Model calculated columns (bucket)      │
+│   Aliases ───────────────────────>   Semantic Model column descriptions              │
+│                                                                                      │
+└──────────────────────────────────────────────────────────────────────────────────────┘
+```
+
 > **Legend**  
 > ✅ Automatic — fully converted by the migration tool  
 > ⚠️ Approximate — converted with best-effort approximation  
@@ -250,17 +282,51 @@ Tableau formulas → DAX (measures and calculated columns in the Semantic Model)
 ### Data Flow: Tableau → Lakehouse
 
 ```
-Tableau Data Source
-    ↓
-Dataflow Gen2 (Power Query M)     ← ingests from original source
-    ↓
-Lakehouse (Delta Tables)           ← physical storage layer
-    ↓
-Notebook (PySpark transforms)      ← calculated column materialisation
-    ↓
-Semantic Model (DirectLake TMDL)   ← reads from Lakehouse directly
-    ↓
-Power BI Report (.pbip)            ← visuals, slicers, DAX measures
+               ┌────────────────────────┐
+               │   Tableau Data Source   │
+               │   (25 connector types)  │
+               └───────────┬────────────┘
+                           │
+                           ▼
+          ┌────────────────────────────────┐
+          │   Dataflow Gen2                │
+          │   Power Query M                │
+          │   ┌────────────────────────┐   │
+          │   │ Source connector       │   │
+          │   │ Type changes           │   │
+          │   │ Table.AddColumn(calc)  │   │
+          │   └────────────────────────┘   │
+          └───────────────┬────────────────┘
+                          │  writes Delta
+                          ▼
+          ┌────────────────────────────────┐
+          │   Lakehouse                    │
+          │   ┌──────┐ ┌──────┐ ┌──────┐  │
+          │   │Orders│ │Cust. │ │Cal.  │  │
+          │   │Delta │ │Delta │ │Delta │  │
+          │   └──────┘ └──────┘ └──────┘  │
+          └───────────────┬────────────────┘
+                          │  PySpark ETL
+                          ▼
+          ┌────────────────────────────────┐
+          │   Notebook                     │
+          │   .withColumn(calc columns)    │
+          │   .write.saveAsTable(Delta)    │
+          └───────────────┬────────────────┘
+                          │  DirectLake read
+                          ▼
+          ┌────────────────────────────────┐
+          │   Semantic Model (TMDL)        │
+          │   DirectLake entity partitions │
+          │   DAX measures + RLS roles     │
+          └───────────────┬────────────────┘
+                          │  live connection
+                          ▼
+          ┌────────────────────────────────┐
+          │   Power BI Report (.pbip)      │
+          │   PBIR visuals + slicers       │
+          │   60+ visual types             │
+          └────────────────────────────────┘
 ```
 
 ---

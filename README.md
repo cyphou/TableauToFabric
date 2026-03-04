@@ -204,8 +204,73 @@ TableauToFabric/
 
 ## Pipeline
 
+### High-Level Flow
+
 ```
-.twbx/.twb → extract_tableau_data.py → 16 JSON files → import_to_fabric.py → 6 Fabric artifact types
+┌─────────────────┐     ┌──────────────────────┐     ┌──────────────────────┐     ┌──────────────────────────┐
+│   INPUT          │     │   STEP 1: EXTRACT    │     │   INTERMEDIATE       │     │   STEP 2: GENERATE       │
+│                  │     │   (tableau_export/)  │     │                      │     │   (fabric_import/)       │
+│  .twb / .twbx    │────>│  extract_tableau_    │────>│  16 JSON files       │────>│  import_to_fabric.py     │
+│  .tfl / .tflx    │     │    data.py           │     │  (datasources,       │     │                          │
+│                  │     │  datasource_         │     │   worksheets,        │     │  ┌─ lakehouse_gen.py     │
+│                  │     │    extractor.py      │     │   calculations,      │     │  ├─ dataflow_gen.py      │
+│                  │     │  dax_converter.py    │     │   filters,           │     │  ├─ notebook_gen.py      │
+│                  │     │  m_query_builder.py  │     │   dashboards, ...)   │     │  ├─ semantic_model_gen.py│
+│                  │     │                      │     │                      │     │  ├─ pipeline_gen.py      │
+│                  │     │                      │     │                      │     │  └─ pbip_gen.py          │
+└─────────────────┘     └──────────────────────┘     └──────────────────────┘     └──────────────────────────┘
+                                                                                             │
+                                                                                             ▼
+                                                                                  ┌──────────────────────────┐
+                                                                                  │   OUTPUT (6 artifacts)   │
+                                                                                  │                          │
+                                                                                  │  ├── .Lakehouse/         │
+                                                                                  │  ├── .Dataflow/          │
+                                                                                  │  ├── .Notebook/          │
+                                                                                  │  ├── .SemanticModel/     │
+                                                                                  │  ├── .Pipeline/          │
+                                                                                  │  └── .pbip (Report)      │
+                                                                                  └──────────────────────────┘
+```
+
+### Fabric Runtime Data Flow
+
+```
+                    ┌───────────────────────────────────────────────────────────────────┐
+                    │                    DATA PIPELINE (Orchestrator)                    │
+                    │   Stage 1 ──────────> Stage 2 ──────────> Stage 3                 │
+                    └──────┬───────────────────┬──────────────────┬─────────────────────┘
+                           │                   │                  │
+                           ▼                   ▼                  ▼
+               ┌──────────────────┐  ┌──────────────────┐  ┌──────────────────┐
+               │  DATAFLOW GEN2   │  │  NOTEBOOK        │  │  SEMANTIC MODEL  │
+               │                  │  │                  │  │  REFRESH         │
+               │  Power Query M   │  │  PySpark ETL     │  │                  │
+               │  Data ingestion  │  │  Calc columns    │  │  DirectLake      │
+               │  + calc columns  │  │  Transforms      │  │  picks up fresh  │
+               └────────┬─────────┘  └────────┬─────────┘  │  Delta data      │
+                        │                     │            └────────┬─────────┘
+                        ▼                     ▼                     │
+               ┌────────────────────────────────────────┐           │
+               │           LAKEHOUSE                    │           │
+               │    Delta Tables (physical storage)     │           │
+               │                                        │           │
+               │  ┌──────────┐ ┌──────────┐ ┌────────┐ │           │
+               │  │ Orders   │ │Customers │ │Calendar│ │           │
+               │  │ (Delta)  │ │ (Delta)  │ │(Delta) │ │           │
+               │  └──────────┘ └──────────┘ └────────┘ │           │
+               └───────────────────┬────────────────────┘           │
+                                   │ DirectLake read                │
+                                   └───────────────────────────────>│
+                                                                    │
+                                                           ┌───────┴────────┐
+                                                           │  POWER BI      │
+                                                           │  REPORT        │
+                                                           │                │
+                                                           │  Pages,        │
+                                                           │  Visuals,      │
+                                                           │  Slicers       │
+                                                           └────────────────┘
 ```
 
 ### Detailed Diagram
@@ -322,10 +387,36 @@ In **DirectLake** mode, calculated columns cannot be DAX expressions — they mu
 Tableau calculated column (dimension role):
   IF [Revenue] > 10000 THEN "High" ELSE "Low" END
 
-Lakehouse DDL:      Revenue_Tier STRING
-Dataflow Gen2 (M):  Table.AddColumn(Source, "Revenue_Tier", each if [Revenue] > 10000 then "High" else "Low")
-Notebook (PySpark):  df.withColumn("Revenue_Tier", F.when(F.col("Revenue") > 10000, "High").otherwise("Low"))
-TMDL:               sourceColumn: Revenue_Tier   (not expression = DAX(...))
+                    ┌──────────────────────────────────────────────────────────────┐
+                    │  Tableau                                                    │
+                    │  IF [Revenue] > 10000 THEN "High" ELSE "Low" END            │
+                    └──────────────────────┬───────────────────────────────────────┘
+                                           │
+            ┌──────────────────────────────┼──────────────────────────────┐
+            ▼                              ▼                              ▼
+  ┌──────────────────────┐  ┌────────────────────────────┐  ┌──────────────────────┐
+  │  LAKEHOUSE (DDL)     │  │  DATAFLOW GEN2 (M)         │  │  NOTEBOOK (PySpark)  │
+  │                      │  │                            │  │                      │
+  │  Revenue_Tier STRING │  │  Table.AddColumn(          │  │  df.withColumn(      │
+  │                      │  │    Source,                 │  │    "Revenue_Tier",   │
+  │                      │  │    "Revenue_Tier",         │  │    F.when(           │
+  │                      │  │    each if [Revenue]       │  │      F.col("Revenue")│
+  │                      │  │    > 10000 then "High"     │  │      > 10000, "High")│
+  │                      │  │    else "Low")             │  │    .otherwise("Low"))│
+  └──────────┬───────────┘  └──────────────┬─────────────┘  └──────────┬───────────┘
+             │                             │                           │
+             └─────────────────────────────┼───────────────────────────┘
+                                           ▼
+                              ┌────────────────────────┐
+                              │  SEMANTIC MODEL (TMDL) │
+                              │                        │
+                              │  column Revenue_Tier   │
+                              │    dataType: string    │
+                              │    sourceColumn:       │
+                              │      Revenue_Tier      │
+                              │    (NOT expression =   │
+                              │      DAX(...))         │
+                              └────────────────────────┘
 ```
 
 ## Complex Transformation Examples
@@ -454,12 +545,37 @@ $ws = .\scripts\New-MigrationWorkspace.ps1 `
 The deploy script auto-discovers artifact directories by suffix and deploys in dependency order:
 
 ```
-1. Lakehouse  (empty)        → waits for SQL analytics endpoint
-2. Notebook   (+lakehouse binding injected)
-3. Dataflow   (Gen2)
-4. Semantic Model  (TMDL — SQL endpoint + lakehouse name tokens replaced)
-5. Report     (PBIR — byPath → byConnection rewrite with Semantic Model ID)
-6. Pipeline   (references above items)
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    DEPLOYMENT ORDER (dependency chain)                     │
+│                                                                           │
+│  ┌──────────────┐                                                         │
+│  │ 1. LAKEHOUSE │─── creates empty ── waits for SQL analytics endpoint    │
+│  └──────┬───────┘                                                         │
+│         │                                                                 │
+│         ├──────────────────────┐                                          │
+│         ▼                     ▼                                          │
+│  ┌──────────────┐     ┌──────────────┐                                   │
+│  │ 2. NOTEBOOK  │     │ 3. DATAFLOW  │                                   │
+│  │ +lakehouse   │     │ (Gen2)       │                                   │
+│  │  binding     │     │              │                                   │
+│  └──────┬───────┘     └──────┬───────┘                                   │
+│         │                    │                                            │
+│         └────────┬───────────┘                                            │
+│                  ▼                                                        │
+│         ┌────────────────────┐                                            │
+│         │ 4. SEMANTIC MODEL  │── TMDL: SQL endpoint + lakehouse tokens    │
+│         └────────┬───────────┘                                            │
+│                  │                                                        │
+│                  ▼                                                        │
+│         ┌────────────────────┐                                            │
+│         │ 5. REPORT          │── PBIR: byPath → byConnection rewrite      │
+│         └────────┬───────────┘                                            │
+│                  │                                                        │
+│                  ▼                                                        │
+│         ┌────────────────────┐                                            │
+│         │ 6. PIPELINE        │── references all above items by ID         │
+│         └────────────────────┘                                            │
+└─────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ### Deploy Options

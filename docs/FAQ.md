@@ -1,5 +1,24 @@
 # Frequently Asked Questions
 
+## Migration Workflow
+
+```
+┌───────────────────────────────────────────────────────────────────────────────┐
+│                        MIGRATION WORKFLOW                                     │
+│                                                                               │
+│  ┌──────────┐     ┌───────────┐     ┌────────────┐     ┌──────────────────┐  │
+│  │  PREPARE  │────>│  MIGRATE  │────>│  VALIDATE  │────>│  DEPLOY          │  │
+│  └──────────┘     └───────────┘     └────────────┘     └──────────────────┘  │
+│                                                                               │
+│  1. Gather .twb/   2. Run           3. Check          4. Run deployment     │
+│     .twbx files       migrate.py       generated         scripts or         │
+│  2. Install           (CLI)            artifacts         Python deployer    │
+│     Python 3.9+    3. Review logs      (validator)    5. Wire data sources  │
+│  3. Clone repo                      4. Open .pbip     6. Trigger pipeline   │
+│                                        in PBI Desktop                       │
+└───────────────────────────────────────────────────────────────────────────────┘
+```
+
 ## General
 
 ### What files does the tool accept?
@@ -107,11 +126,16 @@ DirectLake is a Fabric-specific storage mode where the Semantic Model reads data
 ### How are calculated columns handled?
 Calculated columns are **materialised in the Lakehouse** — they exist as physical Delta table columns rather than DAX expressions in the Semantic Model. This is required by DirectLake mode.
 
-The materialisation happens in three places:
-1. **Lakehouse** — the column is declared as a physical column in the DDL
-2. **Dataflow Gen2** — a `Table.AddColumn()` M step computes the value
-3. **Notebook** — a `.withColumn()` PySpark call computes the value
-4. **Semantic Model** — the column uses `sourceColumn` (not `expression`)
+The materialisation happens in four artifacts:
+
+```
+┌──────────────┐   ┌──────────────┐   ┌──────────────┐   ┌──────────────┐
+│ 1. LAKEHOUSE │──>│ 2. DATAFLOW  │──>│ 3. NOTEBOOK  │──>│ 4. SEMANTIC  │
+│              │   │    GEN2      │   │              │   │    MODEL     │
+│ DDL declares │   │ M query      │   │ PySpark      │   │ sourceColumn │
+│ physical col │   │ computes val │   │ computes val │   │ (NOT DAX)    │
+└──────────────┘   └──────────────┘   └──────────────┘   └──────────────┘
+```
 
 See the [Calculated Columns Guide](CALCULATED_COLUMNS_GUIDE.md) for details.
 

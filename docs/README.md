@@ -1,5 +1,45 @@
 # Documentation
 
+## Project Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                           TableauToFabric                                      │
+│                                                                                 │
+│  ┌─────────────────┐     ┌──────────────────┐     ┌──────────────────────────┐  │
+│  │  migrate.py      │────>│  tableau_export/  │────>│  fabric_import/          │  │
+│  │  (CLI entry)     │     │  (16 JSON files)  │     │  (6 artifact generators) │  │
+│  └─────────────────┘     └──────────────────┘     └──────────────────────────┘  │
+│           │                   │                       │                          │
+│           │              extraction layer          generation layer              │
+│           │                   │                       │                          │
+│           │               ┌───┘                       └───┐                     │
+│           │               ▼                               ▼                     │
+│           │   ┌──────────────────────┐   ┌──────────────────────────────┐       │
+│           │   │  dax_converter.py     │   │  lakehouse_generator.py      │       │
+│           │   │  m_query_builder.py   │   │  dataflow_generator.py       │       │
+│           │   │  prep_flow_parser.py  │   │  notebook_generator.py       │       │
+│           │   │  datasource_extractor │   │  semantic_model_generator.py  │       │
+│           │   └──────────────────────┘   │  pipeline_generator.py        │       │
+│           │                              │  pbip_generator.py            │       │
+│           │                              │  tmdl_generator.py            │       │
+│           │                              │  visual_generator.py          │       │
+│           │                              └──────────────────────────────┘       │
+│           │                                                                     │
+│           └───────────── conversion/ ──────────────────────────────────────     │
+│               ┌──────────────────────────────────────────────────────┐          │
+│               │  worksheet_converter    dashboard_converter          │          │
+│               │  datasource_converter   filter_converter             │          │
+│               │  parameter_converter    calculation_converter         │          │
+│               │  story_converter                                     │          │
+│               └──────────────────────────────────────────────────────┘          │
+│                                                                                 │
+│  tests/  ─── 775 tests, 21 files, 0 failures                                  │
+│  scripts/ ── PowerShell deployment (New-Workspace, Deploy, Validate)           │
+│  docs/   ─── 7 guides + FAQ                                                   │
+└─────────────────────────────────────────────────────────────────────────────────┘
+```
+
 ## Guides
 
 - [FABRIC_PROJECT_GUIDE.md](FABRIC_PROJECT_GUIDE.md) — Understanding Fabric artifacts and DirectLake projects

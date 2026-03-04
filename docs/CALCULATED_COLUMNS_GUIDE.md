@@ -55,6 +55,37 @@ The migration tool automatically classifies each Tableau calculation as either a
 | `measure` | **DAX Measure** | Semantic Model (`expression = DAX(...)`) | Query-time evaluation |
 | `dimension` | **Calculated Column** | Lakehouse (physical) + Dataflow/Notebook (computed) | `sourceColumn` in TMDL |
 
+### Classification Decision Tree
+
+```
+                      ┌─────────────────────┐
+                      │  Tableau Calculated  │
+                      │  Field              │
+                      └──────────┬──────────┘
+                                 │
+                    ┌────────────▼────────────┐
+                    │  Has aggregation func?  │
+                    │  (SUM, AVG, COUNT, ...) │
+                    └────┬──────────────┬─────┘
+                         │ YES          │ NO
+                         ▼              ▼
+               ┌─────────────┐  ┌───────────────────┐
+               │  DAX MEASURE│  │  role='dimension'?│
+               │  (always)   │  └───┬──────────┬────┘
+               └─────────────┘      │ YES      │ NO
+                                    ▼          ▼
+                         ┌──────────────┐ ┌──────────────┐
+                         │  CALCULATED  │ │  DAX MEASURE │
+                         │  COLUMN      │ │  (default)   │
+                         │  (physical)  │ └──────────────┘
+                         └──────────────┘
+
+Special cases:
+  LOD  {FIXED ...}     ──────────>  DAX MEASURE  (CALCULATE)
+  Table calc  RANK()   ──────────>  DAX MEASURE  (RANKX)
+  Row-level IF (dim)   ──────────>  CALCULATED COLUMN  (materialised)
+```
+
 ### Classification Logic (`calc_column_utils.py`)
 
 ```python
