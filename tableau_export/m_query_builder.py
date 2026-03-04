@@ -481,6 +481,82 @@ def _gen_m_custom_sql(details, table_name, columns):
     return m_query
 
 
+def _gen_m_odata(details, table_name, columns):
+    """Generate M query for OData connector."""
+    url = details.get('url', details.get('server', 'https://services.odata.org/V4/Northwind'))
+    feed = details.get('feed', table_name)
+
+    m_query = 'let\n'
+    m_query += f'    // Source OData: {url}\n'
+    m_query += f'    Source = OData.Feed("{url}"),\n'
+    m_query += f'    #"{table_name} Table" = Source{{[Name="{feed}",Signature="table"]}}[Data],\n'
+    m_query += f'    Result = #"{table_name} Table"\nin\n    Result'
+    return m_query
+
+
+def _gen_m_google_analytics(details, table_name, columns):
+    """Generate M query for Google Analytics connector."""
+    property_id = details.get('property_id', details.get('project', ''))
+    view_id = details.get('view_id', '')
+
+    m_query = 'let\n'
+    m_query += f'    // Source Google Analytics — Property: {property_id}\n'
+    m_query += f'    // NOTE: Requires Google Analytics connector configured in Power BI Gateway\n'
+    m_query += f'    Source = GoogleAnalytics.Accounts(),\n'
+    m_query += f'    #"Property" = Source{{[Id="{property_id}"]}}[Data],\n'
+    if view_id:
+        m_query += f'    #"View" = #"Property"{{[Id="{view_id}"]}}[Data],\n'
+        m_query += f'    Result = #"View"\n'
+    else:
+        m_query += f'    Result = #"Property"\n'
+    m_query += 'in\n    Result'
+    return m_query
+
+
+def _gen_m_azure_blob(details, table_name, columns):
+    """Generate M query for Azure Blob Storage / ADLS Gen2 connector."""
+    account = details.get('server', details.get('account', 'mystorageaccount'))
+    container = details.get('database', details.get('container', 'data'))
+    path = details.get('filename', details.get('path', ''))
+
+    # Detect ADLS Gen2 vs plain Blob by URL pattern
+    is_adls = 'dfs.core.windows.net' in account or details.get('type', '') == 'adls'
+
+    m_query = 'let\n'
+    if is_adls:
+        endpoint = account if account.startswith('https://') else f'https://{account}.dfs.core.windows.net'
+        m_query += f'    // Source Azure Data Lake Storage Gen2: {endpoint}\n'
+        m_query += f'    Source = AzureStorage.DataLake("{endpoint}/{container}"),\n'
+    else:
+        endpoint = account if account.startswith('https://') else f'https://{account}.blob.core.windows.net'
+        m_query += f'    // Source Azure Blob Storage: {endpoint}\n'
+        m_query += f'    Source = AzureStorage.Blobs("{endpoint}/{container}"),\n'
+
+    if path:
+        m_query += f'    #"Filtered" = Table.SelectRows(Source, each [Name] = "{path}"),\n'
+        m_query += '    #"Content" = #"Filtered"{0}[Content],\n'
+        ext = path.rsplit('.', 1)[-1].lower() if '.' in path else ''
+        if ext == 'csv':
+            m_query += '    #"Parsed" = Csv.Document(#"Content", [Delimiter=",", Encoding=65001, QuoteStyle=QuoteStyle.Csv]),\n'
+            m_query += '    #"Promoted Headers" = Table.PromoteHeaders(#"Parsed", [PromoteAllScalars=true]),\n'
+            return _append_type_step(m_query, columns)
+        elif ext in ('json', 'jsonl'):
+            m_query += '    #"Parsed" = Json.Document(#"Content"),\n'
+            m_query += '    #"Converted to Table" = Table.FromRecords(if Value.Is(#"Parsed", type list) then #"Parsed" else {#"Parsed"}),\n'
+            m_query += '    #"Promoted Headers" = #"Converted to Table",\n'
+            return _append_type_step(m_query, columns)
+        elif ext == 'parquet':
+            m_query += '    #"Parsed" = Parquet.Document(#"Content"),\n'
+            m_query += '    Result = #"Parsed"\nin\n    Result'
+            return m_query
+        else:
+            m_query += '    Result = #"Content"\nin\n    Result'
+            return m_query
+    else:
+        m_query += '    Result = Source\nin\n    Result'
+        return m_query
+
+
 # ── Dispatch table ────────────────────────────────────────────────────────────
 
 _M_GENERATORS = {
@@ -512,6 +588,12 @@ _M_GENERATORS = {
     'Salesforce':       _gen_m_salesforce,
     'Web':              _gen_m_web,
     'Custom SQL':       _gen_m_custom_sql,
+    'OData':            _gen_m_odata,
+    'Google Analytics': _gen_m_google_analytics,
+    'Azure Blob':       _gen_m_azure_blob,
+    'Azure Blob Storage': _gen_m_azure_blob,
+    'ADLS':             _gen_m_azure_blob,
+    'Azure Data Lake':  _gen_m_azure_blob,
 }
 
 

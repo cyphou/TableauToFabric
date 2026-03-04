@@ -89,6 +89,13 @@ def convert_worksheet_to_visual(worksheet):
         'padding': worksheet.get('padding', {}),
         'mark_encoding': worksheet.get('mark_encoding', {}),
         'axes': worksheet.get('axes', {}),
+        # Phase 12 pass-through: new extraction fields
+        'totals': worksheet.get('totals', {}),
+        'description': worksheet.get('description', ''),
+        'show_hide_headers': worksheet.get('show_hide_headers', {}),
+        'dynamic_title': worksheet.get('dynamic_title', {}),
+        'analytics_stats': worksheet.get('analytics_stats', []),
+        'small_multiples': worksheet.get('small_multiples', {}),
     }
     
     return powerbi_visual

@@ -53,7 +53,7 @@ _SIMPLE_FUNCTION_MAP = [
     (r'\bCONTAINS\s*\(', 'CONTAINSSTRING('),
     (r'\bASCII\s*\(', 'UNICODE('),
     (r'\bCHAR\s*\(', 'UNICHAR('),
-    (r'\bATTR\s*\(', 'VALUES('),
+    (r'\bATTR\s*\(', 'SELECTEDVALUE('),
 
     # Date functions — DATETRUNC
     (r'\bDATETRUNC\s*\(\s*[\'"]?year[\'"]?\s*,', 'STARTOFYEAR('),
@@ -226,7 +226,7 @@ def convert_tableau_formula_to_dax(formula, column_name='Measure', table_name='T
                                     calc_map=None, param_map=None,
                                     column_table_map=None, measure_names=None,
                                     is_calc_column=False, param_values=None,
-                                    calc_datatype=None):
+                                    calc_datatype=None, compute_using=None):
     """
     Converts a Tableau formula to DAX with context resolution.
     
@@ -241,6 +241,7 @@ def convert_tableau_formula_to_dax(formula, column_name='Measure', table_name='T
         is_calc_column: True if the formula is for a calculated column (row-level)
         param_values: {parameter_caption: literal_value} to inline in calc columns
         calc_datatype: Tableau type ('string', 'real', etc.) for + → & conversion
+        compute_using: list of dimension names for table calc addressing/partitioning
     
     Returns:
         str: Valid DAX formula
@@ -306,10 +307,12 @@ def convert_tableau_formula_to_dax(formula, column_name='Measure', table_name='T
     dax = _convert_lod_expressions(dax, table_name, column_table_map)
     
     # 3e. WINDOW_xxx table calculations
-    dax = _convert_window_functions(dax, table_name)
+    dax = _convert_window_functions(dax, table_name, compute_using=compute_using,
+                                     column_table_map=column_table_map)
     
     # 3f. RANK / RANK_UNIQUE / RANK_DENSE → RANKX
-    dax = _convert_rank_functions(dax, table_name)
+    dax = _convert_rank_functions(dax, table_name, compute_using=compute_using,
+                                   column_table_map=column_table_map)
     
     # 3g. RUNNING_SUM/AVG/COUNT/MAX/MIN → table calculations
     dax = _convert_running_functions(dax, table_name)
@@ -699,7 +702,15 @@ def _convert_datename(dax):
 
 
 def _convert_corr_covar(dax):
-    """Convert CORR/COVAR/COVARP to placeholder (no direct DAX equivalent)."""
+    """Convert CORR/COVAR/COVARP to real DAX expansions.
+
+    CORR(X, Y)  → DIVIDE(
+                     SUMX(T, (X - AVERAGEX(T,X))*(Y - AVERAGEX(T,Y))),
+                     SQRT(SUMX(T,(X-AVERAGEX(T,X))^2)*SUMX(T,(Y-AVERAGEX(T,Y))^2))
+                   )
+    COVAR(X, Y)  → sample covariance with N-1 denominator
+    COVARP(X, Y) → population covariance with N denominator
+    """
     for tab_func, label in [('CORR', 'Pearson correlation'),
                             ('COVARP', 'population covariance'),
                             ('COVAR', 'sample covariance')]:
@@ -717,7 +728,26 @@ def _convert_corr_covar(dax):
                 i += 1
             if depth == 0:
                 inner = dax[start_pos:i - 1]
-                replacement = f'0 /* {tab_func}({inner}): {label} — manual DAX needed */'
+                args = _split_args(inner)
+                if len(args) >= 2:
+                    x_expr = args[0].strip()
+                    y_expr = args[1].strip()
+                    tbl = _infer_iteration_table(inner, '_T')
+                    avg_x = f"AVERAGEX('{tbl}', {x_expr})"
+                    avg_y = f"AVERAGEX('{tbl}', {y_expr})"
+                    dx = f"({x_expr} - {avg_x})"
+                    dy = f"({y_expr} - {avg_y})"
+                    sum_dxdy = f"SUMX('{tbl}', {dx} * {dy})"
+                    sum_dx2 = f"SUMX('{tbl}', {dx} ^ 2)"
+                    sum_dy2 = f"SUMX('{tbl}', {dy} ^ 2)"
+                    if tab_func.upper() == 'CORR':
+                        replacement = f"DIVIDE({sum_dxdy}, SQRT({sum_dx2} * {sum_dy2}))"
+                    elif tab_func.upper() == 'COVARP':
+                        replacement = f"DIVIDE({sum_dxdy}, COUNTROWS('{tbl}'))"
+                    else:  # COVAR (sample)
+                        replacement = f"DIVIDE({sum_dxdy}, COUNTROWS('{tbl}') - 1)"
+                else:
+                    replacement = f'0 /* {tab_func}({inner}): {label} — unable to parse args */'
                 dax = dax[:match.start()] + replacement + dax[i:]
                 match = pattern.search(dax, match.start() + len(replacement))
             else:
@@ -807,7 +837,7 @@ def _convert_proper(dax):
 
 
 def _convert_split(dax):
-    """SPLIT(string, delimiter, token_number) → placeholder (no direct DAX split)."""
+    """SPLIT(string, delimiter, token_number) → PATHITEM(SUBSTITUTE(string, delim, "|"), index)."""
     pattern = re.compile(r'\bSPLIT\s*\(', re.IGNORECASE)
     match = pattern.search(dax)
     while match:
@@ -823,7 +853,18 @@ def _convert_split(dax):
         if depth != 0:
             break
         inner = dax[start_pos:i - 1]
-        replacement = f'/* SPLIT({inner}): no direct DAX equivalent — use PATHITEM with SUBSTITUTE or manual parsing */ BLANK()'
+        args = _split_args(inner)
+        if len(args) >= 3:
+            text_arg = args[0].strip()
+            delim_arg = args[1].strip()
+            index_arg = args[2].strip()
+            replacement = f'PATHITEM(SUBSTITUTE({text_arg}, {delim_arg}, "|"), {index_arg})'
+        elif len(args) == 2:
+            text_arg = args[0].strip()
+            delim_arg = args[1].strip()
+            replacement = f'PATHITEM(SUBSTITUTE({text_arg}, {delim_arg}, "|"), 1)'
+        else:
+            replacement = f'/* SPLIT({inner}): unable to parse args */ BLANK()'
         dax = dax[:match.start()] + replacement + dax[i:]
         match = pattern.search(dax, match.start() + len(replacement))
     return dax

@@ -113,6 +113,29 @@ def convert_dashboard_objects(objects):
                 'extensionUrl': obj.get('extension_url', ''),
                 'name': obj.get('name', 'Extension'),
             }
+        elif obj_type == 'data-story':
+            container['visual'] = {
+                'type': 'smartNarrative',
+                'name': obj.get('name', 'Smart Narrative'),
+            }
+        elif obj_type == 'ask-data':
+            container['visual'] = {
+                'type': 'qnaVisual',
+                'name': obj.get('name', 'Q&A'),
+            }
+
+        # Show/hide container toggle → bookmark visibility
+        show_hide = obj.get('show_hide_button')
+        if show_hide:
+            container['showHideToggle'] = {
+                'enabled': True,
+                'targetWorksheet': show_hide.get('target', ''),
+            }
+
+        # Floating vs tiled → position.isFixed
+        if obj.get('is_floating', False):
+            container['position'] = container.get('position', {})
+            container['position']['isFixed'] = True
         
         visual_containers.append(container)
     

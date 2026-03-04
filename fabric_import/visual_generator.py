@@ -570,9 +570,18 @@ def create_visual_container(worksheet, visual_id=None, x=10, y=10,
     if dimensions or measures:
         query_state = build_query_state(
             pbi_type, dimensions, measures, ctm, ml,
+            worksheet=worksheet,
         )
         if query_state:
+            # Extract drilldown flag before writing queryState
+            drilldown = query_state.pop("_drilldown", False)
             visual_obj["query"] = {"queryState": query_state}
+            if drilldown:
+                visual_obj["drillFilterOtherVisuals"] = True
+                visual_obj.setdefault("objects", {})
+                visual_obj["objects"].setdefault("general", [{}])
+                visual_obj["objects"]["general"][0].setdefault("properties", {})
+                visual_obj["objects"]["general"][0]["properties"]["keepLayerOrder"] = _L("true")
     elif data_fields:
         projections = create_projections(worksheet)
         proto_query = create_prototype_query(worksheet)
@@ -612,6 +621,34 @@ def create_visual_container(worksheet, visual_id=None, x=10, y=10,
         visual_obj["objects"]["dataPoint"] = [{
             "properties": {"showAllDataPoints": _L("true")}
         }]
+
+    # Mark shape encoding → PBI data point marker style
+    mark_enc = worksheet.get('mark_encoding', {})
+    if isinstance(mark_enc, dict):
+        shape_info = mark_enc.get('shape', {})
+        if isinstance(shape_info, dict) and shape_info.get('type'):
+            _SHAPE_MAP = {
+                'circle': "'circle'", 'square': "'square'", 'triangle': "'triangle'",
+                'diamond': "'diamond'", 'cross': "'cross'", 'plus': "'plus'",
+            }
+            pbi_shape = _SHAPE_MAP.get(shape_info['type'].lower(), "'circle'")
+            visual_obj.setdefault("objects", {})
+            visual_obj["objects"].setdefault("dataPoint", [{}])
+            visual_obj["objects"]["dataPoint"][0].setdefault("properties", {})
+            visual_obj["objects"]["dataPoint"][0]["properties"]["markerShape"] = _L(pbi_shape)
+
+    # Play axis → slicer with animation
+    pages_shelf = worksheet.get('pages_shelf', {})
+    if isinstance(pages_shelf, dict) and pages_shelf.get('field'):
+        play_field = pages_shelf['field']
+        play_table = ctm.get(play_field, '')
+        if not play_table and ctm:
+            play_table = next(iter(ctm.values()), 'Table')
+        if play_table and pbi_type != 'slicer':
+            visual_obj.setdefault("objects", {})
+            visual_obj["objects"].setdefault("play", [{}])
+            visual_obj["objects"]["play"][0].setdefault("properties", {})
+            visual_obj["objects"]["play"][0]["properties"]["show"] = _L("true")
 
     viz_filters = worksheet.get('filters', [])
     if viz_filters:
@@ -809,8 +846,17 @@ def create_prototype_query(worksheet):
 
 
 def build_query_state(pbi_type, dimensions, measures, col_table_map,
-                      measure_lookup):
-    """Build PBIR queryState with role-based projections."""
+                      measure_lookup, worksheet=None):
+    """Build PBIR queryState with role-based projections.
+    
+    Args:
+        pbi_type: PBI visual type string
+        dimensions: List of dimension field dicts
+        measures: List of measure field dicts
+        col_table_map: {field_name: table_name} mapping
+        measure_lookup: {measure_label: (table, dax_expr)} from semantic model
+        worksheet: Optional worksheet dict for extra fields (color, tooltip, small multiples)
+    """
     import re
 
     roles = VISUAL_DATA_ROLES.get(pbi_type)
@@ -818,6 +864,23 @@ def build_query_state(pbi_type, dimensions, measures, col_table_map,
         return None
 
     dim_roles, meas_roles = roles
+    ws = worksheet or {}
+
+    def _make_column_proj(field_name, table_name, display_name=None):
+        proj = {
+            "field": {
+                "Column": {
+                    "Expression": {"SourceRef": {"Entity": table_name}},
+                    "Property": field_name,
+                },
+            },
+            "queryRef": f"{table_name}.{field_name}",
+            "nativeQueryRef": field_name,
+            "active": True,
+        }
+        if display_name:
+            proj["displayName"] = display_name
+        return proj
 
     dim_projections = []
     for dim in (dimensions or []):
@@ -916,6 +979,53 @@ def build_query_state(pbi_type, dimensions, measures, col_table_map,
             query_state[role_name] = {"projections": [meas_projections[i]]}
         elif meas_projections:
             query_state[role_name] = {"projections": [meas_projections[0]]}
+
+    # ── Small Multiples binding ─
+    sm_field = ws.get('small_multiples', ws.get('pages_shelf', {}).get('field'))
+    if sm_field and isinstance(sm_field, str):
+        sm_table = col_table_map.get(sm_field, '')
+        if not sm_table and col_table_map:
+            sm_table = next(iter(col_table_map.values()), 'Table')
+        if sm_table:
+            query_state["SmallMultiple"] = {
+                "projections": [_make_column_proj(sm_field, sm_table)]
+            }
+
+    # ── Legend / Series binding from color-by field ─
+    color_info = ws.get('mark_encoding', {})
+    if isinstance(color_info, dict):
+        color_field = color_info.get('color', {}).get('field', '') if isinstance(color_info.get('color'), dict) else ''
+        if color_field and "Series" not in query_state and "Legend" not in query_state:
+            c_table = col_table_map.get(color_field, '')
+            if not c_table and col_table_map:
+                c_table = next(iter(col_table_map.values()), 'Table')
+            if c_table:
+                role_name = "Series" if "Series" in (dim_roles + meas_roles) else "Legend"
+                if role_name not in query_state:
+                    query_state[role_name] = {
+                        "projections": [_make_column_proj(color_field, c_table)]
+                    }
+
+    # ── Tooltip fields binding ─
+    tooltips = ws.get('tooltips', [])
+    if tooltips and isinstance(tooltips, list):
+        tooltip_projs = []
+        for tip in tooltips:
+            if isinstance(tip, dict):
+                t_field = tip.get('field', tip.get('name', ''))
+                if t_field:
+                    t_table = col_table_map.get(t_field, '')
+                    if not t_table and col_table_map:
+                        t_table = next(iter(col_table_map.values()), 'Table')
+                    if t_table:
+                        tooltip_projs.append(_make_column_proj(t_field, t_table))
+        if tooltip_projs:
+            query_state["Tooltips"] = {"projections": tooltip_projs}
+
+    # ── Drilldown flag for hierarchy visuals ─
+    hierarchies = ws.get('hierarchies', [])
+    if hierarchies and "Category" in query_state:
+        query_state["_drilldown"] = True
 
     return query_state if query_state else None
 

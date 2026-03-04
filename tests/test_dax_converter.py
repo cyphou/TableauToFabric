@@ -158,7 +158,7 @@ class TestSimpleFunctionConversions(unittest.TestCase):
 
     def test_attr_to_values(self):
         result = convert_tableau_formula_to_dax('ATTR([Category])')
-        self.assertIn('VALUES', result)
+        self.assertIn('SELECTEDVALUE', result)
 
     def test_trim(self):
         result = convert_tableau_formula_to_dax('TRIM([Name])')
@@ -457,8 +457,8 @@ class TestDedicatedConverters(unittest.TestCase):
 
     def test_split_placeholder(self):
         result = _convert_split('SPLIT("a-b", "-", 1)')
-        self.assertIn('SPLIT', result)
-        self.assertIn('BLANK()', result)
+        self.assertIn('PATHITEM', result)
+        self.assertIn('SUBSTITUTE', result)
 
     def test_atan2(self):
         result = _convert_atan2('ATAN2(3, 4)')

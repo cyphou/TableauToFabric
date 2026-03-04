@@ -125,6 +125,11 @@ class TableauExtractor:
                 'map_options': self.extract_map_options(worksheet),
                 'clustering': self.extract_clustering(worksheet),
                 'dual_axis': self.extract_dual_axis_sync(worksheet),
+                'totals': self.extract_totals_subtotals(worksheet),
+                'description': self.extract_worksheet_description(worksheet),
+                'show_hide_headers': self.extract_show_hide_headers(worksheet),
+                'dynamic_title': self.extract_dynamic_title(worksheet),
+                'analytics_stats': self.extract_analytics_pane_stats(worksheet),
             }
             # Detect viz-in-tooltip worksheet reference
             tooltip_data = ws_data.get('tooltips', [])
@@ -156,6 +161,8 @@ class TableauExtractor:
                 'theme': self.extract_theme(dashboard),
                 'device_layouts': self.extract_device_layouts(dashboard),
                 'containers': self.extract_dashboard_containers(dashboard),
+                'show_hide_containers': self.extract_show_hide_containers(dashboard),
+                'floating_tiled': self.extract_floating_tiled(dashboard),
             }
             dashboards.append(db_data)
         
@@ -1901,6 +1908,153 @@ class TableauExtractor:
         self.workbook_data['hyper_files'] = hyper_files
         if hyper_files:
             print(f"  ✓ {len(hyper_files)} .hyper extract files detected")
+
+    def extract_totals_subtotals(self, worksheet):
+        """Extracts grand-total and sub-total settings from a worksheet."""
+        totals = {'grand_totals': [], 'subtotals': []}
+        for gt in worksheet.findall('.//grandtotals/grand-total'):
+            totals['grand_totals'].append({
+                'type': gt.get('type', ''),
+                'position': gt.get('position', ''),
+                'enabled': gt.get('enabled', 'true') == 'true',
+            })
+        for st in worksheet.findall('.//subtotals/subtotal'):
+            totals['subtotals'].append({
+                'type': st.get('type', ''),
+                'position': st.get('position', ''),
+                'enabled': st.get('enabled', 'true') == 'true',
+            })
+        # Also check <rows-total> and <cols-total> shorthand
+        for tag in ['rows-total', 'cols-total']:
+            el = worksheet.find(f'.//{tag}')
+            if el is not None:
+                totals['grand_totals'].append({
+                    'type': tag.replace('-total', ''),
+                    'position': el.get('position', 'bottom'),
+                    'enabled': el.get('enabled', 'true') == 'true',
+                })
+        return totals
+
+    def extract_worksheet_description(self, worksheet):
+        """Extracts the description/caption text of a worksheet."""
+        desc = worksheet.get('description', '')
+        if not desc:
+            desc_el = worksheet.find('.//description')
+            if desc_el is not None:
+                desc = desc_el.text or ''
+        return desc
+
+    def extract_show_hide_headers(self, worksheet):
+        """Extracts show/hide header settings for rows and columns."""
+        headers = {'rows': True, 'columns': True}
+        style = worksheet.find('.//style')
+        if style is not None:
+            show_row = style.get('show-row-headers', 'true')
+            show_col = style.get('show-col-headers', 'true')
+            headers['rows'] = show_row == 'true'
+            headers['columns'] = show_col == 'true'
+        # Alternative: table/view element
+        table = worksheet.find('.//table')
+        if table is not None:
+            if table.get('show-header') == 'false':
+                headers['rows'] = False
+                headers['columns'] = False
+        return headers
+
+    def extract_dynamic_title(self, worksheet):
+        """Extracts dynamic title info — detects field references in title text."""
+        title_el = worksheet.find('.//title')
+        if title_el is None:
+            return None
+        runs = title_el.findall('.//run')
+        parts = []
+        is_dynamic = False
+        for run in runs:
+            text = run.text or ''
+            # Check for field reference
+            field_ref = run.find('.//field')
+            if field_ref is not None:
+                ref_name = field_ref.get('name', field_ref.text or '')
+                parts.append({'type': 'field', 'value': ref_name})
+                is_dynamic = True
+            else:
+                # Check for <pageField> or parameter reference in text
+                if '<' in text or '[' in text:
+                    is_dynamic = True
+                parts.append({'type': 'text', 'value': text})
+        if not parts:
+            # Fallback: read raw text
+            title_text = ''.join(title_el.itertext())
+            if title_text:
+                parts.append({'type': 'text', 'value': title_text})
+        return {'is_dynamic': is_dynamic, 'parts': parts} if parts else None
+
+    def extract_show_hide_containers(self, dashboard):
+        """Extracts show/hide button containers from a dashboard."""
+        containers = []
+        for zone in dashboard.findall('.//zone'):
+            btn = zone.find('.//show-hide-button')
+            if btn is not None:
+                containers.append({
+                    'zone_name': zone.get('name', ''),
+                    'zone_id': zone.get('id', ''),
+                    'default_state': btn.get('default-state', 'show'),
+                    'button_style': btn.get('style', ''),
+                })
+        return containers
+
+    def extract_floating_tiled(self, dashboard):
+        """Extracts floating vs tiled layout info for each dashboard zone."""
+        layout_info = []
+        for zone in dashboard.findall('.//zone'):
+            is_floating = zone.get('is-floating', 'false') == 'true'
+            layout_info.append({
+                'zone_name': zone.get('name', ''),
+                'zone_id': zone.get('id', ''),
+                'is_floating': is_floating,
+                'x': int(zone.get('x', 0)),
+                'y': int(zone.get('y', 0)),
+                'w': int(zone.get('w', 0)),
+                'h': int(zone.get('h', 0)),
+            })
+        return layout_info
+
+    def extract_analytics_pane_stats(self, worksheet):
+        """Extracts analytics pane statistics (mean, median, CI, distribution bands)."""
+        stats = []
+        # Analytics pane objects appear as <stat-line>, <distribution-band>, etc.
+        for stat_line in worksheet.findall('.//stat-line'):
+            stats.append({
+                'type': 'stat_line',
+                'stat': stat_line.get('stat', ''),
+                'scope': stat_line.get('scope', 'per-pane'),
+                'value': stat_line.get('value', ''),
+            })
+        for band in worksheet.findall('.//distribution-band'):
+            stats.append({
+                'type': 'distribution_band',
+                'computation': band.get('computation', ''),
+                'value_from': band.get('value-from', ''),
+                'value_to': band.get('value-to', ''),
+                'scope': band.get('scope', 'per-pane'),
+            })
+        for ci in worksheet.findall('.//confidence-interval'):
+            stats.append({
+                'type': 'confidence_interval',
+                'level': ci.get('level', '95'),
+                'scope': ci.get('scope', 'per-pane'),
+            })
+        # Average/median/constant lines from <reference-line>
+        for ref in worksheet.findall('.//reference-line'):
+            comp = ref.get('computation', '')
+            if comp in ('mean', 'median', 'mode', 'constant', 'percentile', 'quantile'):
+                stats.append({
+                    'type': 'stat_reference',
+                    'computation': comp,
+                    'value': ref.get('value', ''),
+                    'scope': ref.get('scope', 'per-pane'),
+                })
+        return stats
 
     def save_extractions(self):
         """Saves extractions to JSON"""

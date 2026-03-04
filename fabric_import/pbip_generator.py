@@ -318,7 +318,9 @@ class FabricPBIPGenerator:
                 break
 
         custom_theme = tmdl_generator.generate_theme_json(theme_data)
-        report_json = self._build_report_json(theme_data)
+        # Collect workbook-scope filters for report-level filter config
+        wb_filters = converted_objects.get('filters', [])
+        report_json = self._build_report_json(theme_data, report_filters=wb_filters)
         with open(os.path.join(def_dir, 'report.json'), 'w', encoding='utf-8') as f:
             json.dump(report_json, f, indent=2)
 
@@ -587,6 +589,42 @@ class FabricPBIPGenerator:
                             )
                     print(f"  \U0001f4f1 Mobile page '{mobile_display}': {len(zones)} zones")
 
+        # ── Bookmarks from stories ─
+        bookmarks = converted_objects.get('bookmarks', [])
+        if bookmarks:
+            bm_dir = os.path.join(def_dir, 'bookmarks')
+            os.makedirs(bm_dir, exist_ok=True)
+            bm_list = []
+            for bm_idx, bm in enumerate(bookmarks):
+                bm_id = uuid.uuid4().hex[:20]
+                bm_name = bm.get('name', f'Bookmark {bm_idx + 1}')
+                bm_list.append({"name": bm_id, "displayName": bm_name})
+                bm_json = {
+                    "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/bookmark/1.0.0/schema.json",
+                    "name": bm_id,
+                    "displayName": bm_name,
+                    "explorationState": {
+                        "version": "1.0",
+                        "activeSection": page_names[0] if page_names else "",
+                        "filters": bm.get('filters', {}),
+                    },
+                    "options": {
+                        "targetVisualType": 0,
+                        "applyFilters": True,
+                    }
+                }
+                bm_file = os.path.join(bm_dir, f'{bm_id}.json')
+                with open(bm_file, 'w', encoding='utf-8') as f:
+                    json.dump(bm_json, f, indent=2)
+            # bookmarks.json index
+            bm_meta = {
+                "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/bookmarksMetadata/1.0.0/schema.json",
+                "bookmarkOrder": [b["name"] for b in bm_list],
+            }
+            with open(os.path.join(bm_dir, 'bookmarks.json'), 'w', encoding='utf-8') as f:
+                json.dump(bm_meta, f, indent=2)
+            print(f"  \U0001f516 {len(bm_list)} bookmarks generated from stories")
+
         # pages.json
         pages_meta = {
             "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/pagesMetadata/1.0.0/schema.json",
@@ -614,7 +652,7 @@ class FabricPBIPGenerator:
     #  REPORT JSON
     # â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
-    def _build_report_json(self, theme_data):
+    def _build_report_json(self, theme_data, report_filters=None):
         """Build report.json content."""
         report_json = {
             "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/report/3.1.0/schema.json",
@@ -640,6 +678,11 @@ class FabricPBIPGenerator:
                 "useEnhancedTooltips": True
             }
         }
+        # Report-level filters from workbook-scope filters
+        if report_filters:
+            filter_defs = self._create_visual_filters(report_filters)
+            if filter_defs:
+                report_json["filterConfig"] = {"filters": filter_defs}
         if theme_data:
             report_json["resourcePackages"].append({
                 "name": "MigrationTheme", "type": "CustomTheme",
@@ -1311,6 +1354,69 @@ class FabricPBIPGenerator:
             if pad_props:
                 objects["visualContainerPadding"] = [{"properties": pad_props}]
 
+        # ── Row banding / alternating colors for table & matrix ─
+        if visual_type in ('tableEx', 'matrix', 'pivotTable'):
+            banding_color = formatting.get('row_banding_color', '')
+            if not banding_color:
+                banding_color = formatting.get('banded_row_color', '')
+            if banding_color:
+                objects.setdefault("values", [{"properties": {}}])
+                objects["values"][0]["properties"]["backColor"] = {
+                    "solid": {"color": {"expr": {"Literal": {"Value": f"'{banding_color}'"}}}}
+                }
+            else:
+                # Default light-grey banding for tables
+                objects.setdefault("values", [{"properties": {}}])
+                objects["values"][0]["properties"]["backColor"] = {
+                    "solid": {"color": {"expr": {"Literal": {"Value": "'#F2F2F2'"}}}}
+                }
+            # Totals from extraction
+            totals = ws_data.get('totals', {})
+            if totals and (totals.get('grand_totals') or totals.get('subtotals')):
+                objects.setdefault("total", [{"properties": {}}])
+                objects["total"][0]["properties"]["totals"] = {"expr": {"Literal": {"Value": "true"}}}
+                if totals.get('subtotals'):
+                    objects.setdefault("subTotals", [{"properties": {}}])
+                    objects["subTotals"][0]["properties"]["rowSubtotals"] = {"expr": {"Literal": {"Value": "true"}}}
+
+        # ── Reference bands from analytics_stats ──────────────
+        analytics_stats = ws_data.get('analytics_stats', [])
+        for stat in analytics_stats:
+            if stat.get('type') == 'distribution_band':
+                band_from = stat.get('value_from', '')
+                band_to = stat.get('value_to', '')
+                if band_from and band_to:
+                    if "valueAxis" not in objects:
+                        objects["valueAxis"] = [{"properties": {"show": {"expr": {"Literal": {"Value": "true"}}}}}]
+                    objects["valueAxis"][0]["properties"].setdefault("referenceLine", [])
+                    objects["valueAxis"][0]["properties"]["referenceLine"].append({
+                        "type": "Band",
+                        "lowerBound": str(band_from),
+                        "upperBound": str(band_to),
+                        "transparency": {"expr": {"Literal": {"Value": "50L"}}},
+                        "show": {"expr": {"Literal": {"Value": "true"}}},
+                    })
+            elif stat.get('type') in ('stat_line', 'stat_reference'):
+                comp = stat.get('computation', stat.get('stat', ''))
+                _STAT_MAP = {'mean': 'Average', 'median': 'Median', 'constant': 'Constant',
+                             'percentile': 'Percentile', 'mode': 'Average'}
+                stat_type = _STAT_MAP.get(comp.lower(), 'Average')
+                if "valueAxis" not in objects:
+                    objects["valueAxis"] = [{"properties": {"show": {"expr": {"Literal": {"Value": "true"}}}}}]
+                objects["valueAxis"][0]["properties"].setdefault("referenceLine", [])
+                objects["valueAxis"][0]["properties"]["referenceLine"].append({
+                    "type": stat_type,
+                    "show": {"expr": {"Literal": {"Value": "true"}}},
+                    "style": {"expr": {"Literal": {"Value": "'dashed'"}}},
+                })
+
+        # ── Number format mapping ─────────────────────────────
+        fmt_info = formatting.get('number_format', formatting.get('format_string', ''))
+        if fmt_info:
+            pbi_fmt = self._convert_number_format(fmt_info)
+            if pbi_fmt and "labels" in objects:
+                objects["labels"][0]["properties"]["labelDisplayUnits"] = {"expr": {"Literal": {"Value": f"'{pbi_fmt}'"}}}
+
         return objects
 
     # â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
@@ -1435,6 +1541,33 @@ class FabricPBIPGenerator:
             if ws.get('name') == name:
                 return ws
         return None
+
+    @staticmethod
+    def _convert_number_format(tableau_format):
+        """Convert Tableau number format string to PBI display units / format.
+        
+        Common Tableau patterns:
+            ###,###    → #,0
+            $#,#00.00  → $#,0.00
+            0.0%       → 0.0%
+            0.00       → 0.00
+        """
+        if not tableau_format or not isinstance(tableau_format, str):
+            return ''
+        fmt = tableau_format.strip()
+        # Already a PBI-compatible format
+        if fmt in ('0', '0.0', '0.00', '#,0', '#,0.0', '#,0.00', '0%', '0.0%', '0.00%'):
+            return fmt
+        # Currency
+        if '$' in fmt:
+            return fmt.replace('#,#', '#,0').replace('##', '#0')
+        # Percentage
+        if '%' in fmt:
+            return fmt
+        # Thousands separator
+        if ',' in fmt:
+            return fmt.replace('#,#', '#,0')
+        return fmt
 
     def _count_report_artifacts(self, project_dir, report_name):
         """Count pages and visuals from the generated report."""

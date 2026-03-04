@@ -386,6 +386,14 @@ def _build_semantic_model(datasources, report_name="Report", extra_objects=None,
         "tables": all_table_names
     }]
 
+    # Phase 13: Calculation groups from parameter actions
+    _create_calculation_groups(model, extra_objects.get('parameters', []),
+                                main_table_name)
+
+    # Phase 14: Field parameters from dynamic dimension/measure swaps
+    _create_field_parameters(model, extra_objects.get('parameters', []),
+                              main_table_name, column_table_map)
+
     return model
 
 
@@ -1350,6 +1358,150 @@ def _unique_role_name(base_name, existing_names):
     while f"{clean}_{counter}" in existing_names:
         counter += 1
     return f"{clean}_{counter}"
+
+
+def _create_calculation_groups(model, parameters, main_table_name):
+    """Create calculation group tables from parameter actions that swap measures.
+
+    A Tableau parameter that selects between different measures maps to
+    a PBI calculation group with one calculation item per parameter value.
+    """
+    if not parameters:
+        return
+
+    existing_tables = {t.get('name', '') for t in model['model']['tables']}
+
+    for param in parameters:
+        caption = param.get('caption', '')
+        domain_type = param.get('domain_type', '')
+        datatype = param.get('datatype', 'string')
+        allowable_values = param.get('allowable_values', [])
+
+        # Only string list parameters are candidates for calc groups
+        if datatype != 'string' or domain_type != 'list' or not allowable_values:
+            continue
+
+        # Check if values look like measure names (heuristic: no spaces, or matches known measure names)
+        measure_names = set()
+        for table in model['model']['tables']:
+            for m in table.get('measures', []):
+                measure_names.add(m.get('name', ''))
+
+        matching_values = [v for v in allowable_values
+                           if v.get('type') != 'range' and v.get('value', '') in measure_names]
+        if len(matching_values) < 2:
+            continue
+
+        cg_name = f"{caption} CalcGroup"
+        if cg_name in existing_tables:
+            continue
+
+        calc_items = []
+        for val in matching_values:
+            measure_ref = val.get('value', '')
+            calc_items.append({
+                "name": measure_ref,
+                "expression": f"CALCULATE(SELECTEDMEASURE())",
+                "ordinal": len(calc_items),
+            })
+
+        cg_table = {
+            "name": cg_name,
+            "calculationGroup": {
+                "columns": [{"name": caption, "dataType": "string", "sourceColumn": caption}],
+                "calculationItems": calc_items,
+            },
+            "columns": [{"name": caption, "dataType": "string", "sourceColumn": caption}],
+            "partitions": [{
+                "name": cg_name,
+                "mode": "import",
+                "source": {"type": "calculationGroup"}
+            }],
+            "annotations": [{"name": "displayFolder", "value": "Calculation Groups"}],
+        }
+        model['model']['tables'].append(cg_table)
+        existing_tables.add(cg_name)
+
+
+def _create_field_parameters(model, parameters, main_table_name, column_table_map):
+    """Create field parameter tables from Tableau parameters that swap dimensions/measures.
+
+    Field parameters in PBI allow users to dynamically switch which field
+    appears on an axis or in a slicer. This maps to Tableau parameter actions
+    that switch between columns.
+    """
+    if not parameters:
+        return
+
+    existing_tables = {t.get('name', '') for t in model['model']['tables']}
+
+    # Collect all known columns
+    all_columns = set()
+    for table in model['model']['tables']:
+        for col in table.get('columns', []):
+            all_columns.add(col.get('name', ''))
+
+    for param in parameters:
+        caption = param.get('caption', '')
+        domain_type = param.get('domain_type', '')
+        datatype = param.get('datatype', 'string')
+        allowable_values = param.get('allowable_values', [])
+
+        # Only string list parameters with column-like values
+        if datatype != 'string' or domain_type != 'list' or not allowable_values:
+            continue
+
+        matching_cols = [v for v in allowable_values
+                         if v.get('type') != 'range' and v.get('value', '') in all_columns]
+
+        # Need at least 2 matching column names and NOT all measures (those go to calc groups)
+        measure_names = set()
+        for table in model['model']['tables']:
+            for m in table.get('measures', []):
+                measure_names.add(m.get('name', ''))
+
+        if len(matching_cols) < 2:
+            continue
+        # Skip if already handled as calc group (all values are measures)
+        if all(v.get('value', '') in measure_names for v in matching_cols):
+            continue
+
+        fp_name = f"{caption} FieldParam"
+        if fp_name in existing_tables:
+            continue
+
+        # Build NAMEOF references for field parameter DAX
+        rows = []
+        for idx, val in enumerate(matching_cols):
+            col_name = val.get('value', '')
+            col_table = column_table_map.get(col_name, main_table_name)
+            rows.append(f'(NAMEOF(\'{col_table}\'[{col_name}]), {idx}, "{col_name}")')
+
+        fp_expr = "{\n" + ",\n".join(rows) + "\n}"
+
+        fp_table = {
+            "name": fp_name,
+            "columns": [
+                {"name": caption, "dataType": "string", "sourceColumn": caption,
+                 "annotations": [{"name": "displayFolder", "value": "Field Parameters"}]},
+                {"name": f"{caption}_Order", "dataType": "int64",
+                 "sourceColumn": f"{caption}_Order", "isHidden": True},
+                {"name": f"{caption}_Fields", "dataType": "string",
+                 "sourceColumn": f"{caption}_Fields", "isHidden": True},
+            ],
+            "partitions": [{
+                "name": fp_name,
+                "mode": "import",
+                "source": {"type": "calculated", "expression": fp_expr}
+            }],
+            "annotations": [
+                {"name": "displayFolder", "value": "Field Parameters"},
+                {"name": "PBI_NavigationStepName", "value": "Navigation"},
+                {"name": "ParameterMetadata", "value": json.dumps({"version": 3, "kind": 2})},
+            ],
+        }
+        model['model']['tables'].append(fp_table)
+        existing_tables.add(fp_name)
 
 
 def _add_date_table(model):

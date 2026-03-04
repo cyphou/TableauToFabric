@@ -1,6 +1,6 @@
 # Tableau -> Fabric Migration Tool: Feature Gap Analysis
 
-> Generated: 2026-03-04 | Updated: 2026-03-04
+> Generated: 2026-03-04 | Updated: 2026-03-05 (Phase 12)
 > Scope: All Tableau Desktop features vs. current TableauToFabric migration tool coverage
 
 ---
@@ -17,6 +17,22 @@
 > The 6 N/A features are Tableau Server-side features (Subscriptions/Alerts, Comments,
 > Performance Recording) and features requiring live Server API connectivity -- they have
 > no `.twb`/`.twbx` representation and are outside the scope of a file-based migration tool.
+
+---
+
+## Phase 12 Additions (43 previously-missing gaps now implemented)
+
+| Area | What was added |
+|------|---------------|
+| **Extraction** | Totals/subtotals, worksheet description, show/hide headers, dynamic titles, show/hide containers, floating/tiled detection, analytics pane stats |
+| **DAX converter** | ATTR→SELECTEDVALUE, SPLIT→PATHITEM(SUBSTITUTE), CORR/COVAR full statistical expansion, compute_using parameter wiring |
+| **Visual generator** | Small multiples binding, legend/series role, tooltip fields, drilldown flag, mark shape encoding, play axis |
+| **PBIR generator** | Report-level filters, bookmarks from stories, row banding for tables, totals/subtotals rendering, reference bands from analytics stats, number format mapping |
+| **TMDL generator** | Calculation groups from measure-switch parameters, field parameters from column-switch parameters |
+| **Converters** | Pass-through of totals, description, show_hide_headers, dynamic_title, analytics_stats, small_multiples |
+| **Dashboard converter** | `data-story`→Smart Narrative, `ask-data`→Q&A visual, show/hide toggle bookmarks, floating→isFixed |
+| **Prep parser** | Script steps (Python/R warning), prediction steps (ML warning), cross-join handler, published DS input, ExtractValues, custom calculation |
+| **Connectors** | OData (`OData.Feed`), Google Analytics (`GoogleAnalytics.Accounts`), Azure Blob/ADLS (`AzureStorage.Blobs`/`DataLake`) |
 
 ---
 
