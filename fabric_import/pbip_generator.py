@@ -476,6 +476,102 @@ class FabricPBIPGenerator:
             )
             print(f"  \U0001f4a1 Tooltip page '{tip_display}'")
 
+        # Drill-through pages from "Go to Sheet" actions
+        actions = converted_objects.get('actions', [])
+        drillthrough_targets = set()
+        for action in actions:
+            if action.get('type') in ('filter', 'go-to-sheet', 'highlight'):
+                target_sheet = action.get('target_sheet', action.get('target', ''))
+                source_field = action.get('source_field', action.get('field', ''))
+                if target_sheet and target_sheet not in drillthrough_targets:
+                    drillthrough_targets.add(target_sheet)
+                    dt_name = f"DrillThrough_{uuid.uuid4().hex[:12]}"
+                    dt_display = f"Drillthrough - {target_sheet}"
+                    page_names.append(dt_name)
+                    dt_dir = os.path.join(pages_dir, dt_name)
+                    os.makedirs(dt_dir, exist_ok=True)
+                    dt_page = {
+                        "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/page/2.0.0/schema.json",
+                        "name": dt_name,
+                        "displayName": dt_display,
+                        "displayOption": "FitToPage",
+                        "height": 720,
+                        "width": 1280,
+                        "pageType": "Drillthrough"
+                    }
+                    # Add drillthrough filter if we have a source field
+                    if source_field:
+                        clean_field = source_field.replace('[', '').replace(']', '')
+                        entity, prop = self._resolve_field_entity(clean_field)
+                        dt_page["drillthroughFilters"] = [{
+                            "name": f"DT_{uuid.uuid4().hex[:8]}",
+                            "type": "Categorical",
+                            "field": {
+                                "Column": {
+                                    "Expression": {"SourceRef": {"Entity": entity}},
+                                    "Property": prop
+                                }
+                            }
+                        }]
+                    with open(os.path.join(dt_dir, 'page.json'), 'w', encoding='utf-8') as f:
+                        json.dump(dt_page, f, indent=2)
+                    # Place target worksheet visuals on drillthrough page
+                    dt_vis_dir = os.path.join(dt_dir, 'visuals')
+                    os.makedirs(dt_vis_dir, exist_ok=True)
+                    dt_ws = self._find_worksheet(worksheets, target_sheet)
+                    if dt_ws:
+                        self._create_visual_worksheet(
+                            dt_vis_dir, dt_ws,
+                            {'type': 'worksheetReference', 'worksheetName': target_sheet,
+                             'position': {'x': 0, 'y': 0, 'w': 1280, 'h': 720}},
+                            1.0, 1.0, 0, worksheets, converted_objects
+                        )
+                    print(f"  \U0001f504 Drillthrough page '{dt_display}'")
+
+        # Mobile layout from device layouts
+        for db in dashboards:
+            device_layouts = db.get('device_layouts', [])
+            for dl in device_layouts:
+                device_type = dl.get('device_type', 'phone').lower()
+                if device_type in ('phone', 'tablet'):
+                    mobile_name = f"Mobile_{device_type}_{uuid.uuid4().hex[:8]}"
+                    mobile_display = f"{db.get('name', 'Dashboard')} ({device_type.capitalize()})"
+                    page_names.append(mobile_name)
+                    mobile_dir = os.path.join(pages_dir, mobile_name)
+                    os.makedirs(mobile_dir, exist_ok=True)
+                    m_width = dl.get('width', 375 if device_type == 'phone' else 768)
+                    m_height = dl.get('height', 667 if device_type == 'phone' else 1024)
+                    mobile_page = {
+                        "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/page/2.0.0/schema.json",
+                        "name": mobile_name,
+                        "displayName": mobile_display,
+                        "displayOption": "FitToPage",
+                        "height": m_height,
+                        "width": m_width,
+                        "mobileState": {
+                            "page": {"visualContainers": []}
+                        }
+                    }
+                    with open(os.path.join(mobile_dir, 'page.json'), 'w', encoding='utf-8') as f:
+                        json.dump(mobile_page, f, indent=2)
+                    # Create visuals for mobile zones
+                    m_vis_dir = os.path.join(mobile_dir, 'visuals')
+                    os.makedirs(m_vis_dir, exist_ok=True)
+                    zones = dl.get('zones', [])
+                    for z_idx, zone in enumerate(zones):
+                        zone_ws_name = zone.get('worksheet', '')
+                        if zone_ws_name:
+                            z_ws = self._find_worksheet(worksheets, zone_ws_name)
+                            self._create_visual_worksheet(
+                                m_vis_dir, z_ws,
+                                {'type': 'worksheetReference', 'worksheetName': zone_ws_name,
+                                 'position': zone},
+                                m_width / max(zone.get('w', m_width), 1),
+                                m_height / max(zone.get('h', m_height), 1),
+                                z_idx, worksheets, converted_objects
+                            )
+                    print(f"  \U0001f4f1 Mobile page '{mobile_display}': {len(zones)} zones")
+
         # pages.json
         pages_meta = {
             "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/pagesMetadata/1.0.0/schema.json",
@@ -1024,6 +1120,88 @@ class FabricPBIPGenerator:
                 if "valueAxis" not in objects:
                     objects["valueAxis"] = [{"properties": {"show": {"expr": {"Literal": {"Value": "true"}}}}}]
                 objects["valueAxis"][0]["properties"]["referenceLine"] = y_ref_lines
+
+        # ── Trend lines (analytics pane) ──────────────────────
+        trend_lines = ws_data.get('trend_lines', [])
+        if trend_lines:
+            trend_objs = []
+            for tl in trend_lines:
+                trend_type = tl.get('type', 'linear').capitalize()
+                if trend_type not in ('Linear', 'Exponential', 'Logarithmic', 'Polynomial', 'Power', 'MovingAverage'):
+                    trend_type = 'Linear'
+                trend_obj = {
+                    "show": {"expr": {"Literal": {"Value": "true"}}},
+                    "lineColor": {"solid": {"color": {"expr": {"Literal": {"Value": f"'{tl.get('color', '#666666')}'"}}}}}
+                }
+                if tl.get('show_equation'):
+                    trend_obj["displayEquation"] = {"expr": {"Literal": {"Value": "true"}}}
+                if tl.get('show_r_squared'):
+                    trend_obj["displayRSquared"] = {"expr": {"Literal": {"Value": "true"}}}
+                trend_objs.append({"properties": trend_obj})
+            objects["trend"] = trend_objs
+
+        # ── Annotations → visual annotations (text boxes near visual) ──
+        annotations = ws_data.get('annotations', [])
+        if annotations:
+            anno_texts = [a.get('text', '') for a in annotations if a.get('text')]
+            if anno_texts:
+                subtitle_text = "; ".join(anno_texts[:3])
+                objects.setdefault("subTitle", [{"properties": {}}])
+                objects["subTitle"][0]["properties"]["show"] = {"expr": {"Literal": {"Value": "true"}}}
+                objects["subTitle"][0]["properties"]["text"] = {"expr": {"Literal": {"Value": json.dumps(subtitle_text)}}}
+
+        # ── Enhanced axis config from extracted axes ──────────
+        axes_detail = ws_data.get('axes', {})
+        if axes_detail:
+            for axis_key, axis_obj_key in [('x', 'categoryAxis'), ('y', 'valueAxis')]:
+                ax = axes_detail.get(axis_key, {})
+                if not ax:
+                    continue
+                props = objects.get(axis_obj_key, [{"properties": {}}])[0].get("properties", {})
+                props["show"] = {"expr": {"Literal": {"Value": "true"}}}
+                if ax.get('title'):
+                    props["showAxisTitle"] = {"expr": {"Literal": {"Value": "true"}}}
+                    props["title"] = {"expr": {"Literal": {"Value": f"'{ax['title']}'"}}}
+                if ax.get('show_title') is False:
+                    props["showAxisTitle"] = {"expr": {"Literal": {"Value": "false"}}}
+                if ax.get('show_label') is False:
+                    props["show"] = {"expr": {"Literal": {"Value": "false"}}}
+                if ax.get('label_rotation'):
+                    try:
+                        rot = int(float(ax['label_rotation']))
+                        if rot != 0:
+                            props["labelAngle"] = {"expr": {"Literal": {"Value": f"{rot}L"}}}
+                    except (ValueError, TypeError):
+                        pass
+                if ax.get('format'):
+                    props["labelDisplayUnits"] = {"expr": {"Literal": {"Value": "'0L'"}}}
+                objects[axis_obj_key] = [{"properties": props}]
+
+        # ── Legend position from mark encoding ────────────────
+        legend_pos = mark_encoding.get('color', {}).get('legend_position', '')
+        if legend_pos and "legend" in objects:
+            pos_map = {'top': 'Top', 'bottom': 'Bottom', 'left': 'Left',
+                       'right': 'Right', 'top-left': 'TopLeft', 'top-right': 'TopRight',
+                       'bottom-left': 'BottomLeft', 'bottom-right': 'BottomRight'}
+            pbi_pos = pos_map.get(legend_pos.lower(), 'Right')
+            objects["legend"][0]["properties"]["position"] = {"expr": {"Literal": {"Value": f"'{pbi_pos}'"}}}
+
+        # ── Font formatting from extracted formatting ─────────
+        font_props = formatting.get('font', {})
+        if isinstance(font_props, dict):
+            font_family = font_props.get('family', '')
+            font_size = font_props.get('size', '')
+            if font_family or font_size:
+                if "labels" not in objects:
+                    objects["labels"] = [{"properties": {}}]
+                if font_family:
+                    objects["labels"][0]["properties"]["fontFamily"] = {"expr": {"Literal": {"Value": f"'{font_family}'"}}}
+                if font_size:
+                    try:
+                        fs_val = int(float(font_size.replace('pt', '').replace('px', '').strip()))
+                        objects["labels"][0]["properties"]["fontSize"] = {"expr": {"Literal": {"Value": f"{fs_val}D"}}}
+                    except (ValueError, TypeError):
+                        pass
 
         return objects
 

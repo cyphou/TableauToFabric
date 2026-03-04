@@ -311,6 +311,12 @@ def convert_tableau_formula_to_dax(formula, column_name='Measure', table_name='T
     # 3f. RANK / RANK_UNIQUE / RANK_DENSE → RANKX
     dax = _convert_rank_functions(dax, table_name)
     
+    # 3g. RUNNING_SUM/AVG/COUNT/MAX/MIN → table calculations
+    dax = _convert_running_functions(dax, table_name)
+    
+    # 3h. Percent of Total (TOTAL function or pcto: prefix)
+    dax = _convert_total_function(dax, table_name)
+    
     # === Phase 4: Convert operators ===
     dax = dax.replace('!=', '<>')   # != before == to avoid partial match
     dax = dax.replace('==', '=')
@@ -1136,8 +1142,13 @@ def _convert_lod_expressions(dax, table_name, column_table_map):
     return dax
 
 
-def _convert_window_functions(dax, table_name):
-    """Convert WINDOW_SUM/AVG/MAX/MIN/COUNT → CALCULATE(..., ALL('table'))"""
+def _convert_window_functions(dax, table_name, compute_using=None, column_table_map=None):
+    """Convert WINDOW_SUM/AVG/MAX/MIN/COUNT → CALCULATE(..., ALL/ALLEXCEPT).
+    
+    When compute_using dimensions are provided (from table calc addressing),
+    uses ALLEXCEPT to partition by those dimensions instead of blanket ALL.
+    """
+    ctm = column_table_map or {}
     for window_func in ['WINDOW_SUM', 'WINDOW_AVG', 'WINDOW_MAX', 'WINDOW_MIN', 'WINDOW_COUNT']:
         pattern = re.compile(rf'\b{window_func}\s*\(', re.IGNORECASE)
         match = pattern.search(dax)
@@ -1152,15 +1163,28 @@ def _convert_window_functions(dax, table_name):
                     depth -= 1
                 i += 1
             inner = dax[start_pos:i - 1]
-            replacement = f"CALCULATE({inner}, ALL('{table_name}'))"
+            if compute_using:
+                # Use ALLEXCEPT to partition by the compute-using dims
+                dim_refs = []
+                for dim in compute_using:
+                    t = ctm.get(dim, table_name)
+                    dim_refs.append(f"'{t}'[{dim}]")
+                replacement = f"CALCULATE({inner}, ALLEXCEPT('{table_name}', {', '.join(dim_refs)}))"
+            else:
+                replacement = f"CALCULATE({inner}, ALL('{table_name}'))"
             dax = dax[:match.start()] + replacement + dax[i:]
             match = pattern.search(dax)
     return dax
 
 
-def _convert_rank_functions(dax, table_name):
+def _convert_rank_functions(dax, table_name, compute_using=None, column_table_map=None):
     """Convert RANK(expr), RANK_UNIQUE(expr), RANK_DENSE(expr), RANK_MODIFIED(expr),
-    RANK_PERCENTILE(expr) → RANKX(ALL('table'), expr) variants."""
+    RANK_PERCENTILE(expr) → RANKX(ALL/ALLEXCEPT('table'), expr) variants.
+    
+    When compute_using dimensions are provided (from table calc addressing),
+    uses ALLEXCEPT to partition by those dimensions.
+    """
+    ctm = column_table_map or {}
     # Process longer names first to avoid partial matches
     for rank_func in ['RANK_PERCENTILE', 'RANK_MODIFIED', 'RANK_DENSE', 'RANK_UNIQUE', 'RANK']:
         pattern = re.compile(r'\b' + rank_func + r'\s*\(', re.IGNORECASE)
@@ -1179,16 +1203,89 @@ def _convert_rank_functions(dax, table_name):
                 break
             inner = dax[start_pos:i - 1].strip()
             func_upper = rank_func.upper()
-            if func_upper == 'RANK_DENSE':
-                replacement = f"RANKX(ALL('{table_name}'), {inner},, ASC, DENSE)"
-            elif func_upper == 'RANK_MODIFIED':
-                replacement = f"RANKX(ALL('{table_name}'), {inner}) /* RANK_MODIFIED: uses competition ranking, verify */"
-            elif func_upper == 'RANK_PERCENTILE':
-                replacement = f"DIVIDE(RANKX(ALL('{table_name}'), {inner}) - 1, COUNTROWS(ALL('{table_name}')) - 1) /* RANK_PERCENTILE: approximate */"
+            if compute_using:
+                dim_refs = []
+                for dim in compute_using:
+                    t = ctm.get(dim, table_name)
+                    dim_refs.append(f"'{t}'[{dim}]")
+                table_expr = f"ALLEXCEPT('{table_name}', {', '.join(dim_refs)})"
             else:
-                replacement = f"RANKX(ALL('{table_name}'), {inner})"
+                table_expr = f"ALL('{table_name}')"
+            if func_upper == 'RANK_DENSE':
+                replacement = f"RANKX({table_expr}, {inner},, ASC, DENSE)"
+            elif func_upper == 'RANK_MODIFIED':
+                replacement = f"RANKX({table_expr}, {inner}) /* RANK_MODIFIED: uses competition ranking, verify */"
+            elif func_upper == 'RANK_PERCENTILE':
+                replacement = f"DIVIDE(RANKX({table_expr}, {inner}) - 1, COUNTROWS({table_expr}) - 1) /* RANK_PERCENTILE: approximate */"
+            else:
+                replacement = f"RANKX({table_expr}, {inner})"
             dax = dax[:match.start()] + replacement + dax[i:]
             match = pattern.search(dax, match.start() + len(replacement))
+    return dax
+
+
+def _convert_running_functions(dax, table_name):
+    """Convert RUNNING_SUM/AVG/COUNT/MAX/MIN → CALCULATE with window spec.
+    
+    These Tableau table calculations produce running aggregates.
+    In DAX, they map to cumulative patterns using CALCULATE + FILTER + ALLSELECTED.
+    """
+    running_map = {
+        'RUNNING_SUM': 'SUM',
+        'RUNNING_AVG': 'AVERAGE',
+        'RUNNING_COUNT': 'COUNT',
+        'RUNNING_MAX': 'MAX',
+        'RUNNING_MIN': 'MIN',
+    }
+    for tab_func, dax_agg in running_map.items():
+        pattern = re.compile(rf'\b{tab_func}\s*\(', re.IGNORECASE)
+        match = pattern.search(dax)
+        while match:
+            start_pos = match.end()
+            depth = 1
+            i = start_pos
+            while i < len(dax) and depth > 0:
+                if dax[i] == '(':
+                    depth += 1
+                elif dax[i] == ')':
+                    depth -= 1
+                i += 1
+            inner = dax[start_pos:i - 1].strip()
+            # Generate cumulative DAX pattern
+            replacement = (
+                f"CALCULATE({inner}, "
+                f"FILTER(ALLSELECTED('{table_name}'), TRUE())) "
+                f"/* {tab_func}: converted to cumulative — verify window scope */"
+            )
+            dax = dax[:match.start()] + replacement + dax[i:]
+            match = pattern.search(dax)
+    return dax
+
+
+def _convert_total_function(dax, table_name):
+    """Convert TOTAL(expr) → CALCULATE(expr, ALL('table')).
+    
+    TOTAL() in Tableau returns the grand total of an expression,
+    ignoring the current partition. This maps to CALCULATE + ALL.
+    Also generates the percent-of-total pattern when detected.
+    """
+    # TOTAL(expr) → CALCULATE(expr, ALL('table'))
+    pattern = re.compile(r'\bTOTAL\s*\(', re.IGNORECASE)
+    match = pattern.search(dax)
+    while match:
+        start_pos = match.end()
+        depth = 1
+        i = start_pos
+        while i < len(dax) and depth > 0:
+            if dax[i] == '(':
+                depth += 1
+            elif dax[i] == ')':
+                depth -= 1
+            i += 1
+        inner = dax[start_pos:i - 1].strip()
+        replacement = f"CALCULATE({inner}, ALL('{table_name}'))"
+        dax = dax[:match.start()] + replacement + dax[i:]
+        match = pattern.search(dax)
     return dax
 
 

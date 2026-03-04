@@ -23,6 +23,8 @@ def convert_dashboard_to_report(dashboard):
         'filters': convert_dashboard_filters(dashboard.get('filters', [])),
         'parameters': convert_dashboard_parameters(dashboard.get('parameters', [])),
         'bookmarks': convert_dashboard_bookmarks(dashboard.get('stories', [])),
+        'containers': convert_dashboard_containers(dashboard.get('containers', [])),
+        'device_layouts': convert_device_layouts(dashboard.get('device_layouts', [])),
     }
     
     return powerbi_report
@@ -202,3 +204,50 @@ def convert_dashboard_bookmarks(tableau_stories):
         })
     
     return powerbi_bookmarks
+
+
+def convert_dashboard_containers(tableau_containers):
+    """Convert Tableau layout containers to Power BI grouping info.
+
+    Tableau horizontal/vertical containers map to Power BI visual groups
+    that keep their children resized together.
+    """
+    pbi_groups = []
+    for ctr in (tableau_containers or []):
+        orientation = ctr.get('orientation', 'horizontal')
+        children = ctr.get('children', [])
+        pbi_groups.append({
+            'orientation': 'horizontal' if orientation == 'horizontal' else 'vertical',
+            'padding': ctr.get('padding', 0),
+            'children': [c.get('name', c.get('id', '')) for c in children],
+        })
+    return pbi_groups
+
+
+def convert_device_layouts(tableau_device_layouts):
+    """Convert Tableau phone/tablet device layouts to PBI mobile layout info.
+
+    Each device layout contains zones that reference worksheets at
+    specific positions — these map to PBI mobile-view visual containers.
+    """
+    pbi_layouts = []
+    for dl in (tableau_device_layouts or []):
+        device_type = dl.get('device_type', 'phone').lower()
+        zones = dl.get('zones', [])
+        pbi_layout = {
+            'device_type': device_type,
+            'width': dl.get('width', 375 if device_type == 'phone' else 768),
+            'height': dl.get('height', 667 if device_type == 'phone' else 1024),
+            'visuals': [
+                {
+                    'worksheetName': z.get('worksheet', ''),
+                    'x': z.get('x', 0),
+                    'y': z.get('y', 0),
+                    'width': z.get('w', 200),
+                    'height': z.get('h', 200),
+                }
+                for z in zones if z.get('worksheet')
+            ],
+        }
+        pbi_layouts.append(pbi_layout)
+    return pbi_layouts

@@ -324,6 +324,9 @@ def _build_semantic_model(datasources, report_name="Report", extra_objects=None,
     # Phase 7: Hierarchies
     _apply_hierarchies(model, extra_objects.get('hierarchies', []), column_table_map)
 
+    # Phase 7b: Auto-generate date hierarchies for date columns
+    _auto_date_hierarchies(model)
+
     # Phase 8: Parameter tables
     _create_parameter_tables(model, extra_objects.get('parameters', []), main_table_name)
 
@@ -1024,6 +1027,81 @@ def _apply_hierarchies(model, hierarchies, column_table_map):
                     }
                     table["hierarchies"].append(hierarchy)
                 break
+
+
+def _auto_date_hierarchies(model):
+    """Auto-generate Year > Quarter > Month > Day hierarchies for date columns.
+
+    For every date/dateTime column that does not already belong to a
+    user-defined hierarchy, we create a synthetic 'Date Hierarchy'
+    composed of calculated columns (Year, Quarter, Month, Day)
+    and a hierarchy definition on the same table.
+    """
+    DATE_TYPES = {'dateTime', 'date'}
+    PARTS = [
+        ('Year', 'YEAR', 'int64', 0),
+        ('Quarter', 'QUARTER', 'int64', 1),         # 1-4
+        ('Month', 'MONTH', 'int64', 2),
+        ('Day', 'DAY', 'int64', 3),
+    ]
+
+    for table in model.get('model', {}).get('tables', []):
+        columns = table.get('columns', [])
+        existing_hierarchies = table.get('hierarchies', [])
+
+        # Collect columns already used in a hierarchy
+        hier_cols = set()
+        for h in existing_hierarchies:
+            for lvl in h.get('levels', []):
+                hier_cols.add(lvl.get('column', ''))
+
+        existing_col_names = {c.get('name', '') for c in columns}
+
+        for col in list(columns):  # iterate copy – we may append
+            col_type = col.get('dataType', '')
+            col_name = col.get('name', '')
+            if col_type not in DATE_TYPES:
+                continue
+            if col_name in hier_cols:
+                continue  # already in a user-defined hierarchy
+
+            # Build hierarchy name scoped to the column
+            hier_name = f"{col_name} Hierarchy"
+
+            # Skip if we already auto-generated this one (idempotency)
+            if any(h.get('name') == hier_name for h in existing_hierarchies):
+                continue
+
+            # Add calculated columns for the parts (skip if name clashes)
+            calc_col_names = []
+            for part_label, dax_fn, dt, _ in PARTS:
+                calc_name = f"{col_name} {part_label}"
+                if calc_name in existing_col_names:
+                    calc_col_names.append(calc_name)
+                    continue  # already exists (e.g. from Tableau extraction)
+                calc_col = {
+                    'name': calc_name,
+                    'dataType': dt,
+                    'sourceColumn': '',
+                    'expression': f"{dax_fn}([{col_name}])",
+                    'isHidden': True,
+                    'type': 'calculated',
+                }
+                columns.append(calc_col)
+                existing_col_names.add(calc_name)
+                calc_col_names.append(calc_name)
+
+            # Create the hierarchy
+            hierarchy = {
+                'name': hier_name,
+                'levels': [
+                    {'name': PARTS[i][0], 'ordinal': i, 'column': calc_col_names[i]}
+                    for i in range(len(calc_col_names))
+                ],
+            }
+            if 'hierarchies' not in table:
+                table['hierarchies'] = []
+            table['hierarchies'].append(hierarchy)
 
 
 def _create_parameter_tables(model, parameters, main_table_name):

@@ -102,7 +102,18 @@ class TableauExtractor:
                 'sort_orders': self.extract_worksheet_sort_orders(worksheet),
                 'mark_encoding': self.extract_mark_encoding(worksheet),
                 'axes': self.extract_axes(worksheet),
+                'annotations': self.extract_annotations(worksheet),
+                'trend_lines': self.extract_trend_lines(worksheet),
+                'reference_lines': self.extract_reference_lines(worksheet),
+                'pages_shelf': self.extract_pages_shelf(worksheet),
+                'table_calcs': self.extract_table_calcs(worksheet),
             }
+            # Detect viz-in-tooltip worksheet reference
+            tooltip_data = ws_data.get('tooltips', [])
+            viz_refs = [t for t in tooltip_data if t.get('type') == 'viz_in_tooltip']
+            if viz_refs:
+                ws_data['tooltip'] = {'viz_in_tooltip': True,
+                                      'worksheet': viz_refs[0].get('worksheet', '')}
             worksheets.append(ws_data)
         
         self.workbook_data['worksheets'] = worksheets
@@ -125,6 +136,8 @@ class TableauExtractor:
                 'filters': self.extract_dashboard_filters(dashboard),
                 'parameters': self.extract_dashboard_parameters(dashboard),
                 'theme': self.extract_theme(dashboard),
+                'device_layouts': self.extract_device_layouts(dashboard),
+                'containers': self.extract_dashboard_containers(dashboard),
             }
             dashboards.append(db_data)
         
@@ -472,17 +485,16 @@ class TableauExtractor:
         return filters
     
     def extract_formatting(self, element):
-        """Extracts formatting information (colors, fonts, backgrounds)"""
+        """Extracts formatting information (colors, fonts, borders, backgrounds, shading)"""
         formatting = {}
         
         # Extract styles from <style-rule>  
         for style_rule in element.findall('.//style-rule'):
             rule_element = style_rule.get('element', '')
-            format_elem = style_rule.find('.//format')
-            if format_elem is not None:
+            for format_elem in style_rule.findall('.//format'):
                 attrs = dict(format_elem.attrib)
                 if attrs:
-                    formatting[rule_element] = attrs
+                    formatting.setdefault(rule_element, {}).update(attrs)
         
         # Extract format encodings from <format>
         for fmt in element.findall('.//format'):
@@ -495,6 +507,32 @@ class TableauExtractor:
         for pane_fmt in element.findall('.//pane/format'):
             if pane_fmt.get('attr') == 'fill-color':
                 formatting['background_color'] = pane_fmt.get('value', '')
+        
+        # Font properties from style
+        for style in element.findall('.//style'):
+            for rule in style.findall('.//style-rule'):
+                elem_name = rule.get('element', '')
+                for fmt in rule.findall('.//format'):
+                    attr = fmt.get('attr', '')
+                    value = fmt.get('value', '')
+                    if attr and value:
+                        formatting.setdefault(elem_name, {})[attr] = value
+        
+        # Header formatting
+        for header in element.findall('.//header'):
+            for fmt in header.findall('.//format'):
+                attr = fmt.get('attr', '')
+                value = fmt.get('value', '')
+                if attr and value:
+                    formatting.setdefault('header', {})[attr] = value
+        
+        # Cell formatting
+        for cell in element.findall('.//cell'):
+            for fmt in cell.findall('.//format'):
+                attr = fmt.get('attr', '')
+                value = fmt.get('value', '')
+                if attr and value:
+                    formatting.setdefault('cell', {})[attr] = value
         
         return formatting
     
@@ -684,10 +722,10 @@ class TableauExtractor:
         return params
     
     def extract_theme(self, dashboard):
-        """Extracts the theme (colors, fonts) from the dashboard or workbook"""
+        """Extracts the theme (colors, fonts, custom color palettes) from the dashboard or workbook"""
         theme = {}
         
-        # Palette colors
+        # Palette colors from dashboard preferences
         for prefs in dashboard.findall('.//preferences'):
             colors = []
             for color in prefs.findall('.//color-palette/color'):
@@ -696,14 +734,46 @@ class TableauExtractor:
             if colors:
                 theme['color_palette'] = colors
         
+        # Custom color palettes (named palettes)
+        custom_palettes = {}
+        for palette in dashboard.findall('.//color-palette'):
+            palette_name = palette.get('name', '')
+            palette_type = palette.get('type', '')
+            palette_colors = []
+            for color in palette.findall('.//color'):
+                if color.text:
+                    palette_colors.append(color.text)
+            if palette_name and palette_colors:
+                custom_palettes[palette_name] = {
+                    'type': palette_type,
+                    'colors': palette_colors,
+                }
+        if custom_palettes:
+            theme['custom_palettes'] = custom_palettes
+        
         # Global formatting style
         for style in dashboard.findall('.//style'):
             for rule in style.findall('.//style-rule'):
                 elem = rule.get('element', '')
-                fmt = rule.find('.//format')
-                if fmt is not None and elem:
+                for fmt in rule.findall('.//format'):
                     attrs = dict(fmt.attrib)
-                    theme.setdefault('styles', {})[elem] = attrs
+                    if attrs:
+                        theme.setdefault('styles', {})[elem] = attrs
+        
+        # Font family from formatting
+        for fmt in dashboard.findall('.//format[@attr="font-family"]'):
+            theme['font_family'] = fmt.get('value', '')
+        
+        # Extract global workbook-level color palette from parent
+        parent = dashboard
+        for color_pal in parent.findall('.//preferences/color-palette'):
+            pal_name = color_pal.get('name', 'default')
+            pal_colors = [c.text for c in color_pal.findall('.//color') if c.text]
+            if pal_colors:
+                theme.setdefault('custom_palettes', {})[pal_name] = {
+                    'type': color_pal.get('type', 'regular'),
+                    'colors': pal_colors,
+                }
         
         return theme
     
@@ -791,10 +861,22 @@ class TableauExtractor:
                 column = color.get('column', '')
                 palette = color.get('palette', '')
                 col_refs = re.findall(r'\[([^\]]+)\]\.\[([^\]]+)\]', column)
-                encoding['color'] = {
+                color_data = {
                     'field': _clean_field_ref(col_refs[0][1]) if col_refs else column.replace('[', '').replace(']', ''),
-                    'palette': palette
+                    'palette': palette,
                 }
+                # Continuous vs discrete type
+                col_type = color.get('type', '')
+                if col_type:
+                    color_data['type'] = col_type
+                # Palette colors
+                palette_colors = []
+                for pc in color.findall('.//color'):
+                    if pc.text:
+                        palette_colors.append(pc.text)
+                if palette_colors:
+                    color_data['palette_colors'] = palette_colors
+                encoding['color'] = color_data
             
             # Size
             size = enc_elem.find('.//size')
@@ -828,20 +910,275 @@ class TableauExtractor:
         return encoding
     
     def extract_axes(self, worksheet):
-        """Extracts axis configuration"""
+        """Extracts axis configuration (range, scale, title, format, rotation, continuous/discrete)"""
         axes = {}
         for axis in worksheet.findall('.//axis'):
             axis_type = axis.get('type', '')  # x, y
-            axes[axis_type] = {
+            axis_data = {
                 'auto_range': axis.get('auto-range', 'true') == 'true',
                 'range_min': axis.get('range-min', None),
                 'range_max': axis.get('range-max', None),
                 'scale': axis.get('scale', 'linear'),
                 'title': axis.findtext('.//title', ''),
-                'reversed': axis.get('reversed', 'false') == 'true'
+                'reversed': axis.get('reversed', 'false') == 'true',
+                'format': axis.get('format', ''),
+                'label_rotation': axis.get('label-rotation', ''),
+                'show_label': axis.get('show-label', 'true') == 'true',
+                'show_title': axis.get('show-title', 'true') == 'true',
             }
+            # Determine if continuous or discrete
+            if axis.get('dimension', '') or axis.get('ordinal', ''):
+                axis_data['is_continuous'] = False
+            elif axis.get('quantitative', ''):
+                axis_data['is_continuous'] = True
+            axes[axis_type] = axis_data
         return axes
     
+    def extract_annotations(self, worksheet):
+        """Extracts annotations (point, area, text annotations)"""
+        annotations = []
+        for anno in worksheet.findall('.//point-annotation'):
+            formatted = anno.find('.//formatted-text')
+            text = ''
+            if formatted is not None:
+                parts = [r.text for r in formatted.findall('.//run') if r.text]
+                text = ''.join(parts)
+            annotations.append({
+                'type': 'point',
+                'text': text,
+                'column': anno.get('column', ''),
+                'row': anno.get('row', ''),
+            })
+        for anno in worksheet.findall('.//area-annotation'):
+            formatted = anno.find('.//formatted-text')
+            text = ''
+            if formatted is not None:
+                parts = [r.text for r in formatted.findall('.//run') if r.text]
+                text = ''.join(parts)
+            annotations.append({
+                'type': 'area',
+                'text': text,
+            })
+        for anno in worksheet.findall('.//text-annotation'):
+            formatted = anno.find('.//formatted-text')
+            text = ''
+            if formatted is not None:
+                parts = [r.text for r in formatted.findall('.//run') if r.text]
+                text = ''.join(parts)
+            annotations.append({
+                'type': 'text',
+                'text': text,
+            })
+        # Also check <annotation> generic elements
+        for anno in worksheet.findall('.//annotation'):
+            formatted = anno.find('.//formatted-text')
+            text = ''
+            if formatted is not None:
+                parts = [r.text for r in formatted.findall('.//run') if r.text]
+                text = ''.join(parts)
+            if text:
+                annotations.append({
+                    'type': anno.get('type', 'text'),
+                    'text': text,
+                })
+        return annotations
+
+    def extract_trend_lines(self, worksheet):
+        """Extracts trend lines from a worksheet"""
+        trend_lines = []
+        for tl in worksheet.findall('.//trend-line'):
+            trend_lines.append({
+                'type': tl.get('type', 'linear'),
+                'field': tl.get('column', ''),
+                'color': tl.get('color', ''),
+                'show_confidence': tl.get('show-confidence', 'false') == 'true',
+                'show_equation': tl.get('show-equation', 'false') == 'true',
+                'show_r_squared': tl.get('show-r-squared', 'false') == 'true',
+                'per_color': tl.get('per-color', 'false') == 'true',
+            })
+        # Also check <trend-lines><trend-line> nested format
+        for tl_container in worksheet.findall('.//trend-lines'):
+            for tl in tl_container.findall('.//trend-line'):
+                if not any(t.get('type') == tl.get('type', 'linear') for t in trend_lines):
+                    trend_lines.append({
+                        'type': tl.get('type', 'linear'),
+                        'field': tl.get('column', ''),
+                        'color': tl.get('color', ''),
+                        'show_confidence': tl.get('show-confidence', 'false') == 'true',
+                        'show_equation': tl.get('show-equation', 'false') == 'true',
+                        'show_r_squared': tl.get('show-r-squared', 'false') == 'true',
+                        'per_color': tl.get('per-color', 'false') == 'true',
+                    })
+        return trend_lines
+
+    def extract_reference_lines(self, worksheet):
+        """Extracts reference lines, bands, and distributions"""
+        ref_lines = []
+        for rl in worksheet.findall('.//reference-line'):
+            ref_lines.append({
+                'type': 'line',
+                'value': rl.get('value', ''),
+                'label': rl.get('label', ''),
+                'label_type': rl.get('label-type', 'value'),
+                'scope': rl.get('scope', 'per-pane'),
+                'axis': rl.get('axis', 'y'),
+                'color': rl.get('color', '#666666'),
+                'style': rl.get('style', 'solid'),
+                'computation': rl.get('computation', 'constant'),
+                'field': rl.get('column', ''),
+            })
+        for rb in worksheet.findall('.//reference-band'):
+            ref_lines.append({
+                'type': 'band',
+                'value_from': rb.get('value-from', ''),
+                'value_to': rb.get('value-to', ''),
+                'label': rb.get('label', ''),
+                'scope': rb.get('scope', 'per-pane'),
+                'axis': rb.get('axis', 'y'),
+                'color': rb.get('color', '#E0E0E0'),
+                'fill_above': rb.get('fill-above', ''),
+                'fill_below': rb.get('fill-below', ''),
+            })
+        for rd in worksheet.findall('.//reference-distribution'):
+            ref_lines.append({
+                'type': 'distribution',
+                'computation': rd.get('computation', ''),
+                'scope': rd.get('scope', 'per-pane'),
+                'axis': rd.get('axis', 'y'),
+                'color': rd.get('color', '#666666'),
+                'label': rd.get('label', ''),
+                'percentile': rd.get('percentile', ''),
+            })
+        return ref_lines
+
+    def extract_pages_shelf(self, worksheet):
+        """Extracts the Pages shelf field (animation shelf in Tableau)"""
+        pages = {}
+        pages_elem = worksheet.find('.//pages')
+        if pages_elem is not None and pages_elem.text:
+            refs = re.findall(r'\[([^\]]+)\]\.\[([^\]]+)\]', pages_elem.text)
+            if refs:
+                pages['field'] = refs[0][1]
+                pages['datasource'] = refs[0][0]
+            else:
+                pages['field'] = pages_elem.text.strip().replace('[', '').replace(']', '')
+        return pages
+
+    def extract_table_calcs(self, worksheet):
+        """Extracts table calculation addressing/partitioning from <table-calc> elements"""
+        table_calcs = []
+        for tc in worksheet.findall('.//table-calc'):
+            calc_data = {
+                'field': tc.get('column', '').replace('[', '').replace(']', ''),
+                'type': tc.get('type', ''),
+                'ordering_type': tc.get('ordering-type', 'Rows'),
+                'compute_using': [],
+                'direction': tc.get('direction', ''),
+                'at_level': tc.get('at-level', ''),
+            }
+            # Compute-using dimensions
+            for dim in tc.findall('.//compute-using'):
+                val = dim.text or dim.get('column', '')
+                if val:
+                    clean = val.strip().replace('[', '').replace(']', '')
+                    calc_data['compute_using'].append(clean)
+            # Also check <order-by> for secondary sort
+            for ob in tc.findall('.//order-by'):
+                field = ob.get('column', '').replace('[', '').replace(']', '')
+                direction = ob.get('direction', 'ASC')
+                calc_data.setdefault('order_by', []).append({
+                    'field': field, 'direction': direction
+                })
+            table_calcs.append(calc_data)
+        return table_calcs
+
+    def extract_device_layouts(self, dashboard):
+        """Extracts device-specific layouts (phone, tablet) from dashboard"""
+        layouts = []
+        for layout in dashboard.findall('.//devicelayout'):
+            device_type = layout.get('type', '')
+            zones = []
+            for zone in layout.findall('.//zone'):
+                zone_data = {
+                    'name': zone.get('name', ''),
+                    'type': zone.get('type', ''),
+                    'position': {
+                        'x': int(zone.get('x', 0)),
+                        'y': int(zone.get('y', 0)),
+                        'w': int(zone.get('w', 0)),
+                        'h': int(zone.get('h', 0)),
+                    },
+                    'visible': zone.get('is-visible', 'true') == 'true',
+                }
+                zones.append(zone_data)
+            layouts.append({
+                'device_type': device_type,
+                'width': int(layout.get('width', 0)),
+                'height': int(layout.get('height', 0)),
+                'zones': zones,
+            })
+        # Also check for <layout device-type="phone"> style elements
+        for layout in dashboard.findall('.//layout[@device-type]'):
+            device_type = layout.get('device-type', '')
+            if device_type and not any(l['device_type'] == device_type for l in layouts):
+                zones = []
+                for zone in layout.findall('.//zone'):
+                    zones.append({
+                        'name': zone.get('name', ''),
+                        'type': zone.get('type', ''),
+                        'position': {
+                            'x': int(zone.get('x', 0)),
+                            'y': int(zone.get('y', 0)),
+                            'w': int(zone.get('w', 0)),
+                            'h': int(zone.get('h', 0)),
+                        },
+                        'visible': zone.get('is-visible', 'true') == 'true',
+                    })
+                layouts.append({
+                    'device_type': device_type,
+                    'width': int(layout.get('width', 0)),
+                    'height': int(layout.get('height', 0)),
+                    'zones': zones,
+                })
+        return layouts
+
+    def extract_dashboard_containers(self, dashboard):
+        """Extracts horizontal/vertical layout containers with nesting and padding"""
+        containers = []
+        for lc in dashboard.findall('.//layout-container'):
+            orientation = lc.get('orientation', '')
+            container = {
+                'orientation': orientation,
+                'name': lc.get('name', ''),
+                'position': {
+                    'x': int(lc.get('x', 0)),
+                    'y': int(lc.get('y', 0)),
+                    'w': int(lc.get('w', 0)),
+                    'h': int(lc.get('h', 0)),
+                },
+                'padding': {
+                    'top': int(lc.get('padding-top', lc.get('margin-top', 0))),
+                    'bottom': int(lc.get('padding-bottom', lc.get('margin-bottom', 0))),
+                    'left': int(lc.get('padding-left', lc.get('margin-left', 0))),
+                    'right': int(lc.get('padding-right', lc.get('margin-right', 0))),
+                },
+                'children': [],
+            }
+            for child in lc:
+                if child.tag == 'zone':
+                    container['children'].append({
+                        'type': 'zone',
+                        'name': child.get('name', ''),
+                        'position': {
+                            'x': int(child.get('x', 0)),
+                            'y': int(child.get('y', 0)),
+                            'w': int(child.get('w', 0)),
+                            'h': int(child.get('h', 0)),
+                        }
+                    })
+            containers.append(container)
+        return containers
+
     def extract_workbook_actions(self, root):
         """Extracts actions at the workbook level (filter, highlight, url, navigate, param, set)"""
         actions = []

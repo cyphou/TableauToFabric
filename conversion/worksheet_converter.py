@@ -76,6 +76,12 @@ def convert_worksheet_to_visual(worksheet):
         'tooltips': convert_tooltips(worksheet.get('tooltips', [])),
         'formatting': convert_formatting(worksheet.get('formatting', {})),
         'interactions': convert_interactions(worksheet.get('actions', [])),
+        # Pass-through enriched extraction data for generation layer
+        'annotations': worksheet.get('annotations', []),
+        'trend_lines': worksheet.get('trend_lines', []),
+        'reference_lines': worksheet.get('reference_lines', []),
+        'pages_shelf': worksheet.get('pages_shelf', {}),
+        'table_calcs': worksheet.get('table_calcs', []),
     }
     
     return powerbi_visual
