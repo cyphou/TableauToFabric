@@ -1,0 +1,63 @@
+<?xml version='1.0' encoding='utf-8' ?>
+<!--
+  SIMPLE REPORT EXAMPLE — Sales by Category
+  ═══════════════════════════════════════════
+  Scenario: Single SQL Server datasource, one table, one bar chart worksheet,
+            one dashboard with a title and the chart.
+  Demonstrates:
+    - Single table datasource (no joins)
+    - Basic SUM aggregation
+    - Bar chart mark type
+    - Simple dashboard layout with text zone
+    - No calculated fields, no parameters, no filters
+  
+  Usage:
+    python migrate.py examples/tableau_samples/simple_report.twb
+-->
+<workbook version='18.1' xml:base='https://localhost'>
+  <datasources>
+    <datasource name='SalesDS' caption='Sales Data'>
+      <connection class='federated'>
+        <named-connections>
+          <named-connection name='sqlconn1' caption='SQL Server - SalesDB'>
+            <connection class='sqlserver' server='sql-prod-01.contoso.com'
+                        dbname='SalesDB' authentication='sspi' />
+          </named-connection>
+        </named-connections>
+        <relation type='table' name='Sales' connection='sqlconn1'>
+          <columns>
+            <column name='SaleID' datatype='integer' ordinal='0' />
+            <column name='Category' datatype='string' ordinal='1' />
+            <column name='Product' datatype='string' ordinal='2' />
+            <column name='Amount' datatype='real' ordinal='3' />
+            <column name='Quantity' datatype='integer' ordinal='4' />
+            <column name='SaleDate' datatype='date' ordinal='5' />
+          </columns>
+        </relation>
+      </connection>
+    </datasource>
+  </datasources>
+
+  <worksheets>
+    <worksheet name='Sales by Category'>
+      <table>
+        <rows>[SalesDS].[sum:Amount:qk]</rows>
+        <cols>[SalesDS].[none:Category:nk]</cols>
+        <pane>
+          <mark class='Bar' />
+        </pane>
+      </table>
+    </worksheet>
+  </worksheets>
+
+  <dashboards>
+    <dashboard name='Sales Overview' width='1280' height='720'>
+      <zones>
+        <zone name='' type='text' id='1' x='0' y='0' w='1280' h='60'>
+          <formatted-text><run>Sales Overview Dashboard</run></formatted-text>
+        </zone>
+        <zone name='Sales by Category' x='20' y='80' w='1240' h='600' />
+      </zones>
+    </dashboard>
+  </dashboards>
+</workbook>

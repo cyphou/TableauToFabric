@@ -1,0 +1,647 @@
+﻿"""
+Datasource extraction module for Tableau workbooks.
+
+Parses Tableau XML datasource elements, extracting connections,
+tables, columns, calculations, and relationships.
+Re-exports DAX converter and M query builder functions for backward compatibility.
+"""
+
+import xml.etree.ElementTree as ET
+import zipfile
+import os
+import csv
+import re
+from .dax_converter import _reverse_tableau_bracket_escape
+
+def _detect_csv_delimiter(header_line):
+    """Detects the CSV delimiter from the first line (header).
+    
+    Uses csv.Sniffer if possible, otherwise heuristic by counting.
+    Returns the detected delimiter (',' or ';' or '\t' etc.)
+    """
+    if not header_line:
+        return ','
+    
+    # Try csv.Sniffer first
+    try:
+        dialect = csv.Sniffer().sniff(header_line, delimiters=',;\t|')
+        return dialect.delimiter
+    except csv.Error:
+        pass
+    
+    # Heuristic: count occurrences of common delimiters
+    candidates = [(',', header_line.count(',')),
+                  (';', header_line.count(';')),
+                  ('\t', header_line.count('\t')),
+                  ('|', header_line.count('|'))]
+    # Sort by descending occurrence count
+    candidates.sort(key=lambda x: x[1], reverse=True)
+    if candidates[0][1] > 0:
+        return candidates[0][0]
+    return ','
+
+
+def _read_csv_header_from_twbx(twbx_path, directory, filename):
+    """Reads the first line of a CSV file embedded in a .twbx.
+    
+    Returns the first line (header) or None if not found.
+    """
+    if not twbx_path or not os.path.exists(twbx_path):
+        return None
+    ext = os.path.splitext(twbx_path)[1].lower()
+    if ext not in ('.twbx', '.tdsx'):
+        return None
+    
+    # Build the expected path inside the archive
+    if directory:
+        csv_path = directory.rstrip('/') + '/' + filename
+    else:
+        csv_path = filename
+    
+    try:
+        with zipfile.ZipFile(twbx_path, 'r') as z:
+            # Search for the file (exact or partial match)
+            for name in z.namelist():
+                if name == csv_path or name.endswith('/' + filename):
+                    with z.open(name) as f:
+                        first_line = f.readline().decode('utf-8', errors='replace').strip()
+                        return first_line
+    except (zipfile.BadZipFile, OSError):
+        pass
+    return None
+
+
+def extract_datasource(datasource_elem, twbx_path=None):
+    """
+    Extracts the full details of a Tableau datasource
+    
+    Args:
+        datasource_elem: XML element of the datasource
+        twbx_path: Path to the .twbx file (for CSV delimiter detection)
+    
+    Returns:
+        dict with connection, tables, columns, calculations, relationships
+    """
+    ds_name = datasource_elem.get('name', 'Unknown')
+    ds_caption = datasource_elem.get('caption', ds_name)
+    
+    # Build the connection_name -> connection_details mapping
+    connection_map = _build_connection_map(datasource_elem, twbx_path=twbx_path)
+    
+    datasource = {
+        'name': ds_name,
+        'caption': ds_caption,
+        'connection': extract_connection_details(datasource_elem),
+        'connection_map': connection_map,
+        'tables': extract_tables_with_columns(datasource_elem, connection_map),
+        'calculations': extract_calculations(datasource_elem),
+        'columns': extract_column_metadata(datasource_elem),
+        'relationships': extract_relationships(datasource_elem)
+    }
+    
+    return datasource
+
+
+def _parse_connection_class(inner_conn, named_conn=None, twbx_path=None):
+    """Parses a single Tableau <connection> element into {type, details}.
+    
+    This is the single source of truth for mapping Tableau connection XML
+    attributes to the normalized {type, details} dicts used downstream.
+    
+    Args:
+        inner_conn: XML <connection> element
+        named_conn: Optional XML <named-connection> parent (for caption/name)
+        twbx_path: Optional .twbx path (for CSV delimiter auto-detection)
+    
+    Returns:
+        dict: {type: str, details: dict}
+    """
+    conn_class = inner_conn.get('class', 'unknown')
+    
+    if conn_class == 'excel-direct':
+        return {
+            'type': 'Excel',
+            'details': {
+                'filename': inner_conn.get('filename', ''),
+                'caption': named_conn.get('caption', '') if named_conn is not None else '',
+                'cleaning': inner_conn.get('cleaning', 'no'),
+                'compat': inner_conn.get('compat', 'no')
+            }
+        }
+    
+    if conn_class == 'textscan':
+        csv_filename = inner_conn.get('filename', '')
+        csv_directory = inner_conn.get('directory', '')
+        delimiter = inner_conn.get('separator', '')
+        if not delimiter:
+            header = _read_csv_header_from_twbx(twbx_path, csv_directory, csv_filename)
+            delimiter = _detect_csv_delimiter(header) if header else ','
+        return {
+            'type': 'CSV',
+            'details': {
+                'filename': csv_filename,
+                'directory': csv_directory,
+                'delimiter': delimiter,
+                'encoding': inner_conn.get('charset', 'utf-8')
+            }
+        }
+    
+    if conn_class == 'ogrdirect':
+        return {
+            'type': 'GeoJSON',
+            'details': {
+                'filename': inner_conn.get('filename', ''),
+                'directory': inner_conn.get('directory', '')
+            }
+        }
+    
+    if conn_class == 'sqlserver':
+        return {
+            'type': 'SQL Server',
+            'details': {
+                'server': inner_conn.get('server', ''),
+                'database': inner_conn.get('dbname', ''),
+                'authentication': inner_conn.get('authentication', 'sspi'),
+                'username': inner_conn.get('username', '')
+            }
+        }
+    
+    if conn_class == 'postgres':
+        return {
+            'type': 'PostgreSQL',
+            'details': {
+                'server': inner_conn.get('server', ''),
+                'port': inner_conn.get('port', '5432'),
+                'database': inner_conn.get('dbname', ''),
+                'username': inner_conn.get('username', ''),
+                'sslmode': inner_conn.get('sslmode', 'require')
+            }
+        }
+    
+    if conn_class == 'bigquery':
+        return {
+            'type': 'BigQuery',
+            'details': {
+                'project': inner_conn.get('project', ''),
+                'dataset': inner_conn.get('dataset', ''),
+                'service_account': inner_conn.get('service-account-email', '')
+            }
+        }
+    
+    if conn_class == 'oracle':
+        return {
+            'type': 'Oracle',
+            'details': {
+                'server': inner_conn.get('server', ''),
+                'service': inner_conn.get('service', ''),
+                'port': inner_conn.get('port', '1521'),
+                'username': inner_conn.get('username', '')
+            }
+        }
+    
+    if conn_class == 'mysql':
+        return {
+            'type': 'MySQL',
+            'details': {
+                'server': inner_conn.get('server', ''),
+                'port': inner_conn.get('port', '3306'),
+                'database': inner_conn.get('dbname', ''),
+                'username': inner_conn.get('username', '')
+            }
+        }
+    
+    if conn_class == 'snowflake':
+        return {
+            'type': 'Snowflake',
+            'details': {
+                'server': inner_conn.get('server', ''),
+                'database': inner_conn.get('dbname', ''),
+                'schema': inner_conn.get('schema', ''),
+                'warehouse': inner_conn.get('warehouse', ''),
+                'role': inner_conn.get('role', '')
+            }
+        }
+
+    if conn_class == 'sapbw':
+        return {
+            'type': 'SAP BW',
+            'details': {
+                'server': inner_conn.get('server', ''),
+                'system_number': inner_conn.get('systemNumber', '00'),
+                'client_id': inner_conn.get('clientId', ''),
+                'language': inner_conn.get('language', 'EN'),
+                'cube': inner_conn.get('cube', ''),
+                'catalog': inner_conn.get('catalog', '')
+            }
+        }
+
+    return {
+        'type': conn_class.upper(),
+        'details': dict(inner_conn.attrib)
+    }
+
+
+def _build_connection_map(datasource_elem, twbx_path=None):
+    """Builds a connection_name -> {type, details} mapping from named-connections.
+    
+    Each physical table in Tableau references a named-connection via its
+    'connection' attribute. This function extracts the details of each named-connection
+    to generate the correct M queries per table.
+    """
+    conn_map = {}
+    
+    connection_elem = datasource_elem.find('.//connection[@class="federated"]')
+    if connection_elem is None:
+        connection_elem = datasource_elem.find('.//connection')
+    if connection_elem is None:
+        return conn_map
+    
+    for named_conn in connection_elem.findall('.//named-connection'):
+        nc_name = named_conn.get('name', '')
+        inner_conn = named_conn.find('.//connection')
+        if inner_conn is None or not nc_name:
+            continue
+        conn_map[nc_name] = _parse_connection_class(inner_conn, named_conn, twbx_path)
+    
+    return conn_map
+
+
+def extract_connection_details(datasource_elem):
+    """Extracts connection details (Excel, SQL, etc.)"""
+    connection_elem = datasource_elem.find('.//connection[@class="federated"]')
+    if connection_elem is None:
+        connection_elem = datasource_elem.find('.//connection')
+    if connection_elem is None:
+        return {'type': 'Unknown', 'details': {}}
+    
+    named_conn = connection_elem.find('.//named-connection')
+    if named_conn is not None:
+        inner_conn = named_conn.find('.//connection')
+        if inner_conn is not None:
+            return _parse_connection_class(inner_conn, named_conn)
+    
+    return {'type': 'Unknown', 'details': {}}
+
+
+def extract_tables_with_columns(datasource_elem, connection_map=None):
+    """Extracts only physical tables (type='table') with their columns.
+    
+    IMPORTANT: Do NOT extract 'join' nodes which created fictitious tables
+    with duplicated columns from all joined tables ('Unknown' table bug).
+    
+    Deduplicates by table name (keeps the version with the most columns)
+    and stores per-table connection details.
+    
+    For SQL Server and similar connections where <relation> elements are
+    self-closing (no nested <columns>), falls back to the datasource-level
+    <cols> mapping and <column> definitions to populate table columns.
+    """
+    if connection_map is None:
+        connection_map = {}
+    
+    # Phase 1: Collect all physical tables
+    raw_tables = {}  # name -> best table dict
+    
+    for relation in datasource_elem.findall('.//relation'):
+        # ONLY physical tables, NOT joins
+        table_type = relation.get('type', '')
+        if table_type != 'table':
+            continue
+        
+        table_name = relation.get('name', '')
+        if not table_name:
+            continue
+        
+        conn_ref = relation.get('connection', '')
+        
+        columns = []
+        for col_elem in relation.findall('./columns/column'):
+            raw_name = col_elem.get('name', '')
+            column = {
+                'name': _reverse_tableau_bracket_escape(raw_name),
+                'datatype': col_elem.get('datatype', 'string'),
+                'ordinal': int(col_elem.get('ordinal', 0)),
+                'length': col_elem.get('length', None),
+                'nullable': col_elem.get('nullable', 'true') == 'true'
+            }
+            columns.append(column)
+        
+        # Deduplicate: keep the version with the most columns
+        if table_name not in raw_tables or len(columns) > len(raw_tables[table_name].get('columns', [])):
+            # Resolve connection details for this table
+            table_connection = connection_map.get(conn_ref, {})
+            
+            raw_tables[table_name] = {
+                'name': table_name,
+                'type': 'table',
+                'columns': columns,
+                'connection': conn_ref,
+                'connection_details': table_connection
+            }
+    
+    # Phase 2: For tables with no nested columns (SQL Server, etc.),
+    # populate from datasource-level <cols> mapping + <column> elements.
+    tables_needing_columns = [t for t in raw_tables.values() if not t['columns']]
+    if tables_needing_columns:
+        # Build mapping: table_name -> [column_name, ...] from <cols><map> entries
+        # e.g. <map key='[OrderID]' value='[Orders].[OrderID]' />
+        table_col_names = {}  # table_name -> [col_key, ...]
+        cols_elem = datasource_elem.find('.//connection/cols')
+        if cols_elem is not None:
+            for map_elem in cols_elem.findall('map'):
+                key = map_elem.get('key', '')       # e.g. "[OrderID]"
+                value = map_elem.get('value', '')    # e.g. "[Orders].[OrderID]"
+                if '.' in value:
+                    parts = value.split('.', 1)
+                    tbl = parts[0].strip('[]')
+                    if tbl in raw_tables:
+                        table_col_names.setdefault(tbl, []).append(key)
+        
+        # Build mapping: column_name -> column attributes from datasource-level <column> elements
+        ds_columns = {}  # "[ColName]" -> {datatype, role, type, ...}
+        for col_elem in datasource_elem.findall('./column'):
+            col_name = col_elem.get('name', '')
+            # Skip calculated columns (they have a <calculation> child)
+            if col_elem.find('.//calculation') is not None:
+                continue
+            # Skip user-filter columns
+            if col_elem.get('user:auto-column', '') == 'sheet_link':
+                continue
+            ds_columns[col_name] = {
+                'name': col_name.strip('[]'),
+                'datatype': col_elem.get('datatype', 'string'),
+                'ordinal': 0,
+                'length': None,
+                'nullable': True
+            }
+        
+        # Populate columns for each table that needs them
+        for table in tables_needing_columns:
+            tname = table['name']
+            col_keys = table_col_names.get(tname, [])
+            ordinal = 0
+            for key in col_keys:
+                if key in ds_columns:
+                    col = dict(ds_columns[key])
+                    col['ordinal'] = ordinal
+                    ordinal += 1
+                    table['columns'].append(col)
+
+    # Phase 3: For tables STILL with no columns, extract from
+    # <metadata-records><metadata-record class='column'>.
+    # This is the primary column source for SQL Server and similar
+    # connections where <relation> elements are self-closing (no nested
+    # <columns>) and no <cols><map> entries exist.
+    still_needing = [t for t in raw_tables.values() if not t['columns']]
+    if still_needing:
+        # Build mapping: table_name -> [column_dict, ...] from metadata-records
+        metadata_table_cols = {}  # table_name -> [col, ...]
+        for mr in datasource_elem.findall('.//metadata-record[@class="column"]'):
+            remote_name = (mr.findtext('remote-name') or '').strip()
+            local_name = (mr.findtext('local-name') or '').strip()
+            parent_name = (mr.findtext('parent-name') or '').strip().strip('[]')
+            local_type = (mr.findtext('local-type') or 'string').strip()
+            ordinal_text = (mr.findtext('ordinal') or '0').strip()
+            contains_null = (mr.findtext('contains-null') or 'true').strip()
+
+            col_name = local_name.strip('[]') if local_name else remote_name
+            if not col_name or not parent_name:
+                continue
+
+            try:
+                ordinal_val = int(ordinal_text)
+            except ValueError:
+                ordinal_val = 0
+
+            col = {
+                'name': col_name,
+                'datatype': local_type,
+                'ordinal': ordinal_val,
+                'length': None,
+                'nullable': contains_null == 'true',
+            }
+            metadata_table_cols.setdefault(parent_name, []).append(col)
+
+        for table in still_needing:
+            tname = table['name']
+            meta_cols = metadata_table_cols.get(tname, [])
+            if meta_cols:
+                # Sort by ordinal for consistent column order
+                meta_cols.sort(key=lambda c: c['ordinal'])
+                table['columns'] = meta_cols
+
+    # Phase 4: Last-resort fallback — if a table still has no columns,
+    # populate from datasource-level <column> elements that are NOT
+    # calculations (physical columns only).  This covers edge cases
+    # where neither <columns>, <cols><map>, nor <metadata-records> exist.
+    final_needing = [t for t in raw_tables.values() if not t['columns']]
+    if final_needing:
+        ds_phys_cols = []
+        ordinal = 0
+        for col_elem in datasource_elem.findall('./column'):
+            if col_elem.find('.//calculation') is not None:
+                continue
+            if col_elem.get('user:auto-column', '') == 'sheet_link':
+                continue
+            col_name = col_elem.get('name', '').strip('[]')
+            if not col_name:
+                continue
+            ds_phys_cols.append({
+                'name': col_name,
+                'datatype': col_elem.get('datatype', 'string'),
+                'ordinal': ordinal,
+                'length': None,
+                'nullable': True,
+            })
+            ordinal += 1
+
+        if ds_phys_cols:
+            for table in final_needing:
+                table['columns'] = list(ds_phys_cols)
+
+    return list(raw_tables.values())
+
+
+def extract_column_metadata(datasource_elem):
+    """Extracts complete column metadata"""
+    columns = []
+    
+    for col_elem in datasource_elem.findall('.//column'):
+        column = {
+            'name': col_elem.get('name', ''),
+            'caption': col_elem.get('caption', ''),
+            'datatype': col_elem.get('datatype', 'string'),
+            'role': col_elem.get('role', 'dimension'),
+            'type': col_elem.get('type', 'nominal'),
+            'hidden': col_elem.get('hidden', 'false') == 'true',
+            'semantic_role': col_elem.get('semantic-role', ''),
+            'default_aggregation': col_elem.get('default-type', ''),
+            'default_format': col_elem.get('default-format', ''),
+            'description': col_elem.get('desc', ''),
+            'calculation': None
+        }
+        
+        # Check if it is a calculation
+        calc_elem = col_elem.find('.//calculation')
+        if calc_elem is not None:
+            column['calculation'] = {
+                'class': calc_elem.get('class', 'tableau'),
+                'formula': calc_elem.get('formula', '')
+            }
+        
+        columns.append(column)
+    
+    return columns
+
+
+def extract_calculations(datasource_elem):
+    """Extracts Tableau calculations with formulas"""
+    calculations = []
+    
+    for col_elem in datasource_elem.findall('.//column'):
+        calc_elem = col_elem.find('.//calculation')
+        if calc_elem is not None:
+            calculation = {
+                'name': col_elem.get('name', ''),
+                'caption': col_elem.get('caption', col_elem.get('name', '')),
+                'formula': calc_elem.get('formula', ''),
+                'class': calc_elem.get('class', 'tableau'),
+                'datatype': col_elem.get('datatype', 'real'),
+                'role': col_elem.get('role', 'measure'),
+                'type': col_elem.get('type', 'quantitative')
+            }
+            calculations.append(calculation)
+    
+    return calculations
+
+
+def extract_relationships(datasource_elem):
+    """Extracts relationships between tables from Tableau joins.
+    
+    Handles two Tableau column reference formats in join clauses:
+    - [Table].[Column] — explicit table prefix
+    - [Column]          — bare column, table inferred from child relations
+    """
+    relationships = []
+    seen = set()  # Avoid duplicates
+    
+    # Search for joins in relations
+    for relation in datasource_elem.findall('.//relation[@type="join"]'):
+        join_type = relation.get('join', 'inner')
+        
+        # Collect direct child relation names for table inference
+        # (first child = left table, second child = right table)
+        child_relations = []
+        for child in relation:
+            if child.tag == 'relation':
+                child_name = child.get('name', '')
+                if child_name:
+                    child_relations.append(child_name)
+                else:
+                    # Nested join — recurse into its children to find the first table
+                    for gc in child:
+                        if gc.tag == 'relation' and gc.get('name'):
+                            child_relations.append(gc.get('name'))
+                            break
+                        elif gc.tag == 'relation' and gc.get('type') == 'join':
+                            # Deeper nesting: find leftmost leaf table
+                            for ggc in gc:
+                                if ggc.tag == 'relation' and ggc.get('name'):
+                                    child_relations.append(ggc.get('name'))
+                                    break
+                            if child_relations:
+                                break
+        
+        # Extract columns from clause expressions
+        for clause in relation.findall('./clause'):
+            pairs = []
+            eq_expr = clause.find('./expression[@op="="]')
+            if eq_expr is not None:
+                for sub_expr in eq_expr.findall('./expression'):
+                    op = sub_expr.get('op', '')
+                    # Try [Table].[Column] format first
+                    matches = re.findall(r'\[([^\]]+)\]\.\[([^\]]+)\]', op)
+                    if matches:
+                        pairs.append({'table': matches[0][0], 'column': matches[0][1]})
+                    else:
+                        # Bare [Column] format — table inferred from child relations
+                        bare = re.findall(r'\[([^\]]+)\]', op)
+                        if bare:
+                            pairs.append({'table': '', 'column': bare[0]})
+            
+            # Resolve bare table names from child relation order
+            if len(pairs) == 2:
+                for i, pair in enumerate(pairs):
+                    if not pair['table'] and i < len(child_relations):
+                        pair['table'] = child_relations[i]
+                    elif not pair['table']:
+                        # Fallback: use the other pair's table info to guess
+                        other_idx = 1 - i
+                        if child_relations:
+                            # Use the first child relation that isn't the other pair's table
+                            for cr in child_relations:
+                                if cr != pairs[other_idx].get('table', ''):
+                                    pair['table'] = cr
+                                    break
+
+                if pairs[0]['table'] and pairs[1]['table']:
+                    key = (pairs[0]['table'], pairs[0]['column'],
+                           pairs[1]['table'], pairs[1]['column'])
+                    if key not in seen:
+                        seen.add(key)
+                        relationships.append({
+                            'type': join_type,
+                            'left': {'table': pairs[0]['table'], 'column': pairs[0]['column']},
+                            'right': {'table': pairs[1]['table'], 'column': pairs[1]['column']}
+                        })
+    
+    # --- New format: Object Model relationships (modern Tableau) ---
+    for elem in datasource_elem.iter():
+        if elem.tag and elem.tag.endswith('object-graph'):
+            for rel_elem in elem.findall('.//relationship'):
+                expr = rel_elem.get('expression', '')
+                join_type = rel_elem.get('type', 'Left').lower()
+                matches = re.findall(r'\[([^\]]+)\]\.\[([^\]]+)\]', expr)
+                if len(matches) >= 2:
+                    left_table, left_col = matches[0]
+                    right_table, right_col = matches[1]
+                    key = (left_table, left_col, right_table, right_col)
+                    if key not in seen:
+                        seen.add(key)
+                        relationships.append({
+                            'type': join_type,
+                            'left': {'table': left_table, 'column': left_col},
+                            'right': {'table': right_table, 'column': right_col}
+                        })
+    
+    return relationships
+
+
+# â”€â”€ Re-exports from extracted modules â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# These functions were extracted for maintainability but are re-exported here
+# so that ALL existing imports remain valid (backward compatibility).
+
+from .dax_converter import (              # noqa: E402
+    convert_tableau_formula_to_dax,
+    map_tableau_to_powerbi_type,
+)
+
+from .m_query_builder import (            # noqa: E402
+    generate_power_query_m,
+    map_tableau_to_m_type,
+    inject_m_steps,
+    m_transform_rename,
+    m_transform_remove_columns,
+    m_transform_select_columns,
+    m_transform_filter_values,
+    m_transform_filter_nulls,
+    m_transform_aggregate,
+    m_transform_unpivot,
+    m_transform_unpivot_other,
+    m_transform_pivot,
+    m_transform_join,
+    m_transform_union,
+    m_transform_sort,
+    m_transform_add_column,
+    m_transform_conditional_column,
+)

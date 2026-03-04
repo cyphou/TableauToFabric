@@ -1,0 +1,159 @@
+name: TableauToFabric - CI Tests
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+  checks: write
+
+jobs:
+  unit-tests:
+    name: Unit & Non-Regression Tests
+    runs-on: windows-latest
+    timeout-minutes: 10
+    strategy:
+      matrix:
+        python-version: ["3.8", "3.9", "3.10", "3.11", "3.12"]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Display Python version
+        run: python --version
+
+      - name: Run unit tests
+        shell: pwsh
+        run: |
+          $result = python -m unittest discover tests/ -v 2>&1
+          $result | ForEach-Object { Write-Host $_ }
+
+          # Extract test summary from output
+          $summary = $result | Select-String -Pattern "^Ran \d+ tests?" | Select-Object -Last 1
+          $failures = $result | Select-String -Pattern "^(FAILED|OK)" | Select-Object -Last 1
+
+          Write-Host ""
+          Write-Host "=============================="
+          Write-Host "  $summary"
+          Write-Host "  Result: $failures"
+          Write-Host "=============================="
+
+          # Fail if any test failed
+          if ($result | Select-String -Pattern "^FAILED") {
+            Write-Error "Unit tests failed."
+            exit 1
+          }
+
+      - name: Run tests with XML output
+        if: always()
+        shell: pwsh
+        run: |
+          # Install xmlrunner for JUnit XML output
+          python -m pip install --quiet unittest-xml-reporting
+
+          python -m xmlrunner discover tests/ -o test-results/ -v 2>&1 | ForEach-Object { Write-Host $_ }
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-py${{ matrix.python-version }}
+          path: ./test-results/*.xml
+          retention-days: 30
+
+      - name: Publish test report
+        if: always() && matrix.python-version == '3.11'
+        uses: dorny/test-reporter@v1
+        with:
+          name: Python ${{ matrix.python-version }} Test Results
+          path: ./test-results/*.xml
+          reporter: java-junit
+          fail-on-error: true
+
+  lint:
+    name: Code Quality Checks
+    runs-on: windows-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Check syntax (py_compile)
+        shell: pwsh
+        run: |
+          $errors = @()
+          Get-ChildItem -Recurse -Filter "*.py" -Exclude "__pycache__" |
+            Where-Object { $_.FullName -notmatch '__pycache__' } |
+            ForEach-Object {
+              $result = python -m py_compile $_.FullName 2>&1
+              if ($LASTEXITCODE -ne 0) {
+                $errors += $_.FullName
+                Write-Host "FAIL: $($_.FullName)" -ForegroundColor Red
+                Write-Host $result
+              } else {
+                Write-Host "OK:   $($_.FullName)" -ForegroundColor Green
+              }
+            }
+
+          if ($errors.Count -gt 0) {
+            Write-Error "$($errors.Count) file(s) have syntax errors."
+            exit 1
+          }
+          Write-Host ""
+          Write-Host "All Python files compile successfully." -ForegroundColor Green
+
+      - name: Check imports
+        shell: pwsh
+        run: |
+          # Verify key modules can be imported
+          $modules = @(
+            "tableau_export.extract_tableau_data",
+            "tableau_export.datasource_extractor",
+            "tableau_export.dax_converter",
+            "tableau_export.m_query_builder",
+            "tableau_export.prep_flow_parser",
+            "fabric_import.import_to_fabric",
+            "fabric_import.lakehouse_generator",
+            "fabric_import.dataflow_generator",
+            "fabric_import.notebook_generator",
+            "fabric_import.semantic_model_generator",
+            "fabric_import.pipeline_generator",
+            "fabric_import.pbip_generator",
+            "fabric_import.tmdl_generator",
+            "fabric_import.visual_generator",
+            "fabric_import.calc_column_utils",
+            "fabric_import.validator"
+          )
+
+          $failed = @()
+          foreach ($mod in $modules) {
+            $result = python -c "import $mod" 2>&1
+            if ($LASTEXITCODE -ne 0) {
+              $failed += $mod
+              Write-Host "FAIL: $mod" -ForegroundColor Red
+            } else {
+              Write-Host "OK:   $mod" -ForegroundColor Green
+            }
+          }
+
+          if ($failed.Count -gt 0) {
+            Write-Error "$($failed.Count) module(s) failed to import."
+            exit 1
+          }
+          Write-Host ""
+          Write-Host "All $($modules.Count) modules import successfully." -ForegroundColor Green

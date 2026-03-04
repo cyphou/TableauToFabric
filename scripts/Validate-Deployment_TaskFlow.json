@@ -1,0 +1,66 @@
+{
+  "name": "Deployment Validation",
+  "description": "Comprehensive post-deployment validation of all Tableau-to-Fabric migration artifacts, connections, lakehouse tables, and semantic model integrity.",
+  "tasks": [
+    {
+      "id": "task-01",
+      "name": "Verify Workspace",
+      "description": "Check workspace exists and is accessible via Fabric REST API.",
+      "taskType": "General"
+    },
+    {
+      "id": "task-02",
+      "name": "List Workspace Items",
+      "description": "Retrieve all items in the workspace via paginated GET /workspaces/{id}/items to verify presence of expected artifacts.",
+      "taskType": "General"
+    },
+    {
+      "id": "task-03",
+      "name": "Validate Item Presence",
+      "description": "Compare expected artifacts from project directory against workspace items. Check for Lakehouse, Notebook, Dataflow, SemanticModel, Report, Pipeline.",
+      "taskType": "General"
+    },
+    {
+      "id": "task-04",
+      "name": "Check SQL Endpoint",
+      "description": "Verify Lakehouse SQL analytics endpoint is provisioned and returns a valid connection string.",
+      "taskType": "General"
+    },
+    {
+      "id": "task-05",
+      "name": "Check Lakehouse Tables",
+      "description": "Enumerate Delta tables in each Lakehouse via GET /lakehouses/{id}/tables and verify expected tables exist.",
+      "taskType": "General"
+    },
+    {
+      "id": "task-06",
+      "name": "Check Dataflow Connections",
+      "description": "Verify DataflowGen2 connections are bound with OAuth2 credentials for data refresh capability.",
+      "taskType": "General"
+    },
+    {
+      "id": "task-07",
+      "name": "Validate Workspace Folders",
+      "description": "Check that workspace folders exist and items are correctly organized.",
+      "taskType": "General"
+    },
+    {
+      "id": "task-08",
+      "name": "Report Summary",
+      "description": "Generate pass/fail summary report for all validation checks with detailed status per item and portal link.",
+      "taskType": "General"
+    }
+  ],
+  "connectors": [
+    { "id": "conn-01", "startTaskId": "task-01", "endTaskId": "task-02" },
+    { "id": "conn-02", "startTaskId": "task-02", "endTaskId": "task-03" },
+    { "id": "conn-03", "startTaskId": "task-03", "endTaskId": "task-04" },
+    { "id": "conn-04", "startTaskId": "task-03", "endTaskId": "task-05" },
+    { "id": "conn-05", "startTaskId": "task-03", "endTaskId": "task-06" },
+    { "id": "conn-06", "startTaskId": "task-03", "endTaskId": "task-07" },
+    { "id": "conn-07", "startTaskId": "task-04", "endTaskId": "task-08" },
+    { "id": "conn-08", "startTaskId": "task-05", "endTaskId": "task-08" },
+    { "id": "conn-09", "startTaskId": "task-06", "endTaskId": "task-08" },
+    { "id": "conn-10", "startTaskId": "task-07", "endTaskId": "task-08" }
+  ]
+}

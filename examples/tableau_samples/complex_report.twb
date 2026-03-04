@@ -1,0 +1,506 @@
+<?xml version='1.0' encoding='utf-8' ?>
+<!--
+  COMPLEX REPORT EXAMPLE — Financial Analytics Suite
+  ═══════════════════════════════════════════════════
+  Scenario: Multi-datasource workbook with 4 joined tables across SQL Server
+            and Excel, LOD expressions, CASE WHEN, SUM(IF), window functions,
+            row-level security, parameters, groups/sets/bins, hierarchy,
+            6 worksheets (bar, line, scatter, map, pie, table), 2 dashboards,
+            actions, story, custom SQL, and a tooltip worksheet.
+  Demonstrates:
+    - Multi-table joins (Orders → Customers → Products → Regions)
+    - Excel data source (budget targets)
+    - Custom SQL datasource
+    - LOD expressions: FIXED, INCLUDE, EXCLUDE
+    - CASE WHEN → SWITCH
+    - SUM(IF) → SUMX iterator
+    - Window functions (RUNNING_SUM)
+    - Multiple calculated fields (measures + dimensions)
+    - Row-Level Security (user filter on Region)
+    - Parameters: integer range + string list
+    - Groups, Sets, Bins
+    - Hierarchies (Product → SubCategory → Product)
+    - 6 worksheet types: Bar, Line, Scatter, Map, Pie, Text (table)
+    - 2 dashboards with title + logo + web embed + filters
+    - Cross-filter action + URL navigation action
+    - Story with 3 story points
+    - Tooltips, sort orders, aliases
+
+  Usage:
+    python migrate.py examples/tableau_samples/complex_report.twb
+-->
+<workbook version='18.1' xml:base='https://localhost'>
+  <datasources>
+    <!-- ───────────────── Primary datasource: SQL Server ───────────────── -->
+    <datasource name='FinanceDS' caption='Financial Data'>
+      <connection class='federated'>
+        <named-connections>
+          <named-connection name='sqlconn1' caption='SQL Server - FinanceDB'>
+            <connection class='sqlserver' server='sql-finance.contoso.com'
+                        dbname='FinanceDB' authentication='sspi' />
+          </named-connection>
+        </named-connections>
+
+        <!-- Join chain: Orders → Customers, Orders → Products, Orders → Regions -->
+        <relation type='join' join='left'>
+          <clause>
+            <expression op='='>
+              <expression op='[Orders].[RegionID]' />
+              <expression op='[Regions].[RegionID]' />
+            </expression>
+          </clause>
+
+          <relation type='join' join='inner'>
+            <clause>
+              <expression op='='>
+                <expression op='[Orders].[ProductID]' />
+                <expression op='[Products].[ProductID]' />
+              </expression>
+            </clause>
+
+            <relation type='join' join='inner'>
+              <clause>
+                <expression op='='>
+                  <expression op='[Orders].[CustomerID]' />
+                  <expression op='[Customers].[CustomerID]' />
+                </expression>
+              </clause>
+
+              <relation type='table' name='Orders' connection='sqlconn1'>
+                <columns>
+                  <column name='OrderID' datatype='integer' ordinal='0' />
+                  <column name='CustomerID' datatype='integer' ordinal='1' />
+                  <column name='ProductID' datatype='integer' ordinal='2' />
+                  <column name='RegionID' datatype='integer' ordinal='3' />
+                  <column name='OrderDate' datatype='date' ordinal='4' />
+                  <column name='ShipDate' datatype='date' ordinal='5' />
+                  <column name='Revenue' datatype='real' ordinal='6' />
+                  <column name='Cost' datatype='real' ordinal='7' />
+                  <column name='Quantity' datatype='integer' ordinal='8' />
+                  <column name='Discount' datatype='real' ordinal='9' />
+                  <column name='OrderStatus' datatype='string' ordinal='10' />
+                  <column name='ShipMode' datatype='string' ordinal='11' />
+                  <column name='Priority' datatype='string' ordinal='12' />
+                </columns>
+              </relation>
+
+              <relation type='table' name='Customers' connection='sqlconn1'>
+                <columns>
+                  <column name='CustomerID' datatype='integer' ordinal='0' />
+                  <column name='CustomerName' datatype='string' ordinal='1' />
+                  <column name='Segment' datatype='string' ordinal='2' />
+                  <column name='Email' datatype='string' ordinal='3' />
+                  <column name='JoinDate' datatype='date' ordinal='4' />
+                </columns>
+              </relation>
+            </relation>
+
+            <relation type='table' name='Products' connection='sqlconn1'>
+              <columns>
+                <column name='ProductID' datatype='integer' ordinal='0' />
+                <column name='ProductName' datatype='string' ordinal='1' />
+                <column name='Category' datatype='string' ordinal='2' />
+                <column name='SubCategory' datatype='string' ordinal='3' />
+                <column name='UnitPrice' datatype='real' ordinal='4' />
+              </columns>
+            </relation>
+          </relation>
+
+          <relation type='table' name='Regions' connection='sqlconn1'>
+            <columns>
+              <column name='RegionID' datatype='integer' ordinal='0' />
+              <column name='RegionName' datatype='string' ordinal='1' />
+              <column name='Country' datatype='string' ordinal='2' />
+              <column name='State' datatype='string' ordinal='3' />
+              <column name='City' datatype='string' ordinal='4' />
+              <column name='Latitude' datatype='real' ordinal='5' semantic-role='[Geographical].[Latitude]' />
+              <column name='Longitude' datatype='real' ordinal='6' semantic-role='[Geographical].[Longitude]' />
+            </columns>
+          </relation>
+        </relation>
+      </connection>
+
+      <!-- ── Calculated fields ── -->
+
+      <!-- Measure: Profit -->
+      <column name='[Profit]' caption='Profit' datatype='real'
+              role='measure' type='quantitative'>
+        <calculation class='tableau' formula='[Revenue] - [Cost]' />
+      </column>
+
+      <!-- Measure: Profit Margin -->
+      <column name='[Profit Margin]' caption='Profit Margin' datatype='real'
+              role='measure' type='quantitative' default-format='0.0%'>
+        <calculation class='tableau' formula='SUM([Revenue] - [Cost]) / SUM([Revenue])' />
+      </column>
+
+      <!-- Measure: Net Revenue (SUM of IF — iterator conversion) -->
+      <column name='[Net Revenue]' caption='Net Revenue' datatype='real'
+              role='measure' type='quantitative'>
+        <calculation class='tableau'
+                     formula='SUM(IF [OrderStatus] != "Cancelled" THEN [Revenue] * (1 - [Discount]) ELSE 0 END)' />
+      </column>
+
+      <!-- Measure: LOD — Customer Lifetime Value (FIXED) -->
+      <column name='[Customer LTV]' caption='Customer LTV' datatype='real'
+              role='measure' type='quantitative'>
+        <calculation class='tableau'
+                     formula='{FIXED [CustomerID] : SUM([Revenue])}' />
+      </column>
+
+      <!-- Measure: LOD — Category Avg excl Region (EXCLUDE) -->
+      <column name='[Avg Sales excl Region]' caption='Avg Sales excl Region' datatype='real'
+              role='measure' type='quantitative'>
+        <calculation class='tableau'
+                     formula='{EXCLUDE [RegionName] : AVG([Revenue])}' />
+      </column>
+
+      <!-- Measure: Running Total (window function) -->
+      <column name='[Running Revenue]' caption='Running Revenue' datatype='real'
+              role='measure' type='quantitative'>
+        <calculation class='tableau' formula='RUNNING_SUM(SUM([Revenue]))' />
+      </column>
+
+      <!-- Dimension: Priority Label (CASE WHEN → SWITCH) -->
+      <column name='[Priority Label]' caption='Priority Label' datatype='string'
+              role='dimension' type='nominal'>
+        <calculation class='tableau'
+                     formula='CASE [Priority] WHEN "Critical" THEN "🔴 Critical" WHEN "High" THEN "🟠 High" WHEN "Medium" THEN "🟡 Medium" WHEN "Low" THEN "🟢 Low" ELSE "⚪ Unknown" END' />
+      </column>
+
+      <!-- Dimension: Revenue Tier (IF/ELSEIF — materialised in Lakehouse) -->
+      <column name='[Revenue Tier]' caption='Revenue Tier' datatype='string'
+              role='dimension' type='nominal'>
+        <calculation class='tableau'
+                     formula='IF [Revenue] > 10000 THEN "Platinum" ELSEIF [Revenue] > 5000 THEN "Gold" ELSEIF [Revenue] > 1000 THEN "Silver" ELSE "Bronze" END' />
+      </column>
+
+      <!-- Measure: Days to Ship (DATEDIFF) -->
+      <column name='[Days to Ship]' caption='Days to Ship' datatype='integer'
+              role='measure' type='quantitative'>
+        <calculation class='tableau'
+                     formula="DATEDIFF('day', [OrderDate], [ShipDate])" />
+      </column>
+
+      <!-- Measure: Discount Applied flag (ZN + CONTAINS) -->
+      <column name='[Has Discount]' caption='Has Discount' datatype='string'
+              role='dimension' type='nominal'>
+        <calculation class='tableau'
+                     formula='IF ZN([Discount]) > 0 THEN "Yes" ELSE "No" END' />
+      </column>
+
+      <!-- ── Parameter: Year Selector (integer range) ── -->
+      <column name='[Parameters].[Year Selector]' caption='Year Selector'
+              datatype='integer' param-domain-type='range' value='2024'>
+        <range min='2018' max='2026' granularity='1' />
+      </column>
+
+      <!-- ── Parameter: Segment Filter (string list) ── -->
+      <column name='[Parameters].[Segment Filter]' caption='Segment Filter'
+              datatype='string' param-domain-type='list' value='All'>
+        <members>
+          <member value='All' />
+          <member value='Consumer' />
+          <member value='Corporate' />
+          <member value='Home Office' />
+        </members>
+      </column>
+
+      <!-- ── Hierarchy: Product Category ── -->
+      <drill-path name='Product Hierarchy'>
+        <field name='[Category]' />
+        <field name='[SubCategory]' />
+        <field name='[ProductName]' />
+      </drill-path>
+
+      <!-- ── Hierarchy: Geography ── -->
+      <drill-path name='Geography'>
+        <field name='[Country]' />
+        <field name='[State]' />
+        <field name='[City]' />
+      </drill-path>
+
+      <!-- ── Group: Customer Segment Groups ── -->
+      <group name='[Segment Group]' caption='Segment Group'>
+        <groupfilter function='union'>
+          <groupfilter function='member' level='[Segment]' member='Consumer' />
+          <groupfilter function='member' level='[Segment]' member='Home Office' />
+        </groupfilter>
+      </group>
+
+      <!-- ── Set: Top Customers ── -->
+      <column name='[Top Customers-set-]' caption='Top Customers' datatype='boolean'
+              role='dimension' type='nominal'>
+        <set formula='[Revenue] > 5000' />
+      </column>
+
+      <!-- ── Bin: Revenue Bins (size 500) ── -->
+      <column name='[Revenue Bin]' caption='Revenue Bin' datatype='integer'
+              role='dimension' type='ordinal'>
+        <bin source='[Revenue]' size='500' />
+      </column>
+
+      <!-- ── Aliases ── -->
+      <aliases>
+        <alias key='Corp' value='Corporate' />
+        <alias key='HO' value='Home Office' />
+        <alias key='Con' value='Consumer' />
+      </aliases>
+
+      <!-- ── Row-Level Security: User filter on Region ── -->
+      <user-filter name='RegionSecurity' column='RegionName'>
+        <member user='alice@contoso.com' value='East' />
+        <member user='alice@contoso.com' value='West' />
+        <member user='bob@contoso.com' value='Central' />
+        <member user='charlie@contoso.com' value='South' />
+      </user-filter>
+    </datasource>
+
+    <!-- ───────────────── Secondary datasource: Excel (Budget) ───────────────── -->
+    <datasource name='BudgetDS' caption='Budget Targets'>
+      <connection class='federated'>
+        <named-connections>
+          <named-connection name='xlconn1' caption='Excel - Budget'>
+            <connection class='excel-direct' filename='\\\\fileserver\\data\\Budget_2024.xlsx'
+                        cleaning='yes' />
+          </named-connection>
+        </named-connections>
+        <relation type='table' name='Targets' connection='xlconn1'>
+          <columns>
+            <column name='Category' datatype='string' ordinal='0' />
+            <column name='Region' datatype='string' ordinal='1' />
+            <column name='TargetRevenue' datatype='real' ordinal='2' />
+            <column name='TargetProfit' datatype='real' ordinal='3' />
+            <column name='FiscalYear' datatype='integer' ordinal='4' />
+          </columns>
+        </relation>
+      </connection>
+
+      <!-- Budget vs Actual -->
+      <column name='[Budget Variance]' caption='Budget Variance' datatype='real'
+              role='measure' type='quantitative' default-format='0.0%'>
+        <calculation class='tableau'
+                     formula='(SUM([Revenue]) - SUM([TargetRevenue])) / SUM([TargetRevenue])' />
+      </column>
+    </datasource>
+
+    <!-- ───────────────── Custom SQL datasource ───────────────── -->
+    <datasource name='CustomSQLDS' caption='Monthly Summary'>
+      <connection class='federated'>
+        <named-connections>
+          <named-connection name='sqlconn2' caption='SQL Server - FinanceDB (Custom)'>
+            <connection class='sqlserver' server='sql-finance.contoso.com'
+                        dbname='FinanceDB' authentication='sspi' />
+          </named-connection>
+        </named-connections>
+        <relation type='text' name='MonthlySummary' connection='sqlconn2'>
+          SELECT
+              YEAR(OrderDate)  AS OrderYear,
+              MONTH(OrderDate) AS OrderMonth,
+              Category,
+              SUM(Revenue)     AS TotalRevenue,
+              SUM(Cost)        AS TotalCost,
+              COUNT(*)         AS OrderCount
+          FROM Orders
+          GROUP BY YEAR(OrderDate), MONTH(OrderDate), Category
+        </relation>
+      </connection>
+    </datasource>
+  </datasources>
+
+  <worksheets>
+    <!-- WS 1: Clustered Bar — Revenue by Category + Segment -->
+    <worksheet name='Revenue by Category'>
+      <table>
+        <rows>[FinanceDS].[sum:Revenue:qk]</rows>
+        <cols>[FinanceDS].[none:Category:nk]</cols>
+        <pane>
+          <mark class='Bar' />
+        </pane>
+        <encodings>
+          <color column='[FinanceDS].[none:Segment:nk]' />
+          <tooltip column='[FinanceDS].[sum:Profit:qk]' />
+          <label column='[FinanceDS].[sum:Revenue:qk]' show-label='true' />
+        </encodings>
+      </table>
+      <sort column='[Revenue]' direction='DESC' />
+      <filter column='[FinanceDS].[none:OrderStatus:nk]'>
+        <groupfilter function='union'>
+          <groupfilter function='member' member='Completed' />
+          <groupfilter function='member' member='Shipped' />
+        </groupfilter>
+      </filter>
+    </worksheet>
+
+    <!-- WS 2: Line — Monthly Revenue Trend -->
+    <worksheet name='Revenue Trend'>
+      <table>
+        <rows>[FinanceDS].[sum:Revenue:qk]</rows>
+        <cols>[FinanceDS].[none:OrderDate:nk]</cols>
+        <pane>
+          <mark class='Line' />
+        </pane>
+        <encodings>
+          <color column='[FinanceDS].[none:Category:nk]' />
+          <size column='[FinanceDS].[sum:Quantity:qk]' />
+        </encodings>
+      </table>
+    </worksheet>
+
+    <!-- WS 3: Scatter — Profit vs Revenue by Customer -->
+    <worksheet name='Profit vs Revenue'>
+      <table>
+        <rows>[FinanceDS].[sum:Profit:qk]</rows>
+        <cols>[FinanceDS].[sum:Revenue:qk]</cols>
+        <pane>
+          <mark class='Shape' />
+        </pane>
+        <encodings>
+          <color column='[FinanceDS].[none:Segment:nk]' />
+          <size column='[FinanceDS].[sum:Quantity:qk]' />
+          <detail column='[FinanceDS].[none:CustomerName:nk]' />
+        </encodings>
+      </table>
+    </worksheet>
+
+    <!-- WS 4: Map — Revenue by Region -->
+    <worksheet name='Regional Map'>
+      <table>
+        <rows>[FinanceDS].[avg:Latitude:qk]</rows>
+        <cols>[FinanceDS].[avg:Longitude:qk]</cols>
+        <pane>
+          <mark class='Map' />
+        </pane>
+        <encodings>
+          <color column='[FinanceDS].[sum:Revenue:qk]' />
+          <size column='[FinanceDS].[sum:Revenue:qk]' />
+          <detail column='[FinanceDS].[none:State:nk]' />
+          <tooltip column='[FinanceDS].[sum:Profit:qk]' />
+        </encodings>
+      </table>
+    </worksheet>
+
+    <!-- WS 5: Pie — Revenue Share by Segment -->
+    <worksheet name='Segment Share'>
+      <table>
+        <rows>[FinanceDS].[sum:Revenue:qk]</rows>
+        <cols></cols>
+        <pane>
+          <mark class='Pie' />
+        </pane>
+        <encodings>
+          <color column='[FinanceDS].[none:Segment:nk]' />
+          <label column='[FinanceDS].[sum:Revenue:qk]' show-label='true' />
+        </encodings>
+      </table>
+    </worksheet>
+
+    <!-- WS 6: Table — Order Details (Crosstab) -->
+    <worksheet name='Order Details'>
+      <table>
+        <rows>[FinanceDS].[none:OrderID:nk] [FinanceDS].[none:OrderDate:nk] [FinanceDS].[none:CustomerName:nk] [FinanceDS].[none:ProductName:nk] [FinanceDS].[sum:Revenue:qk] [FinanceDS].[attr:Priority Label:nk] [FinanceDS].[attr:Revenue Tier:nk]</rows>
+        <cols></cols>
+        <pane>
+          <mark class='Text' />
+        </pane>
+      </table>
+    </worksheet>
+
+    <!-- WS 7: Tooltip — Customer Tooltip (hidden, used as tooltip sheet) -->
+    <worksheet name='Customer Tooltip'>
+      <table>
+        <rows>[FinanceDS].[none:CustomerName:nk] [FinanceDS].[sum:Revenue:qk] [FinanceDS].[attr:Segment:nk] [FinanceDS].[countd:OrderID:qk]</rows>
+        <cols></cols>
+        <pane>
+          <mark class='Text' />
+        </pane>
+      </table>
+    </worksheet>
+  </worksheets>
+
+  <dashboards>
+    <!-- Dashboard 1: Executive Overview -->
+    <dashboard name='Executive Overview' width='1920' height='1080'>
+      <zones>
+        <!-- Title bar -->
+        <zone name='' type='text' id='101' x='0' y='0' w='1920' h='60'>
+          <formatted-text><run>Financial Analytics — Executive Overview</run></formatted-text>
+        </zone>
+        <!-- Company logo -->
+        <zone name='' type='bitmap' id='102' x='1780' y='5' w='120' h='50'>
+          <zone-style><format attr='image' value='logo.png' /></zone-style>
+        </zone>
+        <!-- Bar chart: top-left -->
+        <zone name='Revenue by Category' x='20' y='80' w='630' h='460' />
+        <!-- Line chart: top-center -->
+        <zone name='Revenue Trend' x='670' y='80' w='630' h='460' />
+        <!-- Pie: top-right -->
+        <zone name='Segment Share' x='1320' y='80' w='580' h='460' />
+        <!-- Map: bottom-left -->
+        <zone name='Regional Map' x='20' y='560' w='940' h='480' />
+        <!-- Scatter: bottom-right -->
+        <zone name='Profit vs Revenue' x='980' y='560' w='920' h='480' />
+        <!-- Filters -->
+        <zone name='' type='filter' id='103' param='[FinanceDS].[none:Category:nk]'
+              x='1700' y='560' w='200' h='200' />
+        <zone name='' type='filter' id='104' param='[Parameters].[Year Selector]'
+              x='1700' y='770' w='200' h='80' />
+      </zones>
+      <filter column='[FinanceDS].[none:OrderStatus:nk]'>
+        <groupfilter function='union'>
+          <groupfilter function='member' member='Completed' />
+          <groupfilter function='member' member='Shipped' />
+        </groupfilter>
+      </filter>
+    </dashboard>
+
+    <!-- Dashboard 2: Detail Analysis -->
+    <dashboard name='Detail Analysis' width='1920' height='1080'>
+      <zones>
+        <zone name='' type='text' id='201' x='0' y='0' w='1920' h='60'>
+          <formatted-text><run>Order Detail Analysis</run></formatted-text>
+        </zone>
+        <zone name='Order Details' x='20' y='80' w='1880' h='700' />
+        <!-- Embedded web content -->
+        <zone name='' type='web' id='202' url='https://wiki.contoso.com/finance-definitions'
+              x='20' y='800' w='600' h='240' />
+        <zone name='' type='filter' id='203' param='[FinanceDS].[none:Segment:nk]'
+              x='1700' y='80' w='200' h='200' />
+      </zones>
+    </dashboard>
+  </dashboards>
+
+  <!-- ── Actions ── -->
+  <actions>
+    <!-- Cross-filter: clicking Revenue by Category filters other sheets -->
+    <action name='Filter by Category' type='filter'>
+      <source worksheet='Revenue by Category' />
+      <target worksheet='Revenue Trend' />
+      <target worksheet='Order Details' />
+    </action>
+    <!-- URL action: click a customer to open CRM -->
+    <action name='Open CRM' type='url' url='https://crm.contoso.com/customer?name=&lt;CustomerName&gt;'>
+      <source worksheet='Profit vs Revenue' />
+    </action>
+  </actions>
+
+  <!-- ── Story ── -->
+  <story name='Quarterly Business Review'>
+    <title>Q4 2024 Business Review</title>
+    <story-point captured-sheet='Executive Overview'>
+      <caption>Overall Performance</caption>
+      <description>Revenue, profit, and regional distribution for Q4 2024</description>
+    </story-point>
+    <story-point captured-sheet='Revenue Trend'>
+      <caption>Trend Analysis</caption>
+      <description>Monthly revenue trends across product categories</description>
+      <filter column='[FinanceDS].[none:Category:nk]'>
+        <groupfilter function='member' member='Technology' />
+      </filter>
+    </story-point>
+    <story-point captured-sheet='Detail Analysis'>
+      <caption>Deep Dive</caption>
+      <description>Order-level details for audit and analysis</description>
+    </story-point>
+  </story>
+</workbook>

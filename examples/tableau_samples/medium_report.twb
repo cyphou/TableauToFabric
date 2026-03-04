@@ -1,0 +1,175 @@
+<?xml version='1.0' encoding='utf-8' ?>
+<!--
+  MEDIUM REPORT EXAMPLE — E-Commerce Analytics
+  ═════════════════════════════════════════════
+  Scenario: Two joined tables (Orders + Customers), calculated fields,
+            a parameter, three worksheets, one dashboard with filters,
+            and a color encoding.
+  Demonstrates:
+    - Two-table join (Orders ↔ Customers on CustomerID)
+    - Calculated fields (Profit Ratio, Revenue Tier — one measure, one dimension)
+    - Integer range parameter (Year Selector)
+    - Multiple chart types (Bar, Line, Table)
+    - Dashboard filter on Category
+    - Color encoding by Region
+    - Tooltip encoding
+    - Hierarchy (Geography: Country → State → City)
+    - Aliases
+    - Sort order
+
+  Usage:
+    python migrate.py examples/tableau_samples/medium_report.twb
+-->
+<workbook version='18.1' xml:base='https://localhost'>
+  <datasources>
+    <datasource name='EcommerceDS' caption='E-Commerce Data'>
+      <connection class='federated'>
+        <named-connections>
+          <named-connection name='pgconn1' caption='PostgreSQL - EcommerceDB'>
+            <connection class='postgres' server='pg-analytics.contoso.com'
+                        port='5432' dbname='ecommerce' username='analytics_user'
+                        sslmode='require' />
+          </named-connection>
+        </named-connections>
+
+        <!-- Join: Orders.CustomerID = Customers.CustomerID -->
+        <relation type='join' join='inner'>
+          <clause>
+            <expression op='='>
+              <expression op='[Orders].[CustomerID]' />
+              <expression op='[Customers].[CustomerID]' />
+            </expression>
+          </clause>
+          <relation type='table' name='Orders' connection='pgconn1'>
+            <columns>
+              <column name='OrderID' datatype='integer' ordinal='0' />
+              <column name='CustomerID' datatype='integer' ordinal='1' />
+              <column name='OrderDate' datatype='date' ordinal='2' />
+              <column name='Category' datatype='string' ordinal='3' />
+              <column name='Product' datatype='string' ordinal='4' />
+              <column name='Sales' datatype='real' ordinal='5' />
+              <column name='Profit' datatype='real' ordinal='6' />
+              <column name='Quantity' datatype='integer' ordinal='7' />
+              <column name='Discount' datatype='real' ordinal='8' />
+              <column name='Region' datatype='string' ordinal='9' />
+              <column name='Country' datatype='string' ordinal='10' />
+              <column name='State' datatype='string' ordinal='11' />
+              <column name='City' datatype='string' ordinal='12' />
+            </columns>
+          </relation>
+          <relation type='table' name='Customers' connection='pgconn1'>
+            <columns>
+              <column name='CustomerID' datatype='integer' ordinal='0' />
+              <column name='CustomerName' datatype='string' ordinal='1' />
+              <column name='Segment' datatype='string' ordinal='2' />
+              <column name='Email' datatype='string' ordinal='3' />
+            </columns>
+          </relation>
+        </relation>
+      </connection>
+
+      <!-- Calculated field: Profit Ratio (measure) -->
+      <column name='[Profit Ratio]' caption='Profit Ratio' datatype='real'
+              role='measure' type='quantitative' default-format='0.0%'>
+        <calculation class='tableau' formula='SUM([Profit]) / SUM([Sales])' />
+      </column>
+
+      <!-- Calculated field: Revenue Tier (dimension — will be materialised) -->
+      <column name='[Revenue Tier]' caption='Revenue Tier' datatype='string'
+              role='dimension' type='nominal'>
+        <calculation class='tableau'
+                     formula='IF [Sales] > 500 THEN "High" ELSEIF [Sales] > 100 THEN "Medium" ELSE "Low" END' />
+      </column>
+
+      <!-- Parameter: Year Selector (integer range) -->
+      <column name='[Parameter].[Year Selector]' caption='Year Selector'
+              datatype='integer' param-domain-type='range' value='2024'>
+        <range min='2020' max='2026' granularity='1' />
+      </column>
+
+      <!-- Hierarchy: Geography -->
+      <drill-path name='Geography'>
+        <field name='[Country]' />
+        <field name='[State]' />
+        <field name='[City]' />
+      </drill-path>
+
+      <!-- Aliases for Segment -->
+      <aliases>
+        <alias key='Corp' value='Corporate' />
+        <alias key='HO' value='Home Office' />
+        <alias key='Con' value='Consumer' />
+      </aliases>
+    </datasource>
+  </datasources>
+
+  <worksheets>
+    <!-- Worksheet 1: Bar chart — Sales by Category with color by Region -->
+    <worksheet name='Sales by Category'>
+      <table>
+        <rows>[EcommerceDS].[sum:Sales:qk]</rows>
+        <cols>[EcommerceDS].[none:Category:nk]</cols>
+        <pane>
+          <mark class='Bar' />
+        </pane>
+        <encodings>
+          <color column='[EcommerceDS].[none:Region:nk]' />
+          <tooltip column='[EcommerceDS].[sum:Profit:qk]' />
+        </encodings>
+      </table>
+      <sort column='[Sales]' direction='DESC' />
+    </worksheet>
+
+    <!-- Worksheet 2: Line chart — Monthly Sales Trend -->
+    <worksheet name='Monthly Trend'>
+      <table>
+        <rows>[EcommerceDS].[sum:Sales:qk]</rows>
+        <cols>[EcommerceDS].[none:OrderDate:nk]</cols>
+        <pane>
+          <mark class='Line' />
+        </pane>
+        <encodings>
+          <color column='[EcommerceDS].[none:Category:nk]' />
+        </encodings>
+      </table>
+    </worksheet>
+
+    <!-- Worksheet 3: Table — Customer Details -->
+    <worksheet name='Customer Details'>
+      <table>
+        <rows>[EcommerceDS].[none:CustomerName:nk] [EcommerceDS].[none:Segment:nk] [EcommerceDS].[sum:Sales:qk] [EcommerceDS].[attr:Profit Ratio:qk]</rows>
+        <cols></cols>
+        <pane>
+          <mark class='Text' />
+        </pane>
+      </table>
+    </worksheet>
+  </worksheets>
+
+  <dashboards>
+    <dashboard name='E-Commerce Dashboard' width='1920' height='1080'>
+      <zones>
+        <!-- Title -->
+        <zone name='' type='text' id='1' x='0' y='0' w='1920' h='60'>
+          <formatted-text><run>E-Commerce Analytics</run></formatted-text>
+        </zone>
+        <!-- Bar chart: top-left -->
+        <zone name='Sales by Category' x='20' y='80' w='930' h='460' />
+        <!-- Line chart: top-right -->
+        <zone name='Monthly Trend' x='970' y='80' w='930' h='460' />
+        <!-- Table: bottom -->
+        <zone name='Customer Details' x='20' y='560' w='1880' h='480' />
+        <!-- Filter on Category -->
+        <zone name='' type='filter' id='2' param='[EcommerceDS].[none:Category:nk]'
+              x='1700' y='80' w='200' h='300' />
+      </zones>
+      <!-- Dashboard-level filter -->
+      <filter column='[EcommerceDS].[none:Region:nk]'>
+        <groupfilter function='union'>
+          <groupfilter function='member' member='East' />
+          <groupfilter function='member' member='West' />
+        </groupfilter>
+      </filter>
+    </dashboard>
+  </dashboards>
+</workbook>

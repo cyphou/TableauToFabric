@@ -1,0 +1,12 @@
+# Core
+python-dateutil>=2.8
+
+# Optional — Fabric REST API deployment
+# azure-identity>=1.14
+# requests>=2.28
+
+# Optional — settings with .env support
+# pydantic-settings>=2.0
+
+# Optional — Tableau Server extraction
+# tableauserverclient>=0.25
