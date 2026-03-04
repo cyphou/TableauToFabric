@@ -82,6 +82,13 @@ def convert_worksheet_to_visual(worksheet):
         'reference_lines': worksheet.get('reference_lines', []),
         'pages_shelf': worksheet.get('pages_shelf', {}),
         'table_calcs': worksheet.get('table_calcs', []),
+        'forecasting': worksheet.get('forecasting', []),
+        'map_options': worksheet.get('map_options', {}),
+        'clustering': worksheet.get('clustering', []),
+        'dual_axis': worksheet.get('dual_axis', {}),
+        'padding': worksheet.get('padding', {}),
+        'mark_encoding': worksheet.get('mark_encoding', {}),
+        'axes': worksheet.get('axes', {}),
     }
     
     return powerbi_visual

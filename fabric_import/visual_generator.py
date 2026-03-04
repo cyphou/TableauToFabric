@@ -34,6 +34,21 @@ def _short_id(seed=""):
 
 
 # ═══════════════════════════════════════════════════════════════════
+# Custom Visual GUIDs (AppSource / organizational visuals)
+# Required in PBIR visual.json for non-native visuals.
+# ═══════════════════════════════════════════════════════════════════
+
+CUSTOM_VISUAL_GUIDS = {
+    "wordCloud": "WordCloudChart1448325498220",
+    "sunburst": "Sunburst1702498498015",
+    "sankeyChart": "SankeyDiagram1458024514197",
+    "chordChart": "ChordChart1450714498793",
+    "bulletChart": None,    # native
+    "boxAndWhisker": None,  # native
+}
+
+
+# ═══════════════════════════════════════════════════════════════════
 # 60+ Visual Type Mappings
 # ═══════════════════════════════════════════════════════════════════
 
@@ -164,8 +179,8 @@ VISUAL_TYPE_MAP = {
     "ribbonchart": "ribbonChart",
     "ribbon": "ribbonChart",
     "mekko": "stackedBarChart",
-    "sankey": "decompositionTree",
-    "chord": "decompositionTree",
+    "sankey": "sankeyChart",
+    "chord": "chordChart",
     "network": "decompositionTree",
     "ganttbar": "clusteredBarChart",
     "bumpchart": "lineChart",
@@ -536,6 +551,11 @@ def create_visual_container(worksheet, visual_id=None, x=10, y=10,
         "visualType": pbi_type,
         "drillFilterOtherVisuals": True,
     }
+
+    # Inject custom visual GUID for AppSource visuals
+    guid = CUSTOM_VISUAL_GUIDS.get(pbi_type)
+    if guid:
+        visual_obj["customVisualGuid"] = guid
 
     config = _get_config_template(pbi_type)
     if "autoSelectVisualType" in config:

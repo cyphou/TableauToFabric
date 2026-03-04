@@ -304,6 +304,28 @@ def _build_semantic_model(datasources, report_name="Report", extra_objects=None,
     # Phase 4b: Fix type mismatches
     _fix_relationship_type_mismatches(model)
 
+    # Phase 4c: Data blending relationships
+    blending = extra_objects.get('data_blending', [])
+    for blend in blending:
+        primary_ds = blend.get('primary_datasource', '')
+        secondary_ds = blend.get('secondary_datasource', '')
+        for link in blend.get('link_fields', []):
+            p_field = link.get('primary_field', '')
+            s_field = link.get('secondary_field', '')
+            if p_field and s_field and primary_ds and secondary_ds:
+                key = (primary_ds, p_field, secondary_ds, s_field)
+                if key not in seen_rels:
+                    seen_rels.add(key)
+                    model["model"]["relationships"].append({
+                        "name": f"Blend-{len(model['model']['relationships'])+1}",
+                        "fromTable": secondary_ds,
+                        "fromColumn": s_field,
+                        "toTable": primary_ds,
+                        "toColumn": p_field,
+                        "joinType": "left",
+                        "crossFilteringBehavior": "oneDirection",
+                    })
+
     # Phase 5: Sets, groups, bins as calculated columns
     _process_sets_groups_bins(model, extra_objects, main_table_name, column_table_map)
 

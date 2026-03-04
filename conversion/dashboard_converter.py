@@ -60,6 +60,7 @@ def convert_dashboard_objects(objects):
             'width': obj.get('size', {}).get('width', 300),
             'height': obj.get('size', {}).get('height', 200),
             'z-index': obj.get('z_index', 0),
+            'padding': obj.get('padding', {}),
         }
         
         if obj_type == 'worksheet':
@@ -90,6 +91,27 @@ def convert_dashboard_objects(objects):
                 'type': 'shape',
                 'shapeType': 'rectangle',
                 'fillColor': obj.get('background_color', '#FFFFFF'),
+            }
+        elif obj_type == 'navigation_button':
+            container['visual'] = {
+                'type': 'actionButton',
+                'buttonStyle': 'navigation',
+                'text': obj.get('name', 'Navigate'),
+                'targetSheet': obj.get('target_sheet', ''),
+            }
+        elif obj_type == 'download_button':
+            container['visual'] = {
+                'type': 'actionButton',
+                'buttonStyle': 'export',
+                'text': obj.get('name', 'Download'),
+                'exportType': obj.get('export_type', 'PDF'),
+            }
+        elif obj_type == 'extension':
+            container['visual'] = {
+                'type': 'extension',
+                'extensionId': obj.get('extension_id', ''),
+                'extensionUrl': obj.get('extension_url', ''),
+                'name': obj.get('name', 'Extension'),
             }
         
         visual_containers.append(container)

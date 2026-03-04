@@ -403,6 +403,21 @@ class FabricPBIPGenerator:
                                                             visual_count, calc_id_to_caption,
                                                             converted_objects)
                         visual_count += 1
+                    elif obj.get('type') == 'navigation_button':
+                        self._create_visual_nav_button(visuals_dir, obj, scale_x, scale_y, visual_count)
+                        visual_count += 1
+                    elif obj.get('type') == 'download_button':
+                        self._create_visual_action_button(visuals_dir, obj, scale_x, scale_y, visual_count, 'Export')
+                        visual_count += 1
+
+                # Pages shelf → play axis slicer
+                for ws in worksheets:
+                    ps = ws.get('pages_shelf', {})
+                    if ps and ps.get('field'):
+                        self._create_pages_shelf_slicer(visuals_dir, ps, scale_x, scale_y,
+                                                         visual_count, converted_objects)
+                        visual_count += 1
+                        break  # one pages_shelf slicer per page is sufficient
 
                 print(f"  \U0001f4ca Page '{page_display_name}': {visual_count} visuals")
 
@@ -1203,6 +1218,99 @@ class FabricPBIPGenerator:
                     except (ValueError, TypeError):
                         pass
 
+        # ── Forecast config (analytics pane) ──────────────────
+        forecasts = ws_data.get('forecasting', [])
+        if forecasts:
+            fc = forecasts[0]
+            forecast_obj = {
+                "show": {"expr": {"Literal": {"Value": "true"}}},
+                "forecastLength": {"expr": {"Literal": {"Value": f"{fc.get('periods', 5)}L"}}},
+                "confidenceBandStyle": {"expr": {"Literal": {"Value": "'fill'"}}},
+            }
+            ci = fc.get('prediction_interval', '95')
+            forecast_obj["confidenceLevel"] = {"expr": {"Literal": {"Value": f"'{ci}'"}}}
+            if fc.get('ignore_last', '0') != '0':
+                forecast_obj["ignoreLast"] = {"expr": {"Literal": {"Value": f"{fc['ignore_last']}L"}}}
+            objects["forecast"] = [{"properties": forecast_obj}]
+
+        # ── Map options (washout/style) ───────────────────────
+        map_opts = ws_data.get('map_options', {})
+        if map_opts and visual_type in ('map', 'filledMap'):
+            map_props = {}
+            washout = map_opts.get('washout', '0.0')
+            try:
+                wo_val = float(washout)
+                if wo_val > 0:
+                    map_props["transparency"] = {"expr": {"Literal": {"Value": f"{int(wo_val * 100)}L"}}}
+            except (ValueError, TypeError):
+                pass
+            style = map_opts.get('style', 'road')
+            style_map = {'normal': "'road'", 'light': "'grayscale'", 'dark': "'darkGrayscale'",
+                         'satellite': "'aerial'", 'streets': "'road'"}
+            pbi_style = style_map.get(style.lower(), "'road'")
+            map_props["mapStyle"] = {"expr": {"Literal": {"Value": pbi_style}}}
+            if map_props:
+                objects["mapControl"] = [{"properties": map_props}]
+
+        # ── Per-value color assignments ───────────────────────
+        color_enc = mark_encoding.get('color', {})
+        color_values = color_enc.get('color_values', {})
+        if color_values:
+            dp_rules = []
+            for val, clr in list(color_values.items())[:20]:
+                dp_rules.append({
+                    "properties": {
+                        "fill": {"solid": {"color": {"expr": {"Literal": {"Value": f"'{clr}'"}}}}}
+                    }
+                })
+            if dp_rules:
+                objects["dataPoint"] = dp_rules
+
+        # ── Conditional formatting (gradient scales) ──────────
+        if color_enc.get('type') == 'quantitative' and color_enc.get('palette_colors'):
+            palette = color_enc['palette_colors']
+            if len(palette) >= 2:
+                gradient_props = {
+                    "show": {"expr": {"Literal": {"Value": "true"}}},
+                    "minColor": {"solid": {"color": {"expr": {"Literal": {"Value": f"'{palette[0]}'"}}}}}
+                }
+                if len(palette) >= 3:
+                    gradient_props["midColor"] = {"solid": {"color": {"expr": {"Literal": {"Value": f"'{palette[len(palette)//2]}'"}}}}}
+                gradient_props["maxColor"] = {"solid": {"color": {"expr": {"Literal": {"Value": f"'{palette[-1]}'"}}}}}
+                objects["colorBorder"] = [{"properties": gradient_props}]
+
+        # ── Continuous vs discrete axis scale ─────────────────
+        axes_detail = ws_data.get('axes', {})
+        for axis_key, axis_obj_key in [('x', 'categoryAxis'), ('y', 'valueAxis')]:
+            ax = axes_detail.get(axis_key, {})
+            if ax.get('is_continuous') is True:
+                if axis_obj_key in objects:
+                    objects[axis_obj_key][0]["properties"]["axisType"] = {"expr": {"Literal": {"Value": "'Continuous'"}}}
+            elif ax.get('is_continuous') is False and axis_obj_key in objects:
+                objects[axis_obj_key][0]["properties"]["axisType"] = {"expr": {"Literal": {"Value": "'Categorical'"}}}
+
+        # ── Dual-axis synchronization ─────────────────────────
+        dual_axis = ws_data.get('dual_axis', {})
+        if dual_axis.get('enabled'):
+            if "valueAxis" not in objects:
+                objects["valueAxis"] = [{"properties": {"show": {"expr": {"Literal": {"Value": "true"}}}}}]
+            if dual_axis.get('synchronized'):
+                objects["valueAxis"][0]["properties"]["secShow"] = {"expr": {"Literal": {"Value": "true"}}}
+                objects["valueAxis"][0]["properties"]["secAxisLabel"] = {"expr": {"Literal": {"Value": "true"}}}
+
+        # ── Per-object padding ────────────────────────────────
+        padding = ws_data.get('padding', {})
+        if padding:
+            pad_props = {}
+            for side in ('top', 'bottom', 'left', 'right'):
+                key = f'padding_{side}'
+                mkey = f'margin_{side}'
+                val = padding.get(key, padding.get(mkey, 0))
+                if val:
+                    pad_props[side] = {"expr": {"Literal": {"Value": f"{val}L"}}}
+            if pad_props:
+                objects["visualContainerPadding"] = [{"properties": pad_props}]
+
         return objects
 
     # â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
@@ -1237,6 +1345,72 @@ class FabricPBIPGenerator:
                 }
             }
         return slicer
+
+    def _create_visual_nav_button(self, visuals_dir, obj, scale_x, scale_y, visual_count):
+        """Create a PBI action button that navigates to another page (sheet swapping)."""
+        visual_id = uuid.uuid4().hex[:20]
+        visual_dir = os.path.join(visuals_dir, visual_id)
+        os.makedirs(visual_dir, exist_ok=True)
+        pos = obj.get('position', {})
+        target_sheet = obj.get('target_sheet', '')
+        btn_text = obj.get('name', 'Navigate')
+        visual_json = {
+            "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/2.5.0/schema.json",
+            "name": visual_id,
+            "position": self._make_visual_position(pos, scale_x, scale_y, visual_count),
+            "visual": {
+                "visualType": "actionButton",
+                "objects": {
+                    "icon": [{"properties": {"shapeType": {"expr": {"Literal": {"Value": "'Navigation'"}}}}}],
+                    "text": [{"properties": {"text": {"expr": {"Literal": {"Value": json.dumps(btn_text)}}}}}],
+                    "action": [{"properties": {
+                        "type": {"expr": {"Literal": {"Value": "'PageNavigation'"}}},
+                        "destination": {"expr": {"Literal": {"Value": json.dumps(target_sheet)}}}
+                    }}]
+                }
+            }
+        }
+        with open(os.path.join(visual_dir, 'visual.json'), 'w', encoding='utf-8') as f:
+            json.dump(visual_json, f, indent=2, ensure_ascii=False)
+
+    def _create_visual_action_button(self, visuals_dir, obj, scale_x, scale_y, visual_count, action_type='Export'):
+        """Create a PBI action button (download/export/bookmark)."""
+        visual_id = uuid.uuid4().hex[:20]
+        visual_dir = os.path.join(visuals_dir, visual_id)
+        os.makedirs(visual_dir, exist_ok=True)
+        pos = obj.get('position', {})
+        btn_text = obj.get('name', action_type)
+        visual_json = {
+            "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/2.5.0/schema.json",
+            "name": visual_id,
+            "position": self._make_visual_position(pos, scale_x, scale_y, visual_count),
+            "visual": {
+                "visualType": "actionButton",
+                "objects": {
+                    "icon": [{"properties": {"shapeType": {"expr": {"Literal": {"Value": "'" + action_type + "'"}}}}}],
+                    "text": [{"properties": {"text": {"expr": {"Literal": {"Value": json.dumps(btn_text)}}}}}]
+                }
+            }
+        }
+        with open(os.path.join(visual_dir, 'visual.json'), 'w', encoding='utf-8') as f:
+            json.dump(visual_json, f, indent=2, ensure_ascii=False)
+
+    def _create_pages_shelf_slicer(self, visuals_dir, pages_shelf, scale_x, scale_y, visual_count, converted_objects):
+        """Create an animation-hint slicer from Tableau Pages shelf."""
+        field = pages_shelf.get('field', '')
+        if not field:
+            return
+        table_name = self._find_column_table(field, converted_objects)
+        visual_id = uuid.uuid4().hex[:20]
+        visual_dir = os.path.join(visuals_dir, visual_id)
+        os.makedirs(visual_dir, exist_ok=True)
+        slicer = self._create_slicer_visual(visual_id, 10, 10, 400, 50, field, table_name, visual_count)
+        slicer.setdefault('visual', {}).setdefault('objects', {})
+        slicer['visual']['objects']['general'] = [{'properties': {
+            'comments': {'expr': {'Literal': {'Value': "'Pages Shelf / Play Axis: animate through values'"}}}
+        }}]
+        with open(os.path.join(visual_dir, 'visual.json'), 'w', encoding='utf-8') as f:
+            json.dump(slicer, f, indent=2, ensure_ascii=False)
 
     # â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
     #  UTILITY

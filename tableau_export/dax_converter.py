@@ -151,10 +151,10 @@ _SIMPLE_FUNCTION_MAP = [
     (r'\bREGEXP_EXTRACT_NTH\s*\(', '/* REGEXP_EXTRACT_NTH: no DAX regex — manual conversion needed */ CONTAINSSTRING('),
     (r'\bREGEXP_EXTRACT\s*\(', 'CONTAINSSTRING('),
 
-    # Spatial functions (no DAX equivalent)
-    (r'\bMAKEPOINT\s*\(', '/* MAKEPOINT: no DAX spatial equivalent */ BLANK( /*'),
-    (r'\bMAKELINE\s*\(', '/* MAKELINE: no DAX spatial equivalent */ BLANK( /*'),
-    (r'\bDISTANCE\s*\(', '/* DISTANCE: no DAX spatial equivalent */ 0 + ( /*'),
+    # Spatial functions — MAKEPOINT maps to lat/long column pair hint
+    (r'\bMAKEPOINT\s*\(', '/* MAKEPOINT → use Latitude/Longitude columns in map visual */ BLANK( /*'),
+    (r'\bMAKELINE\s*\(', '/* MAKELINE: use line-layer in map visual */ BLANK( /*'),
+    (r'\bDISTANCE\s*\(', '/* DISTANCE: compute via Haversine or external tool */ 0 + ( /*'),
     (r'\bBUFFER\s*\(', '/* BUFFER: no DAX spatial equivalent */ BLANK( /*'),
     (r'\bAREA\s*\(', '/* AREA: no DAX spatial equivalent */ 0 + ( /*'),
     (r'\bINTERSECTION\s*\(', '/* INTERSECTION: no DAX spatial equivalent */ BLANK( /*'),
@@ -172,8 +172,8 @@ _SIMPLE_FUNCTION_MAP = [
     (r'\bFIRST\s*\(\s*\)', '0'),
     (r'\bLAST\s*\(\s*\)', '0'),
     (r'\bTOTAL\s*\(', 'CALCULATE('),
-    (r'\bPREVIOUS_VALUE\s*\(', '/* PREVIOUS_VALUE: manual conversion needed */ ('),
-    (r'\bLOOKUP\s*\(', '/* LOOKUP: use LOOKUPVALUE */ LOOKUPVALUE('),
+    (r'\bPREVIOUS_VALUE\s*\(', '/* PREVIOUS_VALUE → use OFFSET(-1) or iterative pattern */ CALCULATE( /*'),
+    (r'\bLOOKUP\s*\(', '/* LOOKUP(expr, offset) → OFFSET-based or LOOKUPVALUE */ LOOKUPVALUE('),
     (r'\bSIZE\s*\(\s*\)', 'COUNTROWS()'),
 
     # Additional WINDOW_* table calculations
@@ -1505,3 +1505,26 @@ def _split_args(inner):
     if current:
         args.append(''.join(current).strip())
     return args
+
+
+def generate_combined_field_dax(source_fields, table_name, separator=' '):
+    """Generate DAX expression for a combined field (CONCATENATE of multiple columns).
+    
+    Args:
+        source_fields: List of source column names
+        table_name: Table containing the columns
+        separator: Separator between values (default: space)
+    
+    Returns:
+        str: DAX calculated column expression
+    """
+    if not source_fields:
+        return '""'
+    if len(source_fields) == 1:
+        return f"'{table_name}'[{source_fields[0]}]"
+    parts = [f"'{table_name}'[{f}]" for f in source_fields]
+    sep_literal = f'"{separator}"'
+    # Use nested CONCATENATE pairs for 2 fields, or & for more
+    if len(parts) == 2:
+        return f"{parts[0]} & {sep_literal} & {parts[1]}"
+    return (' & ' + sep_literal + ' & ').join(parts)

@@ -56,6 +56,20 @@ class TableauExtractor:
         self.extract_aliases(root)
         self.extract_custom_sql(root)
         self.extract_user_filters(root)
+        self.extract_custom_geocoding(root)
+        self.extract_published_datasources(root)
+        self.extract_data_blending(root)
+        self.extract_hyper_metadata()
+        
+        # Workbook-level assets from packaged files
+        custom_shapes = self.extract_custom_shapes()
+        if custom_shapes:
+            self.workbook_data['custom_shapes'] = custom_shapes
+            print(f"  ✓ {len(custom_shapes)} custom shapes found in package")
+        embedded_fonts = self.extract_embedded_fonts()
+        if embedded_fonts:
+            self.workbook_data['embedded_fonts'] = embedded_fonts
+            print(f"  ✓ {len(embedded_fonts)} embedded fonts found in package")
         
         # Save the exports
         self.save_extractions()
@@ -107,6 +121,10 @@ class TableauExtractor:
                 'reference_lines': self.extract_reference_lines(worksheet),
                 'pages_shelf': self.extract_pages_shelf(worksheet),
                 'table_calcs': self.extract_table_calcs(worksheet),
+                'forecasting': self.extract_forecasting(worksheet),
+                'map_options': self.extract_map_options(worksheet),
+                'clustering': self.extract_clustering(worksheet),
+                'dual_axis': self.extract_dual_axis_sync(worksheet),
             }
             # Detect viz-in-tooltip worksheet reference
             tooltip_data = ws_data.get('tooltips', [])
@@ -537,20 +555,39 @@ class TableauExtractor:
         return formatting
     
     def extract_tooltips(self, worksheet):
-        """Extracts tooltips (fields and viz-in-tooltip)"""
+        """Extracts tooltips (fields, viz-in-tooltip, and custom formatting per run)"""
         tooltips = []
         
         # Text tooltip from <formatted-text>
         for tooltip_elem in worksheet.findall('.//tooltip'):
             formatted = tooltip_elem.find('.//formatted-text')
             if formatted is not None:
-                # Reconstruct the text
+                # Reconstruct the text with per-run formatting
                 parts = []
+                runs = []
                 for run in formatted.findall('.//run'):
                     if run.text:
                         parts.append(run.text)
+                        run_data = {'text': run.text}
+                        bold = run.get('bold', run.get('fontweight', ''))
+                        if bold and bold.lower() in ('true', 'bold'):
+                            run_data['bold'] = True
+                        color = run.get('fontcolor', run.get('color', ''))
+                        if color:
+                            run_data['color'] = color
+                        font_size = run.get('fontsize', '')
+                        if font_size:
+                            run_data['font_size'] = font_size
+                        # Detect field references <run>[field]</run>
+                        field_match = re.match(r'^\s*\[([^\]]+)\]\s*$', run.text)
+                        if field_match:
+                            run_data['field_ref'] = field_match.group(1)
+                        runs.append(run_data)
                 if parts:
-                    tooltips.append({'type': 'text', 'content': ''.join(parts)})
+                    tt = {'type': 'text', 'content': ''.join(parts)}
+                    if runs:
+                        tt['runs'] = runs
+                    tooltips.append(tt)
             
             # Viz in tooltip (reference to another worksheet)
             viz_ref = tooltip_elem.get('viz', '')
@@ -645,6 +682,48 @@ class TableauExtractor:
                 })
                 continue
             
+            # Navigation button
+            if zone_type == 'nav' or zone.get('type-v2') == 'nav' or zone.get('type-v2') == 'button':
+                target = zone.get('target-sheet', zone.get('param', ''))
+                objects.append({
+                    'type': 'navigation_button',
+                    'name': zone_name or f'nav_{zone_id}',
+                    'target_sheet': target,
+                    'position': pos,
+                    'layout': layout_mode
+                })
+                continue
+            
+            # Download button (export)
+            if zone_type == 'export' or zone.get('type-v2') == 'export':
+                objects.append({
+                    'type': 'download_button',
+                    'name': zone_name or f'download_{zone_id}',
+                    'position': pos,
+                    'layout': layout_mode
+                })
+                continue
+            
+            # Extension object
+            if zone_type == 'extension' or zone.get('type-v2') == 'extension':
+                ext_id = zone.get('extension-id', '')
+                objects.append({
+                    'type': 'extension',
+                    'name': zone_name or f'ext_{zone_id}',
+                    'extension_id': ext_id,
+                    'position': pos,
+                    'layout': layout_mode
+                })
+                continue
+            
+            # Per-object padding/margins
+            obj_padding = {}
+            for pad_attr in ('padding-top', 'padding-bottom', 'padding-left', 'padding-right',
+                             'margin-top', 'margin-bottom', 'margin-left', 'margin-right'):
+                val = zone.get(pad_attr, '')
+                if val:
+                    obj_padding[pad_attr.replace('-', '_')] = int(val)
+            
             # Filtre (quick filter / parameter control)
             if zone_type == 'filter' or zone.get('type-v2') == 'filter':
                 param_ref = zone.get('param', '')
@@ -671,13 +750,16 @@ class TableauExtractor:
             # Worksheet reference (the default case)
             if zone_name and zone_name not in seen_names:
                 seen_names.add(zone_name)
-                objects.append({
+                ws_obj = {
                     'type': 'worksheetReference',
                     'name': zone_name,
                     'worksheetName': zone_name,
                     'position': pos,
                     'layout': layout_mode
-                })
+                }
+                if obj_padding:
+                    ws_obj['padding'] = obj_padding
+                objects.append(ws_obj)
         
         return objects
     
@@ -1211,6 +1293,14 @@ class TableauExtractor:
             if action_type == 'url':
                 action_data['url'] = action.get('url', '')
             
+            # Clearing behavior (what happens when selection is cleared)
+            clearing = action.get('clearing', '')
+            if clearing:
+                action_data['clearing'] = clearing
+            run_on = action.get('run-on', action.get('activation', ''))
+            if run_on:
+                action_data['run_on'] = run_on
+            
             # Filter action: filtered fields
             if action_type == 'filter':
                 field_mappings = []
@@ -1219,6 +1309,16 @@ class TableauExtractor:
                     tgt = fm.get('target-field', '').replace('[', '').replace(']', '')
                     field_mappings.append({'source': src, 'target': tgt})
                 action_data['field_mappings'] = field_mappings
+            
+            # Highlight action: field mappings
+            if action_type == 'highlight':
+                field_mappings = []
+                for fm in action.findall('.//field-mapping'):
+                    src = fm.get('source-field', '').replace('[', '').replace(']', '')
+                    tgt = fm.get('target-field', '').replace('[', '').replace(']', '')
+                    field_mappings.append({'source': src, 'target': tgt})
+                if field_mappings:
+                    action_data['field_mappings'] = field_mappings
             
             # Parameter action
             if action_type == 'param':
@@ -1400,19 +1500,33 @@ class TableauExtractor:
         print(f"  ✓ {len(hierarchies)} hierarchies extracted")
     
     def extract_sort_orders(self, root):
-        """Extracts global sort orders"""
+        """Extracts global sort orders (datasource-level, manual, and computed sorts)"""
         sorts = []
         
         for ds in root.findall('.//datasource'):
             for sort in ds.findall('.//sort'):
                 col = sort.get('column', '').replace('[', '').replace(']', '')
                 direction = sort.get('direction', 'ASC')
+                sort_type = sort.get('type', 'data')  # data, manual, field, computed
+                sort_data = {
+                    'field': col,
+                    'direction': direction.upper(),
+                    'key': sort.get('key', ''),
+                    'sort_type': sort_type,
+                }
+                # Manual sort: capture ordered values
+                if sort_type == 'manual':
+                    manual_values = []
+                    for val in sort.findall('.//value'):
+                        if val.text:
+                            manual_values.append(val.text)
+                    if manual_values:
+                        sort_data['manual_values'] = manual_values
+                # Computed sort: capture the expression
+                if sort_type in ('computed', 'field'):
+                    sort_data['sort_using'] = sort.get('sort-using', '')
                 if col:
-                    sorts.append({
-                        'field': col,
-                        'direction': direction.upper(),
-                        'key': sort.get('key', '')
-                    })
+                    sorts.append(sort_data)
         
         self.workbook_data['sort_orders'] = sorts
         print(f"  ✓ {len(sorts)} sort orders extracted")
@@ -1546,6 +1660,247 @@ class TableauExtractor:
         
         self.workbook_data['user_filters'] = user_filters
         print(f"  ✓ {len(user_filters)} user filters/security rules extracted")
+
+    # ═══════════════════════════════════════════════════════════════
+    #  ADDITIONAL EXTRACTION METHODS — Coverage 100%
+    # ═══════════════════════════════════════════════════════════════
+
+    def extract_forecasting(self, worksheet):
+        """Extracts forecast configuration from <forecast> elements."""
+        forecasts = []
+        for fc in worksheet.findall('.//forecast'):
+            forecasts.append({
+                'enabled': True,
+                'periods': int(fc.get('forecast-forward', fc.get('periods', 5))),
+                'periods_back': int(fc.get('forecast-backward', 0)),
+                'prediction_interval': fc.get('prediction-interval', '95'),
+                'ignore_last': fc.get('ignore-last', '0'),
+                'model': fc.get('model', 'automatic'),
+                'show_prediction_bands': fc.get('show-prediction-bands', 'true') == 'true',
+                'fill_between': fc.get('fill-between', 'true') == 'true',
+            })
+        # Also check <forecast-model> fallback
+        for fm in worksheet.findall('.//forecast-model'):
+            if not forecasts:
+                forecasts.append({
+                    'enabled': True,
+                    'periods': int(fm.get('periods', 5)),
+                    'periods_back': 0,
+                    'prediction_interval': fm.get('prediction-interval', '95'),
+                    'ignore_last': '0',
+                    'model': fm.get('model', 'automatic'),
+                    'show_prediction_bands': True,
+                    'fill_between': True,
+                })
+        return forecasts
+
+    def extract_map_options(self, worksheet):
+        """Extracts map configuration (washout, style, layers, pan/zoom)."""
+        map_opts = {}
+        mo = worksheet.find('.//map-options')
+        if mo is not None:
+            map_opts = {
+                'washout': mo.get('washout', '0.0'),
+                'style': mo.get('map-style', mo.get('style', 'normal')),
+                'show_map_search': mo.get('show-map-search', 'false') == 'true',
+                'pan_zoom': mo.get('pan-zoom', 'true') == 'true',
+                'unit': mo.get('unit', 'miles'),
+            }
+            # Map layers
+            layers = []
+            for ml in mo.findall('.//map-layer'):
+                layers.append({
+                    'name': ml.get('name', ''),
+                    'enabled': ml.get('enabled', 'true') == 'true',
+                })
+            if layers:
+                map_opts['layers'] = layers
+        # Also check for <mapsources>
+        for ms in worksheet.findall('.//mapsources/mapsource'):
+            if 'provider' not in map_opts:
+                map_opts['provider'] = ms.get('provider', 'mapbox')
+        return map_opts
+
+    def extract_clustering(self, worksheet):
+        """Extracts clustering configuration (no direct PBI equivalent)."""
+        clusters = []
+        for cl in worksheet.findall('.//cluster'):
+            clusters.append({
+                'num_clusters': cl.get('num-clusters', 'auto'),
+                'variables': [v.get('column', '').replace('[', '').replace(']', '')
+                              for v in cl.findall('.//variable') if v.get('column')],
+                'seed': cl.get('seed', ''),
+            })
+        # Also check <cluster-analysis>
+        for ca in worksheet.findall('.//cluster-analysis'):
+            if not clusters:
+                clusters.append({
+                    'num_clusters': ca.get('num-clusters', 'auto'),
+                    'variables': [],
+                    'seed': ca.get('seed', ''),
+                })
+        return clusters
+
+    def extract_dual_axis_sync(self, worksheet):
+        """Detects dual-axis and synchronization settings."""
+        dual_axis = {}
+        axes = list(worksheet.findall('.//axis'))
+        if len(axes) >= 2:
+            dual_axis['enabled'] = True
+            # Check for synchronized axes
+            for axis in axes:
+                if axis.get('synchronized', '') == 'true':
+                    dual_axis['synchronized'] = True
+                    break
+            else:
+                dual_axis['synchronized'] = False
+        return dual_axis
+
+    def extract_custom_shapes(self):
+        """Extracts custom shape references from .twbx package."""
+        shapes = []
+        file_ext = os.path.splitext(self.tableau_file)[1].lower()
+        if file_ext in ['.twbx', '.tdsx']:
+            try:
+                with zipfile.ZipFile(self.tableau_file, 'r') as z:
+                    for name in z.namelist():
+                        if '/Shapes/' in name or '/shapes/' in name:
+                            shapes.append({
+                                'path': name,
+                                'filename': os.path.basename(name),
+                            })
+            except Exception:
+                pass
+        return shapes
+
+    def extract_embedded_fonts(self):
+        """Extracts embedded font references from .twbx package."""
+        fonts = []
+        file_ext = os.path.splitext(self.tableau_file)[1].lower()
+        if file_ext in ['.twbx', '.tdsx']:
+            try:
+                with zipfile.ZipFile(self.tableau_file, 'r') as z:
+                    for name in z.namelist():
+                        lower_name = name.lower()
+                        if lower_name.endswith(('.ttf', '.otf', '.woff', '.woff2')):
+                            fonts.append({
+                                'path': name,
+                                'filename': os.path.basename(name),
+                                'format': os.path.splitext(name)[1].lstrip('.'),
+                            })
+            except Exception:
+                pass
+        return fonts
+
+    def extract_custom_geocoding(self, root):
+        """Extracts custom geocoding CSV references."""
+        geocoding = []
+        for geo in root.findall('.//geocoding'):
+            for role in geo.findall('.//geographic-role'):
+                geocoding.append({
+                    'role': role.get('name', ''),
+                    'field': role.get('field', ''),
+                })
+        # Also look for custom geocoding files in .twbx
+        file_ext = os.path.splitext(self.tableau_file)[1].lower()
+        if file_ext in ['.twbx', '.tdsx']:
+            try:
+                with zipfile.ZipFile(self.tableau_file, 'r') as z:
+                    for name in z.namelist():
+                        if 'geocoding' in name.lower() and name.endswith('.csv'):
+                            geocoding.append({
+                                'type': 'custom_file',
+                                'path': name,
+                            })
+            except Exception:
+                pass
+        self.workbook_data['custom_geocoding'] = geocoding
+        print(f"  ✓ {len(geocoding)} custom geocoding refs extracted")
+
+    def extract_published_datasources(self, root):
+        """Extracts references to published (server-hosted) datasources."""
+        pub_ds = []
+        for ds in root.findall('.//datasource'):
+            # Published datasources have a repository-location attribute
+            repo = ds.find('.//repository-location')
+            if repo is not None:
+                pub_ds.append({
+                    'name': ds.get('caption', ds.get('name', '')),
+                    'server': repo.get('site', ''),
+                    'path': repo.get('path', ''),
+                    'id': repo.get('id', ''),
+                    'derived_from': repo.get('derived-from', ''),
+                })
+            # Also check for <connection class="sqlproxy"> (published DS indicator)
+            for conn in ds.findall('.//connection[@class="sqlproxy"]'):
+                if not any(p['name'] == ds.get('caption', '') for p in pub_ds):
+                    pub_ds.append({
+                        'name': ds.get('caption', ds.get('name', '')),
+                        'server': conn.get('server', ''),
+                        'path': conn.get('dbname', ''),
+                        'id': '',
+                        'derived_from': '',
+                    })
+        self.workbook_data['published_datasources'] = pub_ds
+        print(f"  ✓ {len(pub_ds)} published datasource refs extracted")
+
+    def extract_data_blending(self, root):
+        """Extracts data blending link fields between primary and secondary datasources."""
+        blending = []
+        for ds in root.findall('.//datasource'):
+            ds_name = ds.get('caption', ds.get('name', ''))
+            # Data blending relationships appear as <relation join="..."> cross-datasource
+            for col in ds.findall('.//column'):
+                link = col.find('.//link')
+                if link is not None:
+                    expression = link.get('expression', '')
+                    key = link.get('key', '')
+                    blending.append({
+                        'datasource': ds_name,
+                        'column': col.get('name', '').replace('[', '').replace(']', ''),
+                        'link_expression': expression,
+                        'link_key': key,
+                    })
+            # Also check <datasource-dependencies> for cross-ds links
+            for dep in ds.findall('.//datasource-dependencies'):
+                dep_ds = dep.get('datasource', '')
+                for col in dep.findall('.//column'):
+                    col_name = col.get('name', '').replace('[', '').replace(']', '')
+                    if dep_ds and col_name:
+                        # Check if this is a blending key
+                        key = col.get('key', '')
+                        if key or dep_ds != ds.get('name', ''):
+                            if not any(b['column'] == col_name and b['datasource'] == ds_name for b in blending):
+                                blending.append({
+                                    'datasource': ds_name,
+                                    'secondary_datasource': dep_ds,
+                                    'column': col_name,
+                                    'link_expression': '',
+                                    'link_key': key,
+                                })
+        self.workbook_data['data_blending'] = blending
+        print(f"  ✓ {len(blending)} data blending links extracted")
+
+    def extract_hyper_metadata(self):
+        """Extracts .hyper file metadata from .twbx packages (file names and sizes)."""
+        hyper_files = []
+        file_ext = os.path.splitext(self.tableau_file)[1].lower()
+        if file_ext in ['.twbx', '.tdsx']:
+            try:
+                with zipfile.ZipFile(self.tableau_file, 'r') as z:
+                    for info in z.infolist():
+                        if info.filename.lower().endswith('.hyper'):
+                            hyper_files.append({
+                                'path': info.filename,
+                                'filename': os.path.basename(info.filename),
+                                'size_bytes': info.file_size,
+                                'compressed_size': info.compress_size,
+                            })
+            except Exception:
+                pass
+        self.workbook_data['hyper_files'] = hyper_files
+        if hyper_files:
+            print(f"  ✓ {len(hyper_files)} .hyper extract files detected")
 
     def save_extractions(self):
         """Saves extractions to JSON"""

@@ -55,6 +55,7 @@ class SemanticModelGenerator:
             'user_filters': extracted.get('user_filters', []),
             'sort_orders': extracted.get('sort_orders', []),
             'aliases': extracted.get('aliases', {}),
+            'data_blending': extracted.get('data_blending', []),
         }
         calculations = extracted.get('calculations', [])
 
