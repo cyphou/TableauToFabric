@@ -80,11 +80,36 @@ See [Fabric Project Guide](docs/FABRIC_PROJECT_GUIDE.md) for the full directory 
 ## Architecture
 
 ```
-               
-   INPUT                  EXTRACT                    INTERMEDIATE           GENERATE          
-  .twb / .twbx    >  tableau_export/     >  16 JSON files   >  fabric_import/     
-  .tfl / .tflx                                                             6 artifact types   
-               
+ ┌─────────────────┐      ┌──────────────────────┐      ┌──────────────────┐      ┌──────────────────────┐
+ │     INPUT       │      │   STEP 1: EXTRACT    │      │   INTERMEDIATE   │      │   STEP 2: GENERATE   │
+ │                 │      │                      │      │                  │      │                      │
+ │  .twb / .twbx   ├─────>│  tableau_export/     ├─────>│  16 JSON files   ├─────>│  fabric_import/      │
+ │  .tfl / .tflx   │      │                      │      │                  │      │                      │
+ │                 │      │  - XML parser        │      │  worksheets      │      │  6 artifact types:   │
+ │                 │      │  - DAX converter     │      │  datasources     │      │  - Lakehouse         │
+ │                 │      │  - M query builder   │      │  calculations    │      │  - Dataflow Gen2     │
+ │                 │      │  - Prep flow parser  │      │  parameters      │      │  - Notebook          │
+ │                 │      │                      │      │  filters  ...    │      │  - Semantic Model    │
+ │                 │      │                      │      │                  │      │  - Pipeline          │
+ │                 │      │                      │      │                  │      │  - Power BI Report   │
+ └─────────────────┘      └──────────────────────┘      └──────────────────┘      └──────────────────────┘
+```
+
+### End-to-End Migration Flow
+
+```
+  ┌──────────┐    ┌──────────┐    ┌─────────────┐    ┌─────────────┐    ┌──────────┐    ┌──────────┐
+  │ Lakehouse│    │ Dataflow  │    │  Notebook   │    │  Semantic   │    │   PBI    │    │ Pipeline │
+  │  (DDL)   │    │  Gen2 (M) │    │  (PySpark)  │    │   Model     │    │  Report  │    │  (orch)  │
+  └────┬─────┘    └─────┬─────┘    └──────┬──────┘    └──────┬──────┘    └────┬─────┘    └────┬─────┘
+       │                │                 │                   │                │               │
+       │   Delta table  │  Ingest data    │  Transform &      │  DirectLake    │  Visuals &    │  Run
+       │   definitions  │  into Lakehouse │  write to Delta   │  reads Delta   │  pages from   │  Dataflow
+       │                │                 │                   │  tables        │  model        │  + Notebook
+       v                v                 v                   v                v               v
+  ┌─────────────────────────────────────────────────────────────────────────────────────────────────┐
+  │                              Microsoft Fabric Workspace                                        │
+  └─────────────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
 | Layer | Directory | Purpose |

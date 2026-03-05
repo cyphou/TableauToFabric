@@ -4,6 +4,57 @@ Complete mapping of **every Tableau calculation function** to its DAX equivalent
 DAX conversions are used for **measures** in the Fabric Semantic Model (DirectLake TMDL).
 All conversions below are implemented in `tableau_export/dax_converter.py`.
 
+## Conversion Pipeline
+
+```
+  ┌──────────────────────┐
+  │ Tableau Calculation   │
+  │ e.g. IF [Status] =   │
+  │   "Active" THEN ...  │
+  └──────────┬───────────┘
+             │
+             v
+  ┌──────────────────────┐     ┌──────────────────────────────────────┐
+  │ Classify             │     │ role = "dimension"?                  │
+  │ (measure vs column)  ├────>│  YES → Calculated Column (physical)  │
+  └──────────┬───────────┘     │        → Materialised via Dataflow/  │
+             │                 │          Notebook into Lakehouse     │
+             │ role = "measure"│  NO  → DAX Measure (this reference) │
+             v                 └──────────────────────────────────────┘
+  ┌──────────────────────┐
+  │ Parse & Tokenise     │
+  │ dax_converter.py     │
+  │                      │
+  │  - Function mapping  │
+  │  - LOD → CALCULATE   │
+  │  - IF/THEN → IF()    │
+  │  - ISNULL → ISBLANK  │
+  │  - Table calcs       │
+  └──────────┬───────────┘
+             │
+             v
+  ┌──────────────────────┐
+  │ Emit DAX Expression  │
+  │                      │
+  │  expression =        │
+  │    ```               │
+  │    IF([Status] =     │
+  │      "Active",       │
+  │      "Active",       │
+  │      "Inactive")     │
+  │    ```               │
+  └──────────┬───────────┘
+             │
+             v
+  ┌──────────────────────┐
+  │ TMDL Semantic Model  │
+  │ tables/{Table}.tmdl  │
+  │                      │
+  │  measure 'Status'    │
+  │    expression = ...  │
+  └──────────────────────┘
+```
+
 > **Note:** Calculated columns are **materialised** in the Lakehouse as physical Delta table columns.
 > They are computed via Dataflow Gen2 (Power Query M) or Notebook (PySpark), not via DAX.
 > See [CALCULATED_COLUMNS_GUIDE.md](CALCULATED_COLUMNS_GUIDE.md) for details.

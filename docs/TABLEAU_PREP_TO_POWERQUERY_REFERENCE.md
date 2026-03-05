@@ -4,6 +4,49 @@ Complete mapping of **every Tableau Prep Builder transformation** to its Power Q
 Power Query M is used in **Dataflow Gen2** artifacts that ingest data into Lakehouse Delta tables.
 Covers both Tableau Prep (.tfl/.tflx) operations and Tableau Desktop data-source-level transformations embedded in .twb files.
 
+## Prep Flow Migration Pipeline
+
+```
+  ┌───────────────────────────────────────────────────────────────────────────────────┐
+  │                     TABLEAU PREP FLOW MIGRATION                                   │
+  │                                                                                   │
+  │  ┌───────────┐   ┌───────────┐   ┌───────────┐   ┌───────────┐   ┌───────────┐  │
+  │  │  Input    │──>│  Clean    │──>│  Filter   │──>│  Join /   │──>│  Output   │  │
+  │  │  Steps   │   │  Steps   │   │  Steps   │   │  Union    │   │  Steps   │  │
+  │  └─────┬─────┘   └─────┬─────┘   └─────┬─────┘   └─────┬─────┘   └─────┬─────┘  │
+  │        │               │               │               │               │          │
+  │        v               v               v               v               v          │
+  │  ┌───────────┐   ┌───────────┐   ┌───────────┐   ┌───────────┐   ┌───────────┐  │
+  │  │ Connector │   │ Transform │   │ SelectRows│   │ Table     │   │ Lakehouse │  │
+  │  │ functions │   │ Columns   │   │ Remove    │   │ .Join()   │   │ Delta     │  │
+  │  │ (31 types)│   │ Replace   │   │ FirstN    │   │ .Combine  │   │ table     │  │
+  │  │           │   │ Rename    │   │ LastN     │   │ .Expand   │   │ output    │  │
+  │  └───────────┘   └───────────┘   └───────────┘   └───────────┘   └───────────┘  │
+  │                                                                                   │
+  │  Tableau Prep                                     Power Query M                   │
+  │  (.tfl / .tflx)              ───────────>         (Dataflow Gen2)                 │
+  │                                                                                   │
+  │      165 operation mappings implemented                                           │
+  └───────────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Prep Step Types → M Function Categories
+
+```
+  Tableau Prep Step          Power Query M Equivalent
+  ─────────────────          ────────────────────────
+  Input (connect)      ───>  Source connectors (Sql.Database, Excel.Workbook, ...)
+  Clean (transform)    ───>  Table.TransformColumns, Table.RenameColumns, ...
+  Filter (rows)        ───>  Table.SelectRows, Table.FirstN, Table.LastN
+  Calculated field     ───>  Table.AddColumn (custom column)
+  Aggregate (group by) ───>  Table.Group
+  Pivot                ───>  Table.Pivot / Table.Unpivot
+  Join                 ───>  Table.NestedJoin + Table.ExpandTableColumn
+  Union                ───>  Table.Combine
+  Script (R/Python)    ───>  Manual (no M equivalent)
+  Output               ───>  Lakehouse Delta table destination
+```
+
 > **Legend**  
 > ✅ Implemented — generated automatically by the migration tool  
 > 🆕 New — added via `m_query_builder.py` transformation helpers  

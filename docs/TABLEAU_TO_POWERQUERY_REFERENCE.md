@@ -4,6 +4,56 @@ Complete mapping of **every Tableau data source property** to its Power Query M 
 Power Query M is used in **Dataflow Gen2** artifacts for data ingestion into Lakehouse Delta tables.
 All connector conversions are implemented in `tableau_export/m_query_builder.py`.
 
+## M Query Generation Architecture
+
+```
+  ┌──────────────────────┐
+  │ Tableau Data Source   │
+  │ (XML <connection>)    │
+  └──────────┬───────────┘
+             │
+             v
+  ┌──────────────────────┐     ┌──────────────────────────────────────────┐
+  │ Identify Connector   │     │ 31 connector types:                      │
+  │ m_query_builder.py   ├────>│ SQL Server, PostgreSQL, Snowflake,       │
+  │                      │     │ BigQuery, Oracle, Excel, CSV, JSON, ...  │
+  └──────────┬───────────┘     └──────────────────────────────────────────┘
+             │
+             v
+  ┌──────────────────────┐     ┌──────────────────────────────────────────┐
+  │ Build Connection     │     │ Server, port, database, schema, table    │
+  │ Steps                ├────>│ Credentials handled by Fabric at runtime │
+  └──────────┬───────────┘     └──────────────────────────────────────────┘
+             │
+             v
+  ┌──────────────────────┐     ┌──────────────────────────────────────────┐
+  │ Apply Transforms     │     │ 40+ transformation generators:           │
+  │ (column types, calc  ├────>│ TransformColumnTypes, AddColumn,          │
+  │  columns, filters)   │     │ SelectRows, RenameColumns, ...           │
+  └──────────┬───────────┘     └──────────────────────────────────────────┘
+             │
+             v
+  ┌──────────────────────┐
+  │ Emit M Query         │
+  │                      │
+  │  let                 │
+  │    Source = ...,      │
+  │    Nav = ...,         │
+  │    #"Types" = ...,    │
+  │    #"Calc cols" = ... │
+  │  in                  │
+  │    #"Calc cols"      │
+  └──────────┬───────────┘
+             │
+             v
+  ┌──────────────────────────────────────────────────────────┐
+  │  Dataflow Gen2 Artifact                                  │
+  │  ├── dataflow_definition.json  (Lakehouse destination)   │
+  │  ├── mashup.pq                 (combined M document)     │
+  │  └── queries/*.m               (per-table M queries)     │
+  └──────────────────────────────────────────────────────────┘
+```
+
 > **Note:** In the Fabric architecture, Power Query M queries in Dataflow Gen2 ingest data into
 > Lakehouse Delta tables. The Semantic Model then uses **DirectLake** mode to read from those tables.
 
