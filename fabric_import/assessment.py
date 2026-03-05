@@ -45,16 +45,19 @@ FAIL = "fail"
 _FULLY_SUPPORTED_CONNECTORS = frozenset({
     "Excel", "CSV", "SQL Server", "PostgreSQL", "MySQL",
     "GeoJSON", "OData", "Azure Blob", "ADLS",
+    "Azure SQL", "Synapse", "Google Sheets", "SharePoint",
+    "JSON", "XML", "PDF", "Web",
 })
 
 _PARTIALLY_SUPPORTED_CONNECTORS = frozenset({
     "BigQuery", "Oracle", "Snowflake", "Google Analytics",
+    "Teradata", "SAP HANA", "SAP BW", "Redshift",
+    "Databricks", "Spark", "Spark SQL", "Salesforce",
 })
 
 _UNSUPPORTED_CONNECTORS = frozenset({
-    "SAP BW", "SAP HANA", "Teradata", "Vertica", "Splunk",
-    "Hadoop Hive", "Impala", "Spark SQL", "Presto",
-    "Marketo", "Salesforce", "ServiceNow",
+    "Vertica", "Splunk", "Hadoop Hive", "Impala", "Presto",
+    "Marketo", "ServiceNow",
 })
 
 # ── Unsupported Tableau functions (no DAX / PBI equivalent) ─────────
