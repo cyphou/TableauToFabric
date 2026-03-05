@@ -24,6 +24,9 @@
 │           │                              │  pbip_generator.py            │       │
 │           │                              │  tmdl_generator.py            │       │
 │           │                              │  visual_generator.py          │       │
+│           │                              │  assessment.py                │       │
+│           │                              │  strategy_advisor.py          │       │
+│           │                              │  constants.py / naming.py     │       │
 │           │                              └──────────────────────────────┘       │
 │           │                                                                     │
 │           └───────────── conversion/ ──────────────────────────────────────     │
@@ -34,7 +37,7 @@
 │               │  story_converter                                     │          │
 │               └──────────────────────────────────────────────────────┘          │
 │                                                                                 │
-│  tests/  ─── 775 tests, 21 files, 0 failures                                  │
+│  tests/  ─── 884 tests, 23 files, 0 failures                                  │
 │  scripts/ ── PowerShell deployment (New-Workspace, Deploy, Validate)           │
 │  docs/   ─── 7 guides + FAQ                                                   │
 └─────────────────────────────────────────────────────────────────────────────────┘
@@ -56,6 +59,8 @@
 
 ```bash
 python migrate.py file.twbx                                        # All artifacts
+python migrate.py file.twbx --assess                                # Pre-migration assessment
+python migrate.py file.twbx --auto                                  # Auto ETL strategy
 python migrate.py file.twbx -o output/                              # Custom output
 python migrate.py file.twbx --artifacts lakehouse notebook pipeline  # Specific artifacts
 python migrate.py "path/to/folder/" -o output/                      # Batch migration
@@ -68,7 +73,7 @@ python migrate.py file.twbx --verbose --log-file m.log              # Verbose + 
 |--------|---------|
 | `migrate.py` | CLI entry point, batch support, logging |
 | `tableau_export/` | Tableau XML parsing, DAX conversion, Power Query M generation |
-| `fabric_import/` | Fabric artifact generation (6 types), validation, deployment |
-| `tests/` | 775 tests (21 files), 0 failures |
+| `fabric_import/` | Fabric artifact generation (6 types), assessment, strategy, validation, deployment |
+| `tests/` | 884 tests (23 files), 0 failures |
 | `artifacts/` | Generated Fabric artifacts |
 | `docs/` | Documentation (7 guides + FAQ) |

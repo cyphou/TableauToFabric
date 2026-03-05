@@ -32,6 +32,7 @@ Automated migration tool for Tableau workbooks (`.twb`, `.twbx`) and Tableau Pre
 | **Power BI Report** | `.pbip` project with DirectLake TMDL + PBIR v4.0 visuals (60+ types) |
 
 ### Infrastructure
+- **Pre-migration assessment**: `--assess` runs an 8-category readiness checklist (datasources, calculations, visuals, filters, data model, interactivity, packaging, scope) with GREEN/YELLOW/RED scoring and JSON report
 - **Batch migration**: migrate all workbooks in a directory
 - **Custom output**: `--output-dir` / `-o` for output location
 - **Artifact selection**: `--artifacts lakehouse notebook pipeline` to generate specific types
@@ -39,7 +40,7 @@ Automated migration tool for Tableau workbooks (`.twb`, `.twbx`) and Tableau Pre
 - **Structured logging**: `--verbose` and `--log-file` flags
 - **Artifact validation**: validate generated artifacts (JSON, TMDL, report structure, notebooks)
 - **Fabric deployment**: deploy to Microsoft Fabric via PowerShell scripts (idempotent, 429 retry, LRO polling)
-- **775 tests**: 21 test files covering all modules, 0 failures
+- **884 tests**: 23 test files covering all modules, 0 failures
 
 ## Quick Start
 
@@ -54,6 +55,28 @@ Automated migration tool for Tableau workbooks (`.twb`, `.twbx`) and Tableau Pre
 ```bash
 python migrate.py your_workbook.twbx
 ```
+
+### Pre-migration assessment
+
+```bash
+python migrate.py your_workbook.twbx --assess
+```
+
+Runs an **8-category readiness checklist** before you commit to migration:
+
+| Category | What it checks |
+|----------|----------------|
+| Datasource Compatibility | Connector support tiers, data blending, published datasources, custom SQL |
+| Calculation Readiness | Unsupported functions (SCRIPT_*, spatial), partial functions (REGEXP, RAWSQL), LOD, table calcs |
+| Visual & Dashboard Coverage | Chart type mapping (60+ types), viz-in-tooltip, dual axis, device layouts |
+| Filter & Parameter Complexity | Filter/parameter count, user filters → RLS, complex parameters |
+| Data Model Complexity | Table/column counts, relationships, hierarchies, sets/groups/bins |
+| Interactivity & Actions | Action types (filter, highlight, URL, set), stories → bookmarks |
+| Data Extracts & Packaging | .hyper files, custom shapes, embedded fonts, custom geocoding |
+| Migration Scope & Effort | Complexity score, estimated effort (Low to Very High), object inventory |
+
+**Output**: colour-coded console report + JSON file in `artifacts/migration_reports/`.
+Overall readiness score: **GREEN** (ready), **YELLOW** (warnings), **RED** (blockers).
 
 ### Auto ETL selection
 
@@ -84,6 +107,7 @@ python migrate.py "path/to/folder/" -o output/
 |------|-------------|
 | `-o` / `--output-dir DIR` | Custom output directory (default: `artifacts/fabric_projects/`) |
 | `--artifacts TYPE [TYPE ...]` | Artifact types to generate (default: all 6) |
+| `--assess` | Run pre-migration assessment checklist only (no artifact generation) |
 | `--auto` | Auto-select Dataflow vs Notebook based on workbook complexity |
 | `--verbose` / `-v` | Enable verbose (DEBUG) console logging |
 | `--log-file FILE` | Write logs to a file |
@@ -175,6 +199,10 @@ TableauToFabric/
 │   ├── pbip_generator.py                      #   .pbip project + visuals
 │   ├── tmdl_generator.py                      #   DirectLake TMDL model
 │   ├── visual_generator.py                    #   60+ visual types, PBIR-native configs
+│   ├── assessment.py                          #   Pre-migration readiness assessment (8 categories)
+│   ├── strategy_advisor.py                    #   Auto ETL strategy (--auto flag)
+│   ├── constants.py                           #   Shared constants (artifact types, patterns)
+│   ├── naming.py                              #   Unified name sanitisation functions
 │   ├── calc_column_utils.py                   #   Calc column classification & conversion
 │   ├── validator.py                           #   Artifact validation (JSON, TMDL, notebooks)
 │   ├── auth.py                                #   Azure AD auth (Service Principal / MI)
@@ -185,7 +213,7 @@ TableauToFabric/
 │       ├── settings.py                        #     Env-var based settings
 │       └── environments.py                    #     Dev/staging/production configs
 ├── conversion/                                # Legacy per-object converters
-├── tests/                                     # 775 tests (21 test files)
+├── tests/                                     # 884 tests (23 test files)
 ├── docs/                                      # Documentation (7 guides + FAQ)
 ├── examples/                                  # Sample Tableau files (see Examples section)
 │   └── tableau_samples/
@@ -634,7 +662,7 @@ Requires: `pip install azure-identity requests`
 ## Testing
 
 ```bash
-# Run all 775 tests
+# Run all 884 tests
 python -m pytest tests/ -v
 
 # Run specific test file
@@ -659,6 +687,8 @@ python -m pytest tests/test_calc_column_utils.py -v
 | `test_config.py` | Settings, environments |
 | `test_utils.py` | Deployment report, cache |
 | `test_calc_column_utils.py` | Calc column classification, formula conversion (M + PySpark) |
+| `test_assessment.py` | Pre-migration assessment (8 categories, scoring, report output) |
+| `test_strategy_advisor.py` | Auto ETL strategy advisor (`--auto` flag) |
 
 ## CI/CD Workflow
 
@@ -677,7 +707,7 @@ A GitHub Actions workflow runs automatically on every push to `main`/`develop` a
 │  │                                                                    │  │
 │  │  1. Checkout repository                                            │  │
 │  │  2. Setup Python ${{ matrix.python-version }}                      │  │
-│  │  3. Run 775 unit tests (pytest)                                │  │
+│  │  3. Run 884 unit tests (pytest)                                │  │
 │  │  4. Generate JUnit XML test report                             │  │
 │  │  5. Upload test results artifact (30-day retention)                │  │
 │  │  6. Publish test report (dorny/test-reporter, Python 3.11 only)   │  │
@@ -704,7 +734,7 @@ A GitHub Actions workflow runs automatically on every push to `main`/`develop` a
 ```bash
 # Same checks the CI runs:
 
-# 1. Unit tests (775 tests)
+# 1. Unit tests (884 tests)
 python -m pytest tests/ -v
 
 # 2. Syntax check (all .py files)
@@ -725,7 +755,7 @@ checks tab, showing pass/fail per test with timing data.
 
 | Check | Description | Fail Condition |
 |-------|-------------|----------------|
-| **unit-tests** | 775 tests × 5 Python versions | Any test failure |
+| **unit-tests** | 884 tests × 5 Python versions | Any test failure |
 | **lint** | `py_compile` + module import | Syntax error or broken import |
 
 ## Documentation
@@ -794,6 +824,16 @@ python migrate.py examples/tableau_samples/real_world/tableau_prep_book.tfl --pr
 ## Changelog
 
 ### Latest
+
+#### New Features
+- **Pre-migration assessment** — New `--assess` flag runs an 8-category readiness checklist (datasource compatibility, calculation readiness, visual coverage, filter complexity, data model complexity, interactivity, packaging, migration scope) with GREEN/YELLOW/RED scoring, console report, and JSON export to `artifacts/migration_reports/`.
+- **Auto ETL strategy** — `--auto` flag analyses workbook complexity across 7 signals (connectors, table count, column count, calculation complexity, custom SQL, Prep flow, join count) and auto-selects Dataflow Gen2, PySpark Notebook, or both.
+
+#### Code Quality (Refactoring)
+- **Shared constants** — Extracted duplicated constants into `fabric_import/constants.py` (artifact type lists, aggregation patterns, literal helpers, visual ID generator).
+- **Unified naming** — Consolidated ~120 lines of duplicated name sanitisation into `fabric_import/naming.py` (7 functions), wired into 10 modules.
+- **Bare except removal** — Fixed 4 bare `except: pass` blocks with proper error handling.
+- **Import cleanup** — Removed unused imports, fixed `import json as _json` alias.
 
 #### Bug Fixes
 - **DAX LOD conversion** — Fixed destructive global `}` → `)` replacement that corrupted non-LOD DAX expressions. The converter now only replaces braces belonging to LOD-without-dimension patterns.

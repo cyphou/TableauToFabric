@@ -14,7 +14,8 @@
 │     .twbx files       migrate.py       generated         scripts or         │
 │  2. Install           (CLI)            artifacts         Python deployer    │
 │     Python 3.9+    3. Review logs      (validator)    5. Wire data sources  │
-│  3. Clone repo                      4. Open .pbip     6. Trigger pipeline   │
+│  3. Clone repo     4. Optionally run                  6. Trigger pipeline   │
+│                       --assess first                                        │
 │                                        in PBI Desktop                       │
 └───────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -55,6 +56,26 @@ Use `--output-dir` (or `-o`) to override.
 ```bash
 python migrate.py your_workbook.twbx
 ```
+
+### How do I run a pre-migration assessment?
+
+```bash
+python migrate.py your_workbook.twbx --assess
+```
+
+This runs an **8-category readiness checklist** and produces a colour-coded console report + JSON file. No artifacts are generated — use this to evaluate migration complexity before committing.
+
+Categories checked: datasource compatibility, calculation readiness, visual coverage, filter/parameter complexity, data model complexity, interactivity, packaging, and migration scope (with effort estimate).
+
+Overall readiness: **GREEN** (ready), **YELLOW** (warnings to review), **RED** (blockers found).
+
+### How do I let the tool pick the best ETL strategy?
+
+```bash
+python migrate.py your_workbook.twbx --auto
+```
+
+The `--auto` flag analyses workbook complexity across 7 signals and auto-selects **Dataflow Gen2** (simple PQ transforms), **PySpark Notebook** (heavy transforms), or **both** with Pipeline orchestration.
 
 ### How do I choose which artifacts to generate?
 
@@ -278,7 +299,7 @@ for name, result in results.items():
 ### How do I run the tests?
 
 ```bash
-# All 775 tests
+# All 884 tests
 python -m pytest tests/ -v
 
 # Specific module
@@ -303,3 +324,5 @@ python -m pytest tests/test_calc_column_utils.py -v
 | `test_config.py` | Settings, environments |
 | `test_utils.py` | Deployment report, cache |
 | `test_calc_column_utils.py` | Calc column classification & conversion |
+| `test_assessment.py` | Pre-migration assessment (8 categories, scoring) |
+| `test_strategy_advisor.py` | Auto ETL strategy advisor |
