@@ -284,7 +284,7 @@ class TestCheckDatasources:
         }
         cat = _check_datasources(data)
         blend_checks = [c for c in cat.checks if "blending" in c.name]
-        assert blend_checks[0].severity == WARN
+        assert blend_checks[0].severity == INFO  # auto-converted to relationships
 
     def test_published_datasources_warn(self):
         data = {
@@ -294,7 +294,7 @@ class TestCheckDatasources:
         }
         cat = _check_datasources(data)
         pub_checks = [c for c in cat.checks if "Published" in c.name]
-        assert pub_checks[0].severity == WARN
+        assert pub_checks[0].severity == INFO  # auto re-pointed to Fabric
 
     def test_custom_sql_warn(self):
         data = {
@@ -304,7 +304,7 @@ class TestCheckDatasources:
         }
         cat = _check_datasources(data)
         sql_checks = [c for c in cat.checks if "Custom SQL" in c.name]
-        assert sql_checks[0].severity == WARN
+        assert sql_checks[0].severity == INFO  # auto-embedded as native query passthrough
 
     def test_all_pass(self, simple_extracted):
         cat = _check_datasources(simple_extracted)
@@ -368,7 +368,7 @@ class TestCheckCalculations:
         ]}
         cat = _check_calculations(data)
         lod_warns = [c for c in cat.checks if "LOD" in c.name]
-        assert lod_warns[0].severity == WARN
+        assert lod_warns[0].severity == INFO  # auto-converted to DAX CALCULATE
 
     def test_table_calcs_warn(self):
         data = {"calculations": [
@@ -376,12 +376,13 @@ class TestCheckCalculations:
         ]}
         cat = _check_calculations(data)
         tc_warns = [c for c in cat.checks if "Table" in c.name]
-        assert tc_warns[0].severity == WARN
+        assert tc_warns[0].severity == INFO  # auto-converted to DAX window functions
 
     def test_mixed_calculations(self, complex_extracted):
         cat = _check_calculations(complex_extracted)
         assert cat.fail_count >= 1  # SCRIPT_REAL
-        assert cat.warn_count >= 3  # REGEXP, LOD, TableCalc
+        assert cat.warn_count >= 1  # REGEXP (partially-supported)
+        # LOD and TableCalc are now INFO (auto-converted)
 
     def test_collect_spatial_fail(self):
         data = {"calculations": [
@@ -482,7 +483,7 @@ class TestCheckFilters:
         }
         cat = _check_filters(data)
         rls = [c for c in cat.checks if "RLS" in c.name]
-        assert rls[0].severity == WARN
+        assert rls[0].severity == INFO  # auto-converted to TMDL RLS roles
 
     def test_complex_parameters_warn(self):
         data = {
@@ -493,7 +494,7 @@ class TestCheckFilters:
         cat = _check_filters(data)
         cp = [c for c in cat.checks if "Complex" in c.name]
         assert len(cp) == 1
-        assert cp[0].severity == WARN
+        assert cp[0].severity == INFO  # auto-converted to What-If tables
 
     def test_small_parameter_no_warn(self):
         data = {
@@ -576,7 +577,7 @@ class TestCheckInteractivity:
         data = {"actions": [{"type": "url"}], "stories": []}
         cat = _check_interactivity(data)
         ua = [c for c in cat.checks if "URL" in c.name]
-        assert ua[0].severity == WARN
+        assert ua[0].severity == INFO  # auto-mapped to action buttons
 
     def test_set_action_warn(self):
         data = {"actions": [{"type": "set"}], "stories": []}
@@ -596,7 +597,8 @@ class TestCheckInteractivity:
 
     def test_complex_actions(self, complex_extracted):
         cat = _check_interactivity(complex_extracted)
-        assert cat.warn_count >= 2  # url + set
+        assert cat.warn_count >= 1  # set actions remain WARN
+        # URL actions are now INFO (auto-mapped to buttons)
 
 
 # ═══════════════════════════════════════════════════════════════════

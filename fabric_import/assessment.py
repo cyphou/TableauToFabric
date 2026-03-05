@@ -323,30 +323,36 @@ def _check_datasources(extracted: Dict) -> CategoryResult:
                 "Verify manually whether Fabric supports this connector type.",
             ))
 
-    # Data blending
-    blending = extracted.get("data_blending", [])
+    # Data blending — filter out virtual "Parameters" datasource links
+    blending = [
+        b for b in extracted.get("data_blending", [])
+        if b.get("secondary_datasource", "") != "Parameters"
+           and b.get("datasource", "") != "Parameters"
+    ]
     if blending:
         cat.checks.append(CheckItem(
-            cat.name, "Data blending", WARN,
-            f"{len(blending)} data blending link(s) detected.",
-            "Fabric does not support Tableau data blending. "
-            "Consolidate blended datasources into a single Lakehouse "
-            "with relationships defined in the Semantic Model.",
+            cat.name, "Data blending", INFO,
+            f"{len(blending)} cross-datasource blending link(s) detected. "
+            "Auto-converted: relationships generated in Semantic Model.",
+            "Review generated relationships in the Semantic Model "
+            "to confirm join keys match original blending links.",
         ))
     else:
         cat.checks.append(CheckItem(
             cat.name, "Data blending", PASS,
-            "No data blending detected.",
+            "No cross-datasource data blending detected.",
         ))
 
     # Published datasources
     published = extracted.get("published_datasources", [])
     if published:
+        pub_names = ", ".join(p.get("name", "?") for p in published[:3])
         cat.checks.append(CheckItem(
-            cat.name, "Published datasources", WARN,
-            f"{len(published)} published datasource reference(s) detected.",
-            "Published Tableau datasources must be re-pointed to Fabric. "
-            "Extract the published datasource separately or use Shared Semantic Models.",
+            cat.name, "Published datasources", INFO,
+            f"{len(published)} published datasource reference(s): {pub_names}. "
+            "Auto-handled: connection is re-pointed to Fabric Lakehouse/Semantic Model.",
+            "Verify that the published datasource schema matches "
+            "the generated Lakehouse tables.",
         ))
     else:
         cat.checks.append(CheckItem(
@@ -358,11 +364,11 @@ def _check_datasources(extracted: Dict) -> CategoryResult:
     custom_sql = extracted.get("custom_sql", [])
     if custom_sql:
         cat.checks.append(CheckItem(
-            cat.name, "Custom SQL", WARN,
-            f"{len(custom_sql)} custom SQL query/queries detected.",
-            "Custom SQL requires manual review. Translate to Power Query M "
-            "(Dataflow) or embed in PySpark Notebook. Run with --auto for "
-            "auto ETL selection.",
+            cat.name, "Custom SQL", INFO,
+            f"{len(custom_sql)} custom SQL query/queries detected. "
+            "Auto-converted: embedded as native SQL passthrough in Power Query M.",
+            "The original SQL is preserved as a native query in the Dataflow. "
+            "Review for compatibility with the target database.",
         ))
     else:
         cat.checks.append(CheckItem(
@@ -447,11 +453,12 @@ def _check_calculations(extracted: Dict) -> CategoryResult:
         names_preview = ", ".join(lod_calcs[:5])
         extra = f" (+{len(lod_calcs) - 5} more)" if len(lod_calcs) > 5 else ""
         cat.checks.append(CheckItem(
-            cat.name, "LOD expressions", WARN,
+            cat.name, "LOD expressions", INFO,
             f"{len(lod_calcs)} LOD expression(s) (FIXED/INCLUDE/EXCLUDE): "
-            f"{names_preview}{extra}.",
-            "LOD expressions are converted to DAX CALCULATE + ALLEXCEPT patterns. "
-            "Review generated DAX for correctness.",
+            f"{names_preview}{extra}. "
+            "Auto-converted to DAX CALCULATE + ALLEXCEPT/REMOVEFILTERS.",
+            "Review generated DAX measures for correctness — "
+            "FIXED→ALLEXCEPT, INCLUDE→CALCULATE, EXCLUDE→REMOVEFILTERS.",
         ))
     else:
         cat.checks.append(CheckItem(
@@ -463,10 +470,10 @@ def _check_calculations(extracted: Dict) -> CategoryResult:
         names_preview = ", ".join(table_calcs[:5])
         extra = f" (+{len(table_calcs) - 5} more)" if len(table_calcs) > 5 else ""
         cat.checks.append(CheckItem(
-            cat.name, "Table calculations", WARN,
+            cat.name, "Table calculations", INFO,
             f"{len(table_calcs)} table calculation(s) (RUNNING/WINDOW): "
-            f"{names_preview}{extra}.",
-            "Table calculations are translated to DAX window functions. "
+            f"{names_preview}{extra}. "
+            "Auto-converted to DAX CALCULATE / window functions.",
             "Verify sort order and partitioning match Tableau behavior.",
         ))
     else:
@@ -578,11 +585,11 @@ def _check_filters(extracted: Dict) -> CategoryResult:
     user_filters = extracted.get("user_filters", [])
     if user_filters:
         cat.checks.append(CheckItem(
-            cat.name, "User filters (RLS)", WARN,
-            f"{len(user_filters)} user filter(s) / security calculation(s) detected.",
-            "User filters are converted to TMDL RLS roles. Review the "
-            "generated roles.tmdl and configure workspace-level security "
-            "in Fabric.",
+            cat.name, "User filters (RLS)", INFO,
+            f"{len(user_filters)} user filter(s) / security calculation(s) detected. "
+            "Auto-converted to TMDL RLS roles in roles.tmdl.",
+            "Assign users/groups to the generated RLS roles in "
+            "Fabric workspace security settings.",
         ))
     else:
         cat.checks.append(CheckItem(
@@ -597,11 +604,11 @@ def _check_filters(extracted: Dict) -> CategoryResult:
     ]
     if complex_params:
         cat.checks.append(CheckItem(
-            cat.name, "Complex parameters", WARN,
-            f"{len(complex_params)} parameter(s) with >20 allowable values.",
-            "Large parameter domains are converted to What-If tables. "
+            cat.name, "Complex parameters", INFO,
+            f"{len(complex_params)} parameter(s) with >20 allowable values. "
+            "Auto-converted to What-If parameter tables with GENERATESERIES/DATATABLE.",
             "Consider whether a slicer on an existing dimension would "
-            "be more efficient.",
+            "be more performant for very large domains.",
         ))
 
     return cat
@@ -703,8 +710,8 @@ def _check_interactivity(extracted: Dict) -> CategoryResult:
             ))
         elif atype == "url":
             cat.checks.append(CheckItem(
-                cat.name, "Action: URL", WARN,
-                f"{count} URL action(s) — mapped to action buttons.",
+                cat.name, "Action: URL", INFO,
+                f"{count} URL action(s) — auto-mapped to Power BI action buttons.",
                 "Verify URL patterns and parameterization after migration.",
             ))
         elif atype == "set":
