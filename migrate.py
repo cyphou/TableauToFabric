@@ -125,6 +125,57 @@ def print_step(step_num, total_steps, text):
     print("-" * 80)
 
 
+def run_assessment_flow(tableau_file, skip_extraction=False, prep_file=None):
+    """Run pre-migration assessment and print the report.
+
+    Returns 0 on success, 1 on failure.
+    """
+    global _stats
+    source_basename = os.path.splitext(os.path.basename(tableau_file))[0]
+
+    print_header("TABLEAU PRE-MIGRATION ASSESSMENT")
+    print(f"Source file: {tableau_file}")
+    print()
+
+    # Step 1: Extract (needed for assessment data)
+    if not skip_extraction:
+        ok = run_extraction(tableau_file)
+        if not ok:
+            print("\nAssessment aborted: extraction failed.")
+            return 1
+    else:
+        print("Extraction skipped (using existing JSON files)")
+
+    # Step 1b: Prep flow
+    if prep_file:
+        run_prep_flow(prep_file)
+
+    # Load extracted data
+    try:
+        from fabric_import.import_to_fabric import FabricImporter
+        importer = FabricImporter()
+        extracted = importer._load_extracted_objects()
+    except Exception as e:
+        print(f"\nFailed to load extracted data: {e}")
+        return 1
+
+    # Run assessment
+    from fabric_import.assessment import (
+        run_assessment,
+        print_assessment_report,
+        save_assessment_report,
+    )
+
+    report = run_assessment(extracted, workbook_name=source_basename)
+    print_assessment_report(report)
+
+    # Save JSON report
+    report_path = save_assessment_report(report)
+    print(f"  Assessment report saved to: {report_path}")
+
+    return 0
+
+
 def run_extraction(tableau_file):
     """Run Tableau extraction"""
     global _stats
@@ -496,6 +547,12 @@ def main():
     )
 
     parser.add_argument(
+        '--assess',
+        action='store_true',
+        help='Run pre-migration assessment checklist only (no artifact generation)'
+    )
+
+    parser.add_argument(
         '--verbose', '-v',
         action='store_true',
         help='Enable verbose (DEBUG) logging'
@@ -542,6 +599,14 @@ def main():
     # ── Single file ──
     if not args.tableau_file:
         parser.error('tableau_file is required (or use --batch DIR)')
+
+    # ── Assessment mode ──
+    if args.assess:
+        return run_assessment_flow(
+            args.tableau_file,
+            skip_extraction=args.skip_extraction,
+            prep_file=args.prep,
+        )
 
     print_header("TABLEAU TO MICROSOFT FABRIC MIGRATION")
     print(f"Source file: {args.tableau_file}")
