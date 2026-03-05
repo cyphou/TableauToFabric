@@ -1175,10 +1175,32 @@ def _convert_lod_expressions(dax, table_name, column_table_map):
     dax = re.sub(r'\{\s*EXCLUDE\s+(.*?)\s*:\s*(.*?)\s*\}', _lod_exclude,
                  dax, flags=re.IGNORECASE | re.DOTALL)
     
-    # LOD without dimension — replace only trailing } that match the pattern
-    dax = re.sub(r'\{\s*(SUM|AVG|AVERAGE|MIN|MAX|COUNT|COUNTD|MEDIAN)\s*\(([^}]*)\}',
-                 lambda m: f'CALCULATE({m.group(1)}({m.group(2)})',
-                 dax, flags=re.IGNORECASE)
+    # LOD without dimension — use balanced brace matching (not global replace)
+    _lod_no_dim_pattern = re.compile(
+        r'\{\s*(SUM|AVG|AVERAGE|MIN|MAX|COUNT|COUNTD|MEDIAN)\s*\(',
+        re.IGNORECASE
+    )
+    match = _lod_no_dim_pattern.search(dax)
+    while match:
+        # Find the matching closing brace for this LOD expression
+        start = match.start()
+        depth = 1
+        i = start + 1
+        while i < len(dax) and depth > 0:
+            if dax[i] == '{':
+                depth += 1
+            elif dax[i] == '}':
+                depth -= 1
+            i += 1
+        if depth == 0:
+            # Extract inner content (between { and })
+            inner = dax[start + 1:i - 1].strip()
+            # Convert to CALCULATE(inner)
+            replacement = f'CALCULATE({inner})'
+            dax = dax[:start] + replacement + dax[i:]
+            match = _lod_no_dim_pattern.search(dax, start + len(replacement))
+        else:
+            break
     
     return dax
 

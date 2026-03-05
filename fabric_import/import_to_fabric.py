@@ -31,7 +31,8 @@ class FabricImporter:
         os.makedirs(self.output_dir, exist_ok=True)
 
     def import_all(self, report_name=None, output_dir=None,
-                   artifacts=None):
+                   artifacts=None, calendar_start=None,
+                   calendar_end=None, culture=None):
         """
         Import all extracted objects and generate Fabric artifacts.
 
@@ -41,6 +42,9 @@ class FabricImporter:
             artifacts: List of artifact types to generate
                        (subset of ['lakehouse', 'dataflow', 'notebook',
                         'semanticmodel', 'pipeline', 'pbi'])
+            calendar_start: Start year for Calendar table (default: 2020)
+            calendar_end: End year for Calendar table (default: 2030)
+            culture: Override culture/locale for semantic model (e.g., fr-FR)
         """
         from .constants import ALL_ARTIFACTS
         if artifacts is None:
@@ -145,7 +149,10 @@ class FabricImporter:
             try:
                 from .semantic_model_generator import SemanticModelGenerator
                 sm_gen = SemanticModelGenerator(project_dir, safe_name)
-                sm_stats = sm_gen.generate(extracted)
+                sm_stats = sm_gen.generate(extracted,
+                                           calendar_start=calendar_start,
+                                           calendar_end=calendar_end,
+                                           culture=culture)
                 stats['semanticmodel_tables'] = sm_stats.get('tables', 0)
                 print(f"        ✓ {stats['semanticmodel_tables']} table(s)")
             except Exception as e:

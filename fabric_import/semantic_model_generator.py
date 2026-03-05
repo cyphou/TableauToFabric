@@ -35,12 +35,15 @@ class SemanticModelGenerator:
         self.sm_dir = os.path.join(project_dir, f'{model_name}.SemanticModel')
         os.makedirs(self.sm_dir, exist_ok=True)
 
-    def generate(self, extracted):
+    def generate(self, extracted, calendar_start=None, calendar_end=None, culture=None):
         """Generate semantic-model files from extracted Tableau objects.
 
         Args:
             extracted: dict with keys like 'datasources', 'calculations',
                        'hierarchies', 'parameters', 'user_filters', etc.
+            calendar_start: Start year for Calendar table (default: 2020)
+            calendar_end: End year for Calendar table (default: 2030)
+            culture: Override culture/locale for semantic model (e.g., fr-FR)
 
         Returns:
             dict with generation statistics.
@@ -69,6 +72,9 @@ class SemanticModelGenerator:
             extra_objects=extra_objects,
             output_dir=definition_dir,
             lakehouse_name=self.lakehouse_name,
+            calendar_start=calendar_start,
+            calendar_end=calendar_end,
+            culture=culture,
         )
 
         # Create .platform manifest

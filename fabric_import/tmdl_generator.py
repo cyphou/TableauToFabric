@@ -52,7 +52,8 @@ from .calc_column_utils import classify_calculations, sanitize_calc_col_name
 # ════════════════════════════════════════════════════════════════════
 
 def generate_tmdl(datasources, report_name, extra_objects, output_dir,
-                  lakehouse_name=None):
+                  lakehouse_name=None, calendar_start=None, calendar_end=None,
+                  culture=None):
     """
     Main entry point: convert extracted Tableau data to TMDL files
     using DirectLake mode for Fabric Lakehouse.
@@ -64,6 +65,9 @@ def generate_tmdl(datasources, report_name, extra_objects, output_dir,
                        parameters, user_filters, _datasources
         output_dir: Path to the SemanticModel folder
         lakehouse_name: Name of the target Lakehouse (defaults to report_name)
+        calendar_start: Start year for Calendar table (default: 2020)
+        calendar_end: End year for Calendar table (default: 2030)
+        culture: Override culture/locale for semantic model (e.g., fr-FR)
 
     Returns:
         dict: Statistics about the generated model
@@ -75,7 +79,10 @@ def generate_tmdl(datasources, report_name, extra_objects, output_dir,
 
     # Step 1: Build the semantic model (DirectLake mode)
     model = _build_semantic_model(datasources, report_name, extra_objects,
-                                   lakehouse_name=lh_name)
+                                   lakehouse_name=lh_name,
+                                   calendar_start=calendar_start,
+                                   calendar_end=calendar_end,
+                                   culture=culture)
 
     # Step 2: Write TMDL files
     _write_tmdl_files(model, output_dir)
@@ -102,7 +109,8 @@ from .naming import sanitize_tmdl_table_name as _sanitize_table_name  # noqa: E4
 
 
 def _build_semantic_model(datasources, report_name="Report", extra_objects=None,
-                          lakehouse_name=None):
+                          lakehouse_name=None, calendar_start=None,
+                          calendar_end=None, culture=None):
     """
     Build a complete semantic model from extracted Tableau datasources
     using DirectLake mode for Fabric Lakehouse.
@@ -113,11 +121,13 @@ def _build_semantic_model(datasources, report_name="Report", extra_objects=None,
     if extra_objects is None:
         extra_objects = {}
 
+    effective_culture = culture or 'en-US'
+
     model = {
         "name": report_name,
         "compatibilityLevel": 1604,
         "model": {
-            "culture": "fr-FR",
+            "culture": effective_culture,
             "defaultPowerBIDataSourceVersion": "powerBI_V3",
             "defaultMode": "directLake",
             "tables": [],
@@ -335,7 +345,8 @@ def _build_semantic_model(datasources, report_name="Report", extra_objects=None,
         if has_date_columns:
             break
     if has_date_columns and not is_direct_lake:
-        _add_date_table(model)
+        _add_date_table(model, calendar_start=calendar_start,
+                        calendar_end=calendar_end)
 
     # Phase 7: Hierarchies
     _apply_hierarchies(model, extra_objects.get('hierarchies', []), column_table_map)
@@ -469,6 +480,13 @@ def _build_table_directlake(table, calculations, dax_context=None,
             bim_column["summarizeBy"] = "sum"
             if col.get('datatype') == 'real':
                 bim_column["formatString"] = "#,0.00"
+
+        # Apply Tableau number format if available (overrides default)
+        tableau_fmt = col_meta.get('default_format', '') or col.get('default_format', '')
+        if tableau_fmt:
+            pbi_fmt = _convert_tableau_format_to_pbi(tableau_fmt)
+            if pbi_fmt:
+                bim_column["formatString"] = pbi_fmt
 
         result_table["columns"].append(bim_column)
 
@@ -904,6 +922,49 @@ def _get_format_string(datatype):
         'boolean': 'True/False'
     }
     return format_map.get(datatype.lower(), '0')
+
+
+def _convert_tableau_format_to_pbi(tableau_format):
+    """Convert a Tableau number format string to Power BI format string.
+
+    Tableau formats:  #,##0.00  |  0.0%  |  $#,##0  |  0.000  |  #,##0
+    PBI formats:      #,0.00   |  0.0%  |  $#,0    |  0.000  |  #,0
+
+    Args:
+        tableau_format: Tableau format string (from default-format attribute)
+
+    Returns:
+        str: Power BI format string, or empty string if no conversion needed
+    """
+    if not tableau_format:
+        return ''
+
+    fmt = tableau_format.strip()
+
+    # Already a PBI-compatible format
+    if fmt in ('0', '#,0', '#,0.00', '0.00%', '$#,0.00', 'General Date', 'Short Date'):
+        return fmt
+
+    # Percentage formats
+    if '%' in fmt:
+        return fmt
+
+    # Currency with symbol
+    for symbol in ('$', '\u20ac', '\u00a3', '\u00a5'):
+        if symbol in fmt:
+            cleaned = fmt.replace('##0', '#0').replace('###', '#').replace(',,', ',')
+            if '0' not in cleaned:
+                cleaned = cleaned + '0'
+            return cleaned
+
+    # Numeric formats — convert Tableau's #,##0 → #,0 pattern
+    result = fmt
+    result = result.replace('#,##0', '#,0')
+    result = result.replace('#,###', '#,#')
+    if result and result[0] == '0':
+        return result
+
+    return result if result != fmt else fmt
 
 
 def _process_sets_groups_bins(model, extra_objects, main_table_name, column_table_map):
@@ -1488,12 +1549,14 @@ def _create_field_parameters(model, parameters, main_table_name, column_table_ma
         existing_tables.add(fp_name)
 
 
-def _add_date_table(model):
+def _add_date_table(model, calendar_start=None, calendar_end=None):
     """Add a Calendar date table using M partition (compatible with DirectLake)."""
+    start_year = calendar_start or 2020
+    end_year = calendar_end or 2030
     calendar_m = (
         'let\n'
-        '    StartDate = #date(2020, 1, 1),\n'
-        '    EndDate = #date(2030, 12, 31),\n'
+        f'    StartDate = #date({start_year}, 1, 1),\n'
+        f'    EndDate = #date({end_year}, 12, 31),\n'
         '    DayCount = Duration.Days(EndDate - StartDate) + 1,\n'
         '    DateList = List.Dates(StartDate, DayCount, #duration(1, 0, 0, 0)),\n'
         '    #"Date Table" = Table.FromList(DateList, Splitter.SplitByNothing(), {"Date"}, null, ExtraValues.Error),\n'

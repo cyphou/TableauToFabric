@@ -11,6 +11,7 @@ Usage:
 """
 
 import os
+import re
 import json
 import logging
 from pathlib import Path
@@ -37,6 +38,239 @@ class ArtifactValidator:
     VALID_VISUAL_SCHEMAS = [
         'https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/2.5.0/schema.json',
     ]
+
+    # ── DAX validation ─────────────────────────────────────────────
+
+    # Tableau functions that should never appear in valid DAX
+    _TABLEAU_FUNCTION_LEAK_PATTERNS = [
+        (r'\bCOUNTD\s*\(', 'COUNTD (use DISTINCTCOUNT)'),
+        (r'\bZN\s*\(', 'ZN (use IF(ISBLANK(...)))'),
+        (r'\bIFNULL\s*\(', 'IFNULL (use IF(ISBLANK(...)))'),
+        (r'\bATTR\s*\(', 'ATTR (use VALUES)'),
+        (r'(?<![<>!])={2}(?!=)', 'Double-equals == (use single =)'),
+        (r'\bELSEIF\b', 'ELSEIF (use nested IF)'),
+        (r'(?<!\{)\{(?:FIXED|INCLUDE|EXCLUDE)\s', 'LOD expression {FIXED/INCLUDE/EXCLUDE}'),
+        (r'\bDATETRUNC\s*\(', 'DATETRUNC (use STARTOF*)'),
+        (r'\bDATEPART\s*\(', 'DATEPART (use YEAR/MONTH/DAY)'),
+        (r'\bMAKEPOINT\s*\(', 'MAKEPOINT (spatial — no DAX equivalent)'),
+        (r'\bSCRIPT_(?:BOOL|INT|REAL|STR)\s*\(', 'SCRIPT_* analytics extension'),
+    ]
+
+    # Regex helpers for semantic reference validation
+    _RE_TABLE_DEF = re.compile(r"^table\s+'?([^']+?)'?\s*$")
+    _RE_COL_DEF = re.compile(r"^column\s+'?([^']+?)'?\s*$")
+    _RE_MEASURE_DEF = re.compile(r"^measure\s+'?([^']+?)'?\s*$")
+    _RE_DAX_REF = re.compile(r"'([^']+?)'\[([^\]]+)\]")
+
+    @classmethod
+    def validate_dax_formula(cls, formula, context=''):
+        """Validate a single DAX formula for common issues.
+
+        Checks:
+        - Balanced parentheses
+        - Tableau function leakage
+        - Unresolved [Parameters].[X] references
+
+        Args:
+            formula: DAX formula string
+            context: Optional context label (measure/column name) for error messages
+
+        Returns:
+            list of error/warning strings (empty = valid)
+        """
+        issues = []
+        if not formula or not formula.strip():
+            return issues
+
+        ctx = f' in {context}' if context else ''
+
+        # 1. Balanced parentheses
+        depth = 0
+        for ch in formula:
+            if ch == '(':
+                depth += 1
+            elif ch == ')':
+                depth -= 1
+                if depth < 0:
+                    issues.append(f'Unmatched closing parenthesis{ctx}')
+                    break
+        if depth > 0:
+            issues.append(f'Unmatched opening parenthesis ({depth} unclosed){ctx}')
+
+        # 2. Tableau function leakage
+        for pattern, description in cls._TABLEAU_FUNCTION_LEAK_PATTERNS:
+            if re.search(pattern, formula):
+                issues.append(f'Tableau function leak: {description}{ctx}')
+
+        # 3. Unresolved parameter references [Parameters].[X]
+        if re.search(r'\[Parameters\]\s*\.\s*\[', formula):
+            issues.append(f'Unresolved parameter reference [Parameters].[...]{ctx}')
+
+        return issues
+
+    @classmethod
+    def validate_tmdl_dax(cls, filepath):
+        """Validate all DAX formulas inside a TMDL file.
+
+        Scans for 'expression =' and 'expression =\\n' patterns to extract
+        DAX from table/measure/column definitions.
+
+        Args:
+            filepath: Path to .tmdl file
+
+        Returns:
+            list of issue strings
+        """
+        issues = []
+        try:
+            with open(filepath, 'r', encoding='utf-8') as f:
+                lines = f.readlines()
+        except Exception:
+            return issues
+
+        basename = os.path.basename(filepath)
+        current_object = basename
+
+        i = 0
+        while i < len(lines):
+            line = lines[i]
+            stripped = line.strip()
+
+            # Track current object name
+            for prefix in ('measure ', 'column ', 'table '):
+                if stripped.startswith(prefix):
+                    current_object = stripped
+
+            # Single-line expression
+            if stripped.startswith('expression =') and not stripped.endswith('```'):
+                formula = stripped[len('expression ='):].strip()
+                # Skip M expressions (Power Query)
+                if not formula.lstrip().startswith('let') and not formula.lstrip().startswith('//'):
+                    issues.extend(cls.validate_dax_formula(formula, current_object))
+
+            # Multi-line expression block (``` delimited)
+            if stripped.startswith('expression =') and stripped.endswith('```'):
+                formula_lines = []
+                i += 1
+                while i < len(lines) and not lines[i].strip().startswith('```'):
+                    formula_lines.append(lines[i])
+                    i += 1
+                formula = '\n'.join(formula_lines)
+                # Skip M expressions
+                if not formula.lstrip().startswith('let') and not formula.lstrip().startswith('//'):
+                    issues.extend(cls.validate_dax_formula(formula, current_object))
+
+            i += 1
+
+        return issues
+
+    @classmethod
+    def _collect_model_symbols(cls, sm_dir):
+        """Collect all table names, column names, and measure names
+        from the SemanticModel TMDL files.
+
+        Args:
+            sm_dir: Path to ``{name}.SemanticModel`` directory.
+
+        Returns:
+            dict with keys ``tables`` (set), ``columns`` (dict), ``measures`` (dict).
+        """
+        tables = set()
+        columns = {}
+        measures = {}
+
+        def _scan_tmdl(filepath):
+            try:
+                with open(filepath, 'r', encoding='utf-8') as f:
+                    file_lines = f.readlines()
+            except Exception:
+                return
+            current_table = None
+            for file_line in file_lines:
+                stripped_line = file_line.strip()
+                tm = cls._RE_TABLE_DEF.match(stripped_line)
+                if tm:
+                    current_table = tm.group(1)
+                    tables.add(current_table)
+                    columns.setdefault(current_table, set())
+                    measures.setdefault(current_table, set())
+                    continue
+                if current_table:
+                    cm = cls._RE_COL_DEF.match(stripped_line)
+                    if cm:
+                        columns[current_table].add(cm.group(1))
+                        continue
+                    mm = cls._RE_MEASURE_DEF.match(stripped_line)
+                    if mm:
+                        measures[current_table].add(mm.group(1))
+                        continue
+
+        sm_path = Path(sm_dir)
+        def_dir = sm_path / 'definition'
+
+        model_tmdl = def_dir / 'model.tmdl'
+        if model_tmdl.exists():
+            _scan_tmdl(str(model_tmdl))
+
+        tables_dir = def_dir / 'tables'
+        if tables_dir.exists():
+            for tmdl_f in tables_dir.glob('*.tmdl'):
+                _scan_tmdl(str(tmdl_f))
+
+        return {'tables': tables, 'columns': columns, 'measures': measures}
+
+    @classmethod
+    def validate_semantic_references(cls, sm_dir):
+        """Validate that DAX column references (``'Table'[Column]``) in TMDL
+        files actually exist in the model.
+
+        Args:
+            sm_dir: Path to ``{name}.SemanticModel`` directory.
+
+        Returns:
+            list of warning strings for unresolved references.
+        """
+        symbols = cls._collect_model_symbols(sm_dir)
+        known_tables = symbols['tables']
+        known_cols = symbols['columns']
+        known_measures = symbols['measures']
+        warnings_list = []
+
+        sm_path = Path(sm_dir)
+        def_dir = sm_path / 'definition'
+
+        tmdl_files = []
+        model_tmdl = def_dir / 'model.tmdl'
+        if model_tmdl.exists():
+            tmdl_files.append(model_tmdl)
+        tables_dir = def_dir / 'tables'
+        if tables_dir.exists():
+            tmdl_files.extend(tables_dir.glob('*.tmdl'))
+        roles_file = def_dir / 'roles.tmdl'
+        if roles_file.exists():
+            tmdl_files.append(roles_file)
+
+        for tmdl_file in tmdl_files:
+            try:
+                content = tmdl_file.read_text(encoding='utf-8')
+            except Exception:
+                continue
+            basename = tmdl_file.name
+            for match in cls._RE_DAX_REF.finditer(content):
+                table_ref = match.group(1)
+                col_ref = match.group(2)
+                if table_ref not in known_tables:
+                    warnings_list.append(
+                        f'Unknown table reference \'{table_ref}\' in {basename}'
+                    )
+                else:
+                    all_fields = known_cols.get(table_ref, set()) | known_measures.get(table_ref, set())
+                    if col_ref not in all_fields:
+                        warnings_list.append(
+                            f'Unknown column/measure [{col_ref}] in table \'{table_ref}\' ({basename})'
+                        )
+
+        return warnings_list
 
     @staticmethod
     def validate_artifact(artifact_path):

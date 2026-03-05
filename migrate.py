@@ -232,7 +232,8 @@ def run_extraction(tableau_file):
         return False
 
 
-def run_generation(report_name=None, output_dir=None, artifacts=None, auto=False):
+def run_generation(report_name=None, output_dir=None, artifacts=None, auto=False,
+                   calendar_start=None, calendar_end=None, culture=None):
     """Generate Fabric artifacts from extracted data
 
     Args:
@@ -241,6 +242,9 @@ def run_generation(report_name=None, output_dir=None, artifacts=None, auto=False
         artifacts: List of artifacts to generate (default: all)
         auto: If True, automatically choose between dataflow/notebook based on
               workbook complexity analysis.
+        calendar_start: Start year for Calendar table (default: 2020)
+        calendar_end: End year for Calendar table (default: 2030)
+        culture: Override culture/locale for semantic model (e.g., fr-FR)
     """
     global _stats
     if artifacts is None:
@@ -279,6 +283,9 @@ def run_generation(report_name=None, output_dir=None, artifacts=None, auto=False
             artifacts=artifacts,
             report_name=report_name,
             output_dir=output_dir,
+            calendar_start=calendar_start,
+            calendar_end=calendar_end,
+            culture=culture,
         )
 
         # Collect stats
@@ -414,7 +421,8 @@ def run_prep_flow(prep_file, datasources_json='tableau_export/datasources.json')
 
 
 def run_batch_migration(batch_dir, output_dir=None, prep_file=None,
-                        skip_extraction=False, artifacts=None, auto=False):
+                        skip_extraction=False, artifacts=None, auto=False,
+                        calendar_start=None, calendar_end=None, culture=None):
     """Batch migrate all .twb/.twbx files in a directory."""
     if not os.path.isdir(batch_dir):
         print(f"Error: Batch directory not found: {batch_dir}")
@@ -471,6 +479,9 @@ def run_batch_migration(batch_dir, output_dir=None, prep_file=None,
             output_dir=output_dir,
             artifacts=artifacts,
             auto=auto,
+            calendar_start=calendar_start,
+            calendar_end=calendar_end,
+            culture=culture,
         )
 
         all_ok = all(v for v in file_results.values() if v is not None)
@@ -572,6 +583,35 @@ def main():
         help='Batch migrate all .twb/.twbx files in the specified directory'
     )
 
+    parser.add_argument(
+        '--dry-run',
+        action='store_true',
+        help='Preview migration without writing any files (extraction + analysis only)'
+    )
+
+    parser.add_argument(
+        '--calendar-start',
+        metavar='YEAR',
+        type=int,
+        default=None,
+        help='Start year for the auto-generated Calendar table (default: 2020)'
+    )
+
+    parser.add_argument(
+        '--calendar-end',
+        metavar='YEAR',
+        type=int,
+        default=None,
+        help='End year for the auto-generated Calendar table (default: 2030)'
+    )
+
+    parser.add_argument(
+        '--culture',
+        metavar='LOCALE',
+        default=None,
+        help='Override culture/locale for the semantic model (e.g., fr-FR, de-DE). Default: en-US'
+    )
+
     args = parser.parse_args()
 
     setup_logging(verbose=args.verbose, log_file=args.log_file)
@@ -594,6 +634,9 @@ def main():
             skip_extraction=args.skip_extraction,
             artifacts=artifacts,
             auto=args.auto,
+            calendar_start=args.calendar_start,
+            calendar_end=args.calendar_end,
+            culture=args.culture,
         )
 
     # ── Single file ──
@@ -614,6 +657,14 @@ def main():
         print(f"Prep flow:   {args.prep}")
     if args.output_dir:
         print(f"Output dir:  {args.output_dir}")
+    if args.dry_run:
+        print(f"Mode:        DRY RUN (no files will be written)")
+    if args.calendar_start or args.calendar_end:
+        cal_start = args.calendar_start or 2020
+        cal_end = args.calendar_end or 2030
+        print(f"Calendar:    {cal_start}-{cal_end}")
+    if args.culture:
+        print(f"Culture:     {args.culture}")
     artifact_list = artifacts or ALL_ARTIFACTS
     if args.auto:
         print(f"Artifacts:   auto-select (based on workbook complexity)")
@@ -642,12 +693,22 @@ def main():
 
     # Step 2: Generate Fabric artifacts
     source_basename = os.path.splitext(os.path.basename(args.tableau_file))[0]
-    results['generation'] = run_generation(
-        report_name=source_basename,
-        output_dir=args.output_dir,
-        artifacts=artifacts,
-        auto=args.auto,
-    )
+    if args.dry_run:
+        print("\n[DRY RUN] Skipping generation — would produce:")
+        print(f"  Report:  {source_basename}")
+        out_dir = args.output_dir or os.path.join('artifacts', 'fabric_projects')
+        print(f"  Output:  {os.path.join(out_dir, source_basename)}")
+        results['generation'] = True
+    else:
+        results['generation'] = run_generation(
+            report_name=source_basename,
+            output_dir=args.output_dir,
+            artifacts=artifacts,
+            auto=args.auto,
+            calendar_start=args.calendar_start,
+            calendar_end=args.calendar_end,
+            culture=args.culture,
+        )
 
     # ── Final report ──
     duration = datetime.now() - start_time

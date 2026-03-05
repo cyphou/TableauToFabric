@@ -62,6 +62,7 @@ class TableauExtractor:
         self.extract_custom_geocoding(root)
         self.extract_published_datasources(root)
         self.extract_data_blending(root)
+        self.extract_datasource_filters(root)
         self.extract_hyper_metadata()
         
         # Workbook-level assets from packaged files
@@ -2058,6 +2059,104 @@ class TableauExtractor:
                     'scope': ref.get('scope', 'per-pane'),
                 })
         return stats
+
+    def extract_datasource_filters(self, root):
+        """Extract data source-level (extract) filters baked into connections.
+
+        These are filters defined on the data source itself (not on worksheets)
+        and they restrict what data is imported.  In Tableau XML they appear as
+        ``<filter>`` elements directly under ``<datasource>`` or inside
+        ``<extract>``/``<connection>`` blocks.
+        """
+        ds_filters = []
+
+        for ds in root.findall('.//datasource'):
+            ds_name = ds.get('caption', ds.get('name', ''))
+
+            # 1. Top-level <filter> elements on the datasource
+            for filt in ds.findall('./filter'):
+                fdata = self._parse_datasource_filter(filt, ds_name)
+                if fdata:
+                    ds_filters.append(fdata)
+
+            # 2. Filters inside <extract><connection>
+            extract_el = ds.find('.//extract')
+            if extract_el is not None:
+                for filt in extract_el.findall('.//filter'):
+                    fdata = self._parse_datasource_filter(filt, ds_name)
+                    if fdata:
+                        ds_filters.append(fdata)
+
+            # 3. Filters inside <connection> (named/federated connections)
+            for conn in ds.findall('.//connection'):
+                for filt in conn.findall('./filter'):
+                    fdata = self._parse_datasource_filter(filt, ds_name)
+                    if fdata:
+                        ds_filters.append(fdata)
+
+        # Deduplicate by (datasource, column, type)
+        seen = set()
+        unique = []
+        for f in ds_filters:
+            key = (f['datasource'], f['column'], f['filter_class'])
+            if key not in seen:
+                seen.add(key)
+                unique.append(f)
+
+        self.workbook_data['datasource_filters'] = unique
+        print(f"  [OK] {len(unique)} datasource-level filters extracted")
+
+    @staticmethod
+    def _parse_datasource_filter(filt_element, ds_name):
+        """Parse a single ``<filter>`` element from a datasource context.
+
+        Returns a dict or ``None`` if the element is not a meaningful
+        datasource filter (e.g. missing column).
+        """
+        column = filt_element.get('column', '')
+        if not column:
+            return None
+
+        # Clean brackets
+        clean_col = column.strip().strip('[]')
+
+        filter_class = filt_element.get('class', '')  # categorical / quantitative
+        filter_type = filt_element.get('type', '')      # e.g. included, excluded
+
+        # Categorical values: <groupfilter member="..."> or <member> elements
+        values = []
+        for gf in filt_element.findall('.//groupfilter'):
+            member = gf.get('member', '')
+            if member:
+                values.append(member)
+        for member_el in filt_element.findall('.//member'):
+            val = member_el.get('value', member_el.text or '')
+            if val:
+                values.append(val)
+        # Plain <value> children
+        for val_el in filt_element.findall('.//value'):
+            if val_el.text:
+                values.append(val_el.text)
+
+        # Quantitative range
+        range_min = None
+        range_max = None
+        min_el = filt_element.find('.//min')
+        max_el = filt_element.find('.//max')
+        if min_el is not None:
+            range_min = min_el.get('value', min_el.text)
+        if max_el is not None:
+            range_max = max_el.get('value', max_el.text)
+
+        return {
+            'datasource': ds_name,
+            'column': clean_col,
+            'filter_class': filter_class,
+            'filter_type': filter_type,
+            'values': values,
+            'range_min': range_min,
+            'range_max': range_max,
+        }
 
     def save_extractions(self):
         """Saves extractions to JSON"""
