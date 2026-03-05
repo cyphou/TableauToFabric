@@ -16,59 +16,12 @@ by Dataflow Gen2 or PySpark Notebooks.
 
 import os
 import json
-import re
 from datetime import datetime
 
 from .calc_column_utils import classify_calculations, sanitize_calc_col_name
-
-
-# Tableau → Delta Lake / Spark type mapping
-_SPARK_TYPE_MAP = {
-    'string': 'STRING',
-    'integer': 'INT',
-    'int64': 'BIGINT',
-    'real': 'DOUBLE',
-    'double': 'DOUBLE',
-    'number': 'DOUBLE',
-    'boolean': 'BOOLEAN',
-    'date': 'DATE',
-    'datetime': 'TIMESTAMP',
-    'time': 'STRING',          # Spark has no native TIME type
-    'spatial': 'STRING',       # Store GeoJSON as string
-    'binary': 'BINARY',
-    'currency': 'DECIMAL(19,4)',
-    'percentage': 'DOUBLE',
-}
-
-
-def _map_to_spark_type(tableau_type):
-    """Map Tableau data type to Spark SQL type."""
-    return _SPARK_TYPE_MAP.get(tableau_type.lower(), 'STRING')
-
-
-def _sanitize_table_name(name):
-    """Sanitize a Tableau table name for Lakehouse (Delta Lake)."""
-    # Remove schema prefixes like [dbo].[TableName] or schema.table
-    if '.' in name:
-        name = name.rsplit('.', 1)[-1]
-    # Remove brackets
-    name = name.replace('[', '').replace(']', '')
-    # Replace spaces and special chars with underscores
-    name = re.sub(r'[^a-zA-Z0-9_]', '_', name)
-    # Remove leading digits
-    name = re.sub(r'^[0-9]+', '', name)
-    # Collapse multiple underscores
-    name = re.sub(r'_+', '_', name).strip('_')
-    return name.lower() or 'table'
-
-
-def _sanitize_column_name(name):
-    """Sanitize a column name for Delta Lake."""
-    name = name.replace('[', '').replace(']', '')
-    name = re.sub(r'[^a-zA-Z0-9_]', '_', name)
-    name = re.sub(r'^[0-9]+', '_', name)
-    name = re.sub(r'_+', '_', name).strip('_')
-    return name or 'column'
+from .constants import map_to_spark_type as _map_to_spark_type
+from .naming import sanitize_table_name as _sanitize_table_name
+from .naming import sanitize_column_name as _sanitize_column_name
 
 
 class LakehouseGenerator:

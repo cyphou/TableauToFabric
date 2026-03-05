@@ -17,7 +17,6 @@ activity model (Copy, DataFlow, Notebook, SemanticModelRefresh).
 
 import os
 import json
-import re
 import uuid
 from datetime import datetime
 
@@ -237,6 +236,4 @@ class PipelineGenerator:
         return max(stages) + 1 if stages else 1
 
 
-def _sanitize(name):
-    """Sanitize a name for use in activity/reference names."""
-    return re.sub(r'[^A-Za-z0-9_]', '_', name).strip('_')
+from .naming import sanitize_pipeline_name as _sanitize  # noqa: E402

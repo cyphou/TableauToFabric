@@ -14,8 +14,9 @@ generation pipeline:
 import os
 import json
 import logging
-import re
 from datetime import datetime
+
+from .naming import sanitize_filesystem_name
 
 logger = logging.getLogger(__name__)
 
@@ -41,8 +42,7 @@ class FabricImporter:
                        (subset of ['lakehouse', 'dataflow', 'notebook',
                         'semanticmodel', 'pipeline', 'pbi'])
         """
-        ALL_ARTIFACTS = ['lakehouse', 'dataflow', 'notebook',
-                         'semanticmodel', 'pipeline', 'pbi']
+        from .constants import ALL_ARTIFACTS
         if artifacts is None:
             artifacts = ALL_ARTIFACTS
 
@@ -241,8 +241,7 @@ class FabricImporter:
     @staticmethod
     def _sanitize_name(name):
         """Sanitize a name for filesystem use."""
-        safe = re.sub(r'[<>:"/\\|?*]', '_', name)
-        return safe.strip().strip('.')
+        return sanitize_filesystem_name(name)
 
 
 def main():

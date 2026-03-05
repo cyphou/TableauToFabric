@@ -34,14 +34,7 @@ from .calc_column_utils import (
     make_m_add_column_step,
     sanitize_calc_col_name,
 )
-
-
-def _sanitize_query_name(name):
-    """Sanitize a table/query name for Dataflow Gen2."""
-    name = name.replace('[', '').replace(']', '')
-    name = re.sub(r'[^a-zA-Z0-9_ ]', '_', name)
-    name = re.sub(r'_+', '_', name).strip('_')
-    return name or 'Query'
+from .naming import sanitize_query_name as _sanitize_query_name
 
 
 def _add_lakehouse_sink(m_query, lakehouse_table_name):

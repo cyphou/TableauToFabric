@@ -107,7 +107,7 @@ class MigrationStats:
 
 _stats = MigrationStats()
 
-ALL_ARTIFACTS = ['lakehouse', 'dataflow', 'notebook', 'semanticmodel', 'pipeline', 'pbi']
+from fabric_import.constants import ALL_ARTIFACTS
 
 
 def print_header(text):
@@ -324,8 +324,6 @@ def run_generation(report_name=None, output_dir=None, artifacts=None, auto=False
 
 def run_prep_flow(prep_file, datasources_json='tableau_export/datasources.json'):
     """Parse Tableau Prep flow and merge transforms into extracted datasources."""
-    import json as _json
-
     print_step("1b", 2, "TABLEAU PREP FLOW PARSING")
 
     if not os.path.exists(prep_file):
@@ -342,7 +340,7 @@ def run_prep_flow(prep_file, datasources_json='tableau_export/datasources.json')
 
         if os.path.exists(datasources_json):
             with open(datasources_json, 'r', encoding='utf-8') as f:
-                twb_datasources = _json.load(f)
+                twb_datasources = json.load(f)
             print(f"  [OK] {len(twb_datasources)} TWB datasource(s) loaded")
         else:
             twb_datasources = []
@@ -351,7 +349,7 @@ def run_prep_flow(prep_file, datasources_json='tableau_export/datasources.json')
         merged = merge_prep_with_workbook(prep_datasources, twb_datasources)
 
         with open(datasources_json, 'w', encoding='utf-8') as f:
-            _json.dump(merged, f, indent=2, ensure_ascii=False)
+            json.dump(merged, f, indent=2, ensure_ascii=False)
         print(f"  [OK] {len(merged)} merged datasource(s) saved to {datasources_json}")
 
         print("\n[OK] Prep flow parsing completed successfully")

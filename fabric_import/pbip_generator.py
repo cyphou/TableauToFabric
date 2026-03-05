@@ -1,5 +1,5 @@
-﻿"""
-Power BI Project (.pbip) generator â€” Fabric Edition
+"""
+Power BI Project (.pbip) generator — Fabric Edition
 
 Creates a complete Power BI project that connects to a Fabric Lakehouse
 via DirectLake mode.  The SemanticModel uses TMDL with DirectLake entity
@@ -38,6 +38,9 @@ from datetime import datetime
 import uuid
 import re
 import sys
+
+from .naming import clean_field_name as _clean_field_name_impl
+from .constants import new_visual_id, Z_INDEX_MULTIPLIER
 import shutil
 import time
 
@@ -54,9 +57,9 @@ class FabricPBIPGenerator:
         self.output_dir = os.path.abspath(output_dir)
         os.makedirs(self.output_dir, exist_ok=True)
 
-    # â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+    # ════════════════════════════════════════════════════════════════
     #  PUBLIC API
-    # â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+    # ════════════════════════════════════════════════════════════════
 
     def generate(self, extracted):
         """Generate Report artifact within the project directory.
@@ -143,9 +146,9 @@ class FabricPBIPGenerator:
 
         return {'pages': pages_count, 'visuals': visuals_count}
 
-    # â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+    # ════════════════════════════════════════════════════════════════
     #  PBIP FILE
-    # â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+    # ════════════════════════════════════════════════════════════════
 
     def create_pbip_file(self, project_dir, report_name):
         """Create the main .pbip file."""
@@ -167,9 +170,9 @@ class FabricPBIPGenerator:
 
         return pbip_file
 
-    # â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+    # ════════════════════════════════════════════════════════════════
     #  SEMANTIC MODEL (DirectLake)
-    # â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+    # ════════════════════════════════════════════════════════════════
 
     def create_semantic_model_structure(self, project_dir, report_name,
                                         converted_objects, lakehouse_name=None):
@@ -242,9 +245,9 @@ class FabricPBIPGenerator:
             print(f"  \u26a0 Error during TMDL generation: {e}")
             logging.exception("TMDL generation failed")
 
-    # â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+    # ════════════════════════════════════════════════════════════════
     #  REPORT STRUCTURE (PBIR v4.0)
-    # â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+    # ════════════════════════════════════════════════════════════════
 
     def create_report_structure(self, project_dir, report_name, converted_objects):
         """Create the Report structure in PBIR v4.0 format."""
@@ -286,7 +289,7 @@ class FabricPBIPGenerator:
         with open(os.path.join(report_dir, '.platform'), 'w', encoding='utf-8') as f:
             json.dump(platform, f, indent=2)
 
-        # definition.pbir â€” points to SemanticModel
+        # definition.pbir — points to SemanticModel
         report_definition = {
             "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definitionProperties/2.0.0/schema.json",
             "version": "4.0",
@@ -339,7 +342,7 @@ class FabricPBIPGenerator:
 
         if dashboards:
             for db_idx, db in enumerate(dashboards):
-                page_name = f"ReportSection{uuid.uuid4().hex[:20]}" if db_idx > 0 else "ReportSection"
+                page_name = f"ReportSection{new_visual_id()}" if db_idx > 0 else "ReportSection"
                 page_display_name = db.get('name', f'Page {db_idx + 1}')
                 page_names.append(page_name)
                 page_dir = os.path.join(pages_dir, page_name)
@@ -372,7 +375,7 @@ class FabricPBIPGenerator:
                 db_objects = db.get('objects', [])
                 visual_count = 0
 
-                # calc ID â†’ caption lookup
+                # calc ID → caption lookup
                 calc_id_to_caption = {}
                 for c in converted_objects.get('calculations', []):
                     cname = c.get('name', '').strip('[]')
@@ -412,7 +415,7 @@ class FabricPBIPGenerator:
                         self._create_visual_action_button(visuals_dir, obj, scale_x, scale_y, visual_count, 'Export')
                         visual_count += 1
 
-                # Pages shelf → play axis slicer
+                # Pages shelf ? play axis slicer
                 for ws in worksheets:
                     ps = ws.get('pages_shelf', {})
                     if ps and ps.get('field'):
@@ -445,7 +448,7 @@ class FabricPBIPGenerator:
             os.makedirs(visuals_dir, exist_ok=True)
             x, y = 10, 10
             for idx, ws in enumerate(worksheets):
-                vid = uuid.uuid4().hex[:20]
+                vid = new_visual_id()
                 vdir = os.path.join(visuals_dir, vid)
                 os.makedirs(vdir, exist_ok=True)
                 vtype = ws.get('chart_type', 'clusteredBarChart')
@@ -589,14 +592,14 @@ class FabricPBIPGenerator:
                             )
                     print(f"  \U0001f4f1 Mobile page '{mobile_display}': {len(zones)} zones")
 
-        # ── Bookmarks from stories ─
+        # -- Bookmarks from stories -
         bookmarks = converted_objects.get('bookmarks', [])
         if bookmarks:
             bm_dir = os.path.join(def_dir, 'bookmarks')
             os.makedirs(bm_dir, exist_ok=True)
             bm_list = []
             for bm_idx, bm in enumerate(bookmarks):
-                bm_id = uuid.uuid4().hex[:20]
+                bm_id = new_visual_id()
                 bm_name = bm.get('name', f'Bookmark {bm_idx + 1}')
                 bm_list.append({"name": bm_id, "displayName": bm_name})
                 bm_json = {
@@ -648,9 +651,9 @@ class FabricPBIPGenerator:
 
         return report_dir
 
-    # â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+    # ════════════════════════════════════════════════════════════════
     #  REPORT JSON
-    # â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+    # ════════════════════════════════════════════════════════════════
 
     def _build_report_json(self, theme_data, report_filters=None):
         """Build report.json content."""
@@ -697,9 +700,9 @@ class FabricPBIPGenerator:
             }
         return report_json
 
-    # â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-    #  FIELD MAPPING  (Tableau â†’ PBI model)
-    # â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+    # ════════════════════════════════════════════════════════════════
+    #  FIELD MAPPING  (Tableau → PBI model)
+    # ════════════════════════════════════════════════════════════════
 
     def _build_field_mapping(self, converted_objects):
         """Build mapping from Tableau field IDs to PBI table/column names."""
@@ -776,9 +779,7 @@ class FabricPBIPGenerator:
 
     def _clean_field_name(self, name):
         """Strip Tableau derivation prefixes."""
-        clean = re.sub(r'^(none|sum|avg|count|min|max|usr|yr|mn|dy|qr|wk|attr|md|mdy|hms|hr|mt|sc|thr|trunc|tmn):', '', name)
-        clean = re.sub(r':(nk|qk|ok|fn|tn)$', '', clean)
-        return clean
+        return _clean_field_name_impl(name)
 
     def _resolve_field_entity(self, field_name):
         """Resolve a field name to (table, column)."""
@@ -795,23 +796,23 @@ class FabricPBIPGenerator:
         main = getattr(self, '_main_table', clean)
         return (main, clean)
 
-    # â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+    # ════════════════════════════════════════════════════════════════
     #  VISUAL HELPERS
-    # â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+    # ════════════════════════════════════════════════════════════════
 
     def _make_visual_position(self, pos, scale_x, scale_y, z_index):
         return {
             "x": round(pos.get('x', 0) * scale_x),
             "y": round(pos.get('y', 0) * scale_y),
-            "z": z_index * 1000,
+            "z": z_index * Z_INDEX_MULTIPLIER,
             "height": round(pos.get('h', 200) * scale_y),
             "width": round(pos.get('w', 300) * scale_x),
-            "tabOrder": z_index * 1000
+            "tabOrder": z_index * Z_INDEX_MULTIPLIER
         }
 
     def _create_visual_worksheet(self, visuals_dir, ws_data, obj, scale_x, scale_y,
                                   visual_count, worksheets, converted_objects):
-        visual_id = uuid.uuid4().hex[:20]
+        visual_id = new_visual_id()
         visual_dir = os.path.join(visuals_dir, visual_id)
         os.makedirs(visual_dir, exist_ok=True)
 
@@ -841,7 +842,7 @@ class FabricPBIPGenerator:
             json.dump(visual_json, f, indent=2, ensure_ascii=False)
 
     def _create_visual_textbox(self, visuals_dir, obj, scale_x, scale_y, visual_count):
-        visual_id = uuid.uuid4().hex[:20]
+        visual_id = new_visual_id()
         visual_dir = os.path.join(visuals_dir, visual_id)
         os.makedirs(visual_dir, exist_ok=True)
         pos = obj.get('position', {})
@@ -859,7 +860,7 @@ class FabricPBIPGenerator:
             json.dump(visual_json, f, indent=2, ensure_ascii=False)
 
     def _create_visual_image(self, visuals_dir, obj, scale_x, scale_y, visual_count):
-        visual_id = uuid.uuid4().hex[:20]
+        visual_id = new_visual_id()
         visual_dir = os.path.join(visuals_dir, visual_id)
         os.makedirs(visual_dir, exist_ok=True)
         pos = obj.get('position', {})
@@ -877,7 +878,7 @@ class FabricPBIPGenerator:
 
     def _create_visual_filter_control(self, visuals_dir, obj, scale_x, scale_y,
                                        visual_count, calc_id_to_caption, converted_objects):
-        visual_id = uuid.uuid4().hex[:20]
+        visual_id = new_visual_id()
         visual_dir = os.path.join(visuals_dir, visual_id)
         os.makedirs(visual_dir, exist_ok=True)
         pos = obj.get('position', {})
@@ -895,9 +896,9 @@ class FabricPBIPGenerator:
         with open(os.path.join(visual_dir, 'visual.json'), 'w', encoding='utf-8') as f:
             json.dump(slicer_json, f, indent=2, ensure_ascii=False)
 
-    # â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+    # ════════════════════════════════════════════════════════════════
     #  VISUAL QUERY BUILDER
-    # â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+    # ════════════════════════════════════════════════════════════════
 
     def _build_visual_query(self, ws_data):
         """Build queryState for a visual (PBIR v4.0)."""
@@ -1011,9 +1012,9 @@ class FabricPBIPGenerator:
             "active": True
         }
 
-    # â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+    # ════════════════════════════════════════════════════════════════
     #  FILTERS
-    # â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+    # ════════════════════════════════════════════════════════════════
 
     def _create_visual_filters(self, filters):
         visual_filters = []
@@ -1078,9 +1079,9 @@ class FabricPBIPGenerator:
                 visual_filters.append(pbi_filter)
         return visual_filters
 
-    # â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+    # ════════════════════════════════════════════════════════════════
     #  VISUAL OBJECTS (formatting)
-    # â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+    # ════════════════════════════════════════════════════════════════
 
     def _build_visual_objects(self, ws_name, ws_data, visual_type):
         objects = {}
@@ -1179,7 +1180,7 @@ class FabricPBIPGenerator:
                     objects["valueAxis"] = [{"properties": {"show": {"expr": {"Literal": {"Value": "true"}}}}}]
                 objects["valueAxis"][0]["properties"]["referenceLine"] = y_ref_lines
 
-        # ── Trend lines (analytics pane) ──────────────────────
+        # -- Trend lines (analytics pane) ----------------------
         trend_lines = ws_data.get('trend_lines', [])
         if trend_lines:
             trend_objs = []
@@ -1198,7 +1199,7 @@ class FabricPBIPGenerator:
                 trend_objs.append({"properties": trend_obj})
             objects["trend"] = trend_objs
 
-        # ── Annotations → visual annotations (text boxes near visual) ──
+        # -- Annotations ? visual annotations (text boxes near visual) --
         annotations = ws_data.get('annotations', [])
         if annotations:
             anno_texts = [a.get('text', '') for a in annotations if a.get('text')]
@@ -1208,7 +1209,7 @@ class FabricPBIPGenerator:
                 objects["subTitle"][0]["properties"]["show"] = {"expr": {"Literal": {"Value": "true"}}}
                 objects["subTitle"][0]["properties"]["text"] = {"expr": {"Literal": {"Value": json.dumps(subtitle_text)}}}
 
-        # ── Enhanced axis config from extracted axes ──────────
+        # -- Enhanced axis config from extracted axes ----------
         axes_detail = ws_data.get('axes', {})
         if axes_detail:
             for axis_key, axis_obj_key in [('x', 'categoryAxis'), ('y', 'valueAxis')]:
@@ -1235,7 +1236,7 @@ class FabricPBIPGenerator:
                     props["labelDisplayUnits"] = {"expr": {"Literal": {"Value": "'0L'"}}}
                 objects[axis_obj_key] = [{"properties": props}]
 
-        # ── Legend position from mark encoding ────────────────
+        # -- Legend position from mark encoding ----------------
         legend_pos = mark_encoding.get('color', {}).get('legend_position', '')
         if legend_pos and "legend" in objects:
             pos_map = {'top': 'Top', 'bottom': 'Bottom', 'left': 'Left',
@@ -1244,7 +1245,7 @@ class FabricPBIPGenerator:
             pbi_pos = pos_map.get(legend_pos.lower(), 'Right')
             objects["legend"][0]["properties"]["position"] = {"expr": {"Literal": {"Value": f"'{pbi_pos}'"}}}
 
-        # ── Font formatting from extracted formatting ─────────
+        # -- Font formatting from extracted formatting ---------
         font_props = formatting.get('font', {})
         if isinstance(font_props, dict):
             font_family = font_props.get('family', '')
@@ -1261,7 +1262,7 @@ class FabricPBIPGenerator:
                     except (ValueError, TypeError):
                         pass
 
-        # ── Forecast config (analytics pane) ──────────────────
+        # -- Forecast config (analytics pane) ------------------
         forecasts = ws_data.get('forecasting', [])
         if forecasts:
             fc = forecasts[0]
@@ -1276,7 +1277,7 @@ class FabricPBIPGenerator:
                 forecast_obj["ignoreLast"] = {"expr": {"Literal": {"Value": f"{fc['ignore_last']}L"}}}
             objects["forecast"] = [{"properties": forecast_obj}]
 
-        # ── Map options (washout/style) ───────────────────────
+        # -- Map options (washout/style) -----------------------
         map_opts = ws_data.get('map_options', {})
         if map_opts and visual_type in ('map', 'filledMap'):
             map_props = {}
@@ -1295,7 +1296,7 @@ class FabricPBIPGenerator:
             if map_props:
                 objects["mapControl"] = [{"properties": map_props}]
 
-        # ── Per-value color assignments ───────────────────────
+        # -- Per-value color assignments -----------------------
         color_enc = mark_encoding.get('color', {})
         color_values = color_enc.get('color_values', {})
         if color_values:
@@ -1309,7 +1310,7 @@ class FabricPBIPGenerator:
             if dp_rules:
                 objects["dataPoint"] = dp_rules
 
-        # ── Conditional formatting (gradient scales) ──────────
+        # -- Conditional formatting (gradient scales) ----------
         if color_enc.get('type') == 'quantitative' and color_enc.get('palette_colors'):
             palette = color_enc['palette_colors']
             if len(palette) >= 2:
@@ -1322,7 +1323,7 @@ class FabricPBIPGenerator:
                 gradient_props["maxColor"] = {"solid": {"color": {"expr": {"Literal": {"Value": f"'{palette[-1]}'"}}}}}
                 objects["colorBorder"] = [{"properties": gradient_props}]
 
-        # ── Continuous vs discrete axis scale ─────────────────
+        # -- Continuous vs discrete axis scale -----------------
         axes_detail = ws_data.get('axes', {})
         for axis_key, axis_obj_key in [('x', 'categoryAxis'), ('y', 'valueAxis')]:
             ax = axes_detail.get(axis_key, {})
@@ -1332,7 +1333,7 @@ class FabricPBIPGenerator:
             elif ax.get('is_continuous') is False and axis_obj_key in objects:
                 objects[axis_obj_key][0]["properties"]["axisType"] = {"expr": {"Literal": {"Value": "'Categorical'"}}}
 
-        # ── Dual-axis synchronization ─────────────────────────
+        # -- Dual-axis synchronization -------------------------
         dual_axis = ws_data.get('dual_axis', {})
         if dual_axis.get('enabled'):
             if "valueAxis" not in objects:
@@ -1341,7 +1342,7 @@ class FabricPBIPGenerator:
                 objects["valueAxis"][0]["properties"]["secShow"] = {"expr": {"Literal": {"Value": "true"}}}
                 objects["valueAxis"][0]["properties"]["secAxisLabel"] = {"expr": {"Literal": {"Value": "true"}}}
 
-        # ── Per-object padding ────────────────────────────────
+        # -- Per-object padding --------------------------------
         padding = ws_data.get('padding', {})
         if padding:
             pad_props = {}
@@ -1354,7 +1355,7 @@ class FabricPBIPGenerator:
             if pad_props:
                 objects["visualContainerPadding"] = [{"properties": pad_props}]
 
-        # ── Row banding / alternating colors for table & matrix ─
+        # -- Row banding / alternating colors for table & matrix -
         if visual_type in ('tableEx', 'matrix', 'pivotTable'):
             banding_color = formatting.get('row_banding_color', '')
             if not banding_color:
@@ -1379,7 +1380,7 @@ class FabricPBIPGenerator:
                     objects.setdefault("subTotals", [{"properties": {}}])
                     objects["subTotals"][0]["properties"]["rowSubtotals"] = {"expr": {"Literal": {"Value": "true"}}}
 
-        # ── Reference bands from analytics_stats ──────────────
+        # -- Reference bands from analytics_stats --------------
         analytics_stats = ws_data.get('analytics_stats', [])
         for stat in analytics_stats:
             if stat.get('type') == 'distribution_band':
@@ -1410,7 +1411,7 @@ class FabricPBIPGenerator:
                     "style": {"expr": {"Literal": {"Value": "'dashed'"}}},
                 })
 
-        # ── Number format mapping ─────────────────────────────
+        # -- Number format mapping -----------------------------
         fmt_info = formatting.get('number_format', formatting.get('format_string', ''))
         if fmt_info:
             pbi_fmt = self._convert_number_format(fmt_info)
@@ -1419,9 +1420,9 @@ class FabricPBIPGenerator:
 
         return objects
 
-    # â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+    # ════════════════════════════════════════════════════════════════
     #  SLICER
-    # â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+    # ════════════════════════════════════════════════════════════════
 
     def _create_slicer_visual(self, visual_id, x, y, w, h, field_name, table_name, z_order):
         clean_field = field_name.replace('[', '').replace(']', '')
@@ -1454,7 +1455,7 @@ class FabricPBIPGenerator:
 
     def _create_visual_nav_button(self, visuals_dir, obj, scale_x, scale_y, visual_count):
         """Create a PBI action button that navigates to another page (sheet swapping)."""
-        visual_id = uuid.uuid4().hex[:20]
+        visual_id = new_visual_id()
         visual_dir = os.path.join(visuals_dir, visual_id)
         os.makedirs(visual_dir, exist_ok=True)
         pos = obj.get('position', {})
@@ -1481,7 +1482,7 @@ class FabricPBIPGenerator:
 
     def _create_visual_action_button(self, visuals_dir, obj, scale_x, scale_y, visual_count, action_type='Export'):
         """Create a PBI action button (download/export/bookmark)."""
-        visual_id = uuid.uuid4().hex[:20]
+        visual_id = new_visual_id()
         visual_dir = os.path.join(visuals_dir, visual_id)
         os.makedirs(visual_dir, exist_ok=True)
         pos = obj.get('position', {})
@@ -1507,7 +1508,7 @@ class FabricPBIPGenerator:
         if not field:
             return
         table_name = self._find_column_table(field, converted_objects)
-        visual_id = uuid.uuid4().hex[:20]
+        visual_id = new_visual_id()
         visual_dir = os.path.join(visuals_dir, visual_id)
         os.makedirs(visual_dir, exist_ok=True)
         slicer = self._create_slicer_visual(visual_id, 10, 10, 400, 50, field, table_name, visual_count)
@@ -1518,9 +1519,9 @@ class FabricPBIPGenerator:
         with open(os.path.join(visual_dir, 'visual.json'), 'w', encoding='utf-8') as f:
             json.dump(slicer, f, indent=2, ensure_ascii=False)
 
-    # â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+    # ════════════════════════════════════════════════════════════════
     #  UTILITY
-    # â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+    # ════════════════════════════════════════════════════════════════
 
     def _find_column_table(self, column_name, converted_objects):
         for ds in converted_objects.get('datasources', []):
@@ -1547,10 +1548,10 @@ class FabricPBIPGenerator:
         """Convert Tableau number format string to PBI display units / format.
         
         Common Tableau patterns:
-            ###,###    → #,0
-            $#,#00.00  → $#,0.00
-            0.0%       → 0.0%
-            0.00       → 0.00
+            ###,###    ? #,0
+            $#,#00.00  ? $#,0.00
+            0.0%       ? 0.0%
+            0.00       ? 0.00
         """
         if not tableau_format or not isinstance(tableau_format, str):
             return ''

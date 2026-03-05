@@ -14,30 +14,12 @@ Architecture:
 import re
 
 
-# ── Aggregation pattern (calculations matching this are MEASURES) ──
+from .constants import AGG_PATTERN as _AGG_PATTERN, SPARK_TYPE_MAP
 
-_AGG_PATTERN = re.compile(
-    r'\b(SUM|COUNT|COUNTA|COUNTD|COUNTROWS|AVERAGE|AVG|MIN|MAX|MEDIAN|'
-    r'STDEV|STDEVP|VAR|VARP|PERCENTILE|DISTINCTCOUNT|CALCULATE|'
-    r'TOTALYTD|SAMEPERIODLASTYEAR|RANKX|SUMX|AVERAGEX|MINX|MAXX|COUNTX|'
-    r'RUNNING_SUM|RUNNING_AVG|RUNNING_COUNT|RUNNING_MAX|RUNNING_MIN|'
-    r'WINDOW_SUM|WINDOW_AVG|WINDOW_MAX|WINDOW_MIN|WINDOW_COUNT)\s*\(',
-    re.IGNORECASE,
-)
-
-# ── Spark type mapping for materialized calc columns ───────────────
-
-_CALC_SPARK_TYPE = {
-    'string': 'STRING',
-    'integer': 'INT',
-    'int64': 'BIGINT',
-    'real': 'DOUBLE',
-    'double': 'DOUBLE',
-    'number': 'DOUBLE',
-    'boolean': 'BOOLEAN',
-    'date': 'DATE',
-    'datetime': 'TIMESTAMP',
-}
+# Backward-compat alias for the canonical Spark type map (subset)
+_CALC_SPARK_TYPE = {k: v for k, v in SPARK_TYPE_MAP.items()
+                    if k in ('string', 'integer', 'int64', 'real',
+                             'double', 'number', 'boolean', 'date', 'datetime')}
 
 
 # ═══════════════════════════════════════════════════════════════════

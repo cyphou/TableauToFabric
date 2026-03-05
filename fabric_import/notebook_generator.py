@@ -25,25 +25,8 @@ from .calc_column_utils import (
     sanitize_calc_col_name,
     tableau_formula_to_pyspark,
 )
-
-
-# Tableau → PySpark type mapping
-_PYSPARK_TYPE_MAP = {
-    'string': 'StringType()',
-    'integer': 'IntegerType()',
-    'int64': 'LongType()',
-    'real': 'DoubleType()',
-    'double': 'DoubleType()',
-    'number': 'DoubleType()',
-    'boolean': 'BooleanType()',
-    'date': 'DateType()',
-    'datetime': 'TimestampType()',
-    'time': 'StringType()',
-    'spatial': 'StringType()',
-    'binary': 'BinaryType()',
-    'currency': 'DecimalType(19, 4)',
-    'percentage': 'DoubleType()',
-}
+from .constants import PYSPARK_TYPE_MAP as _PYSPARK_TYPE_MAP
+from .naming import make_python_var as _make_var_name
 
 # Connection type → PySpark read snippet
 _SPARK_READ_TEMPLATES = {

@@ -22,6 +22,8 @@ import json
 import hashlib
 import logging
 
+from .constants import literal_expr as _L
+
 logger = logging.getLogger(__name__)
 
 
@@ -260,8 +262,6 @@ VISUAL_DATA_ROLES = {
 
 def _get_config_template(visual_type):
     """Return per-type visual configuration template with PBIR-native objects."""
-
-    _L = lambda v: {"expr": {"Literal": {"Value": v}}}  # noqa: E731
 
     templates = {
         "tableEx": {
@@ -588,7 +588,6 @@ def create_visual_container(worksheet, visual_id=None, x=10, y=10,
         visual_obj["projections"] = projections
         visual_obj["prototypeQuery"] = proto_query
 
-    _L = lambda v: {"expr": {"Literal": {"Value": v}}}  # noqa: E731
     visual_obj.setdefault("vcObjects", {})
     visual_obj["vcObjects"]["title"] = [{
         "properties": {

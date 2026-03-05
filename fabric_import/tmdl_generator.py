@@ -98,13 +98,7 @@ def generate_tmdl(datasources, report_name, extra_objects, output_dir,
 #  SEMANTIC MODEL BUILDING (DirectLake)
 # ════════════════════════════════════════════════════════════════════
 
-def _sanitize_table_name(name):
-    """Sanitize a table name for use as a Lakehouse Delta table name."""
-    safe = re.sub(r'[^a-zA-Z0-9_]', '_', name)
-    safe = re.sub(r'_+', '_', safe).strip('_')
-    if safe and safe[0].isdigit():
-        safe = f"tbl_{safe}"
-    return safe.lower() or 'table'
+from .naming import sanitize_tmdl_table_name as _sanitize_table_name  # noqa: E402
 
 
 def _build_semantic_model(datasources, report_name="Report", extra_objects=None,
@@ -484,17 +478,7 @@ def _build_table_directlake(table, calculations, dax_context=None,
     param_values = dax_context.get('param_values', {})
     measure_names_ctx = dax_context.get('measure_names', set())
 
-    _agg_pattern = re.compile(
-        r'\b(SUM|COUNT|COUNTA|COUNTD|COUNTROWS|AVERAGE|AVG|MIN|MAX|MEDIAN|'
-        r'STDEV|STDEVP|VAR|VARP|PERCENTILE|DISTINCTCOUNT|CALCULATE|'
-        r'TOTALYTD|SAMEPERIODLASTYEAR|RANKX|SUMX|AVERAGEX|MINX|MAXX|COUNTX|'
-        r'CORR|COVAR|COVARP|RUNNING_SUM|RUNNING_AVG|RUNNING_COUNT|RUNNING_MAX|RUNNING_MIN|'
-        r'WINDOW_SUM|WINDOW_AVG|WINDOW_MAX|WINDOW_MIN|WINDOW_COUNT|'
-        r'WINDOW_MEDIAN|WINDOW_STDEV|WINDOW_STDEVP|WINDOW_VAR|WINDOW_VARP|'
-        r'WINDOW_CORR|WINDOW_COVAR|WINDOW_COVARP|WINDOW_PERCENTILE|'
-        r'RANK|RANK_UNIQUE|RANK_DENSE|RANK_MODIFIED|RANK_PERCENTILE)\s*\(',
-        re.IGNORECASE
-    )
+    from .constants import AGG_PATTERN as _agg_pattern  # noqa: E402
 
     # Pre-classification pass
     prelim_calc_col_captions = set()

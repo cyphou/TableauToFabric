@@ -7,11 +7,14 @@ and exports them in JSON format for conversion to Power BI.
 
 import os
 import json
+import logging
 import zipfile
 import xml.etree.ElementTree as ET
 from datetime import datetime
 import re
 from .datasource_extractor import extract_datasource
+
+logger = logging.getLogger(__name__)
 
 
 class TableauExtractor:
@@ -1776,8 +1779,8 @@ class TableauExtractor:
                                 'path': name,
                                 'filename': os.path.basename(name),
                             })
-            except Exception:
-                pass
+            except (zipfile.BadZipFile, OSError, KeyError) as exc:
+                logger.debug("Could not read shapes from archive: %s", exc)
         return shapes
 
     def extract_embedded_fonts(self):
@@ -1795,8 +1798,8 @@ class TableauExtractor:
                                 'filename': os.path.basename(name),
                                 'format': os.path.splitext(name)[1].lstrip('.'),
                             })
-            except Exception:
-                pass
+            except (zipfile.BadZipFile, OSError, KeyError) as exc:
+                logger.debug("Could not read fonts from archive: %s", exc)
         return fonts
 
     def extract_custom_geocoding(self, root):
@@ -1819,8 +1822,8 @@ class TableauExtractor:
                                 'type': 'custom_file',
                                 'path': name,
                             })
-            except Exception:
-                pass
+            except (zipfile.BadZipFile, OSError, KeyError) as exc:
+                logger.debug("Could not read geocoding from archive: %s", exc)
         self.workbook_data['custom_geocoding'] = geocoding
         print(f"  ✓ {len(geocoding)} custom geocoding refs extracted")
 
@@ -1903,8 +1906,8 @@ class TableauExtractor:
                                 'size_bytes': info.file_size,
                                 'compressed_size': info.compress_size,
                             })
-            except Exception:
-                pass
+            except (zipfile.BadZipFile, OSError, KeyError) as exc:
+                logger.debug("Could not read hyper files from archive: %s", exc)
         self.workbook_data['hyper_files'] = hyper_files
         if hyper_files:
             print(f"  ✓ {len(hyper_files)} .hyper extract files detected")
