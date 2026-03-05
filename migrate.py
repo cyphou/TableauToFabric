@@ -181,17 +181,40 @@ def run_extraction(tableau_file):
         return False
 
 
-def run_generation(report_name=None, output_dir=None, artifacts=None):
+def run_generation(report_name=None, output_dir=None, artifacts=None, auto=False):
     """Generate Fabric artifacts from extracted data
 
     Args:
         report_name: Override report name (defaults to dashboard name or 'Report')
         output_dir: Custom output directory (default: artifacts/fabric_projects/)
         artifacts: List of artifacts to generate (default: all)
+        auto: If True, automatically choose between dataflow/notebook based on
+              workbook complexity analysis.
     """
     global _stats
     if artifacts is None:
         artifacts = ALL_ARTIFACTS
+
+    # ── Auto-select ETL strategy ──────────────────────────────
+    if auto:
+        try:
+            from fabric_import.strategy_advisor import (
+                recommend_etl_strategy,
+                print_recommendation,
+            )
+            from fabric_import.import_to_fabric import FabricImporter
+
+            importer_tmp = FabricImporter()
+            extracted = importer_tmp._load_extracted_objects()
+            prep_flow = any('prep_' in str(ds.get('name', ''))
+                            for ds in extracted.get('datasources', []))
+            rec = recommend_etl_strategy(extracted, prep_flow=prep_flow)
+            print_recommendation(rec)
+            artifacts = rec.artifacts
+            logger.info('Auto-selected artifacts: %s', ', '.join(artifacts))
+        except Exception as e:
+            logger.warning('Auto-selection failed (%s); using all artifacts', e)
+            artifacts = ALL_ARTIFACTS
 
     total_sub = len(artifacts)
     print_step(2, 2, "MICROSOFT FABRIC ARTIFACTS GENERATION")
@@ -342,7 +365,7 @@ def run_prep_flow(prep_file, datasources_json='tableau_export/datasources.json')
 
 
 def run_batch_migration(batch_dir, output_dir=None, prep_file=None,
-                        skip_extraction=False, artifacts=None):
+                        skip_extraction=False, artifacts=None, auto=False):
     """Batch migrate all .twb/.twbx files in a directory."""
     if not os.path.isdir(batch_dir):
         print(f"Error: Batch directory not found: {batch_dir}")
@@ -398,6 +421,7 @@ def run_batch_migration(batch_dir, output_dir=None, prep_file=None,
             report_name=basename,
             output_dir=output_dir,
             artifacts=artifacts,
+            auto=auto,
         )
 
         all_ok = all(v for v in file_results.values() if v is not None)
@@ -467,6 +491,13 @@ def main():
     )
 
     parser.add_argument(
+        '--auto',
+        action='store_true',
+        help='Automatically choose between Dataflow Gen2 and PySpark Notebook '
+             'based on workbook complexity (overrides --artifacts for ETL choice)'
+    )
+
+    parser.add_argument(
         '--verbose', '-v',
         action='store_true',
         help='Enable verbose (DEBUG) logging'
@@ -507,6 +538,7 @@ def main():
             prep_file=args.prep,
             skip_extraction=args.skip_extraction,
             artifacts=artifacts,
+            auto=args.auto,
         )
 
     # ── Single file ──
@@ -520,7 +552,10 @@ def main():
     if args.output_dir:
         print(f"Output dir:  {args.output_dir}")
     artifact_list = artifacts or ALL_ARTIFACTS
-    print(f"Artifacts:   {', '.join(artifact_list)}")
+    if args.auto:
+        print(f"Artifacts:   auto-select (based on workbook complexity)")
+    else:
+        print(f"Artifacts:   {', '.join(artifact_list)}")
     print()
 
     start_time = datetime.now()
@@ -548,6 +583,7 @@ def main():
         report_name=source_basename,
         output_dir=args.output_dir,
         artifacts=artifacts,
+        auto=args.auto,
     )
 
     # ── Final report ──

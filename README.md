@@ -35,6 +35,7 @@ Automated migration tool for Tableau workbooks (`.twb`, `.twbx`) and Tableau Pre
 - **Batch migration**: migrate all workbooks in a directory
 - **Custom output**: `--output-dir` / `-o` for output location
 - **Artifact selection**: `--artifacts lakehouse notebook pipeline` to generate specific types
+- **Auto ETL strategy**: `--auto` analyses workbook complexity and picks Dataflow, Notebook, or both
 - **Structured logging**: `--verbose` and `--log-file` flags
 - **Artifact validation**: validate generated artifacts (JSON, TMDL, report structure, notebooks)
 - **Fabric deployment**: deploy to Microsoft Fabric via PowerShell scripts (idempotent, 429 retry, LRO polling)
@@ -54,6 +55,17 @@ Automated migration tool for Tableau workbooks (`.twb`, `.twbx`) and Tableau Pre
 python migrate.py your_workbook.twbx
 ```
 
+### Auto ETL selection
+
+```bash
+python migrate.py your_workbook.twbx --auto
+```
+
+The `--auto` flag analyses workbook complexity (connectors, table count, column count,
+calculation complexity, custom SQL, Prep flow) and automatically picks between
+**Dataflow Gen2** (simple PQ transforms), **PySpark Notebook** (heavy transforms),
+or **both** (Pipeline orchestration).  A recommendation box is printed before generation.
+
 ### With specific artifacts
 
 ```bash
@@ -72,6 +84,7 @@ python migrate.py "path/to/folder/" -o output/
 |------|-------------|
 | `-o` / `--output-dir DIR` | Custom output directory (default: `artifacts/fabric_projects/`) |
 | `--artifacts TYPE [TYPE ...]` | Artifact types to generate (default: all 6) |
+| `--auto` | Auto-select Dataflow vs Notebook based on workbook complexity |
 | `--verbose` / `-v` | Enable verbose (DEBUG) console logging |
 | `--log-file FILE` | Write logs to a file |
 
