@@ -557,6 +557,77 @@ def _gen_m_azure_blob(details, table_name, columns):
         return m_query
 
 
+# ── Additional connectors (Phase 21) ─────────────────────────────────────────
+
+def _gen_m_vertica(details, table_name, columns):
+    """Generate M query for Vertica Analytics Platform (ODBC-based connector)."""
+    server = details.get('server', 'localhost')
+    port = details.get('port', '5433')
+    database = details.get('database', 'MyDB')
+    schema = details.get('schema', 'public')
+    safe = '#"' + table_name + ' Table"'
+
+    m_query = 'let\n'
+    m_query += f'    // Source Vertica: {server}:{port}\n'
+    m_query += f'    Source = Odbc.DataSource("Driver={{Vertica}};Server={server};Port={port};Database={database}", [HierarchicalNavigation=true]),\n'
+    m_query += f'    #"{schema}" = Source{{[Name="{schema}",Kind="Schema"]}}[Data],\n'
+    m_query += f'    {safe} = #"{schema}"{{[Name="{table_name}",Kind="Table"]}}[Data],\n'
+    m_query += f'    Result = {safe}\nin\n    Result'
+    return m_query
+
+
+def _gen_m_impala(details, table_name, columns):
+    """Generate M query for Apache Impala."""
+    server = details.get('server', 'localhost')
+    port = details.get('port', '21050')
+    safe = '#"' + table_name + ' Table"'
+
+    m_query = 'let\n'
+    m_query += f'    // Source Apache Impala: {server}:{port}\n'
+    m_query += f'    Source = Impala.Database("{server}:{port}"),\n'
+    m_query += f'    {safe} = Source{{[Name="{table_name}"]}}[Data],\n'
+    m_query += f'    Result = {safe}\nin\n    Result'
+    return m_query
+
+
+def _gen_m_hadoop_hive(details, table_name, columns):
+    """Generate M query for Hadoop Hive (via ODBC or HDInsight)."""
+    server = details.get('server', 'localhost')
+    port = details.get('port', '10000')
+    database = details.get('database', 'default')
+    safe = '#"' + table_name + ' Table"'
+
+    # HDInsight cluster patterns use HdInsight connector
+    is_hdinsight = 'azurehdinsight' in server.lower() or 'hdinsight' in server.lower()
+
+    m_query = 'let\n'
+    if is_hdinsight:
+        m_query += f'    // Source HDInsight Interactive Query: {server}\n'
+        m_query += f'    Source = HdInsight.HiveOdbc("https://{server}", "{database}"),\n'
+    else:
+        m_query += f'    // Source Hadoop Hive (ODBC): {server}:{port}\n'
+        m_query += f'    Source = Odbc.DataSource("Driver={{Hortonworks Hive ODBC Driver}};Host={server};Port={port};Schema={database}", [HierarchicalNavigation=true]),\n'
+    m_query += f'    {safe} = Source{{[Name="{table_name}"]}}[Data],\n'
+    m_query += f'    Result = {safe}\nin\n    Result'
+    return m_query
+
+
+def _gen_m_presto(details, table_name, columns):
+    """Generate M query for Presto / Trino (ODBC-based)."""
+    server = details.get('server', 'localhost')
+    port = details.get('port', '8080')
+    catalog = details.get('catalog', 'hive')
+    schema = details.get('schema', 'default')
+    safe = '#"' + table_name + ' Table"'
+
+    m_query = 'let\n'
+    m_query += f'    // Source Presto/Trino: {server}:{port}\n'
+    m_query += f'    Source = Odbc.DataSource("Driver={{Simba Presto ODBC Driver}};Host={server};Port={port};Catalog={catalog};Schema={schema}", [HierarchicalNavigation=true]),\n'
+    m_query += f'    {safe} = Source{{[Name="{table_name}",Kind="Table"]}}[Data],\n'
+    m_query += f'    Result = {safe}\nin\n    Result'
+    return m_query
+
+
 # ── Dispatch table ────────────────────────────────────────────────────────────
 
 _M_GENERATORS = {
@@ -594,6 +665,13 @@ _M_GENERATORS = {
     'Azure Blob Storage': _gen_m_azure_blob,
     'ADLS':             _gen_m_azure_blob,
     'Azure Data Lake':  _gen_m_azure_blob,
+    'Vertica':          _gen_m_vertica,
+    'Impala':           _gen_m_impala,
+    'Hadoop Hive':      _gen_m_hadoop_hive,
+    'Hive':             _gen_m_hadoop_hive,
+    'HDInsight':        _gen_m_hadoop_hive,
+    'Presto':           _gen_m_presto,
+    'Trino':            _gen_m_presto,
 }
 
 

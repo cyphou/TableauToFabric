@@ -53,11 +53,11 @@ _PARTIALLY_SUPPORTED_CONNECTORS = frozenset({
     "BigQuery", "Oracle", "Snowflake", "Google Analytics",
     "Teradata", "SAP HANA", "SAP BW", "Redshift",
     "Databricks", "Spark", "Spark SQL", "Salesforce",
+    "Vertica", "Impala", "Hadoop Hive", "Presto",
 })
 
 _UNSUPPORTED_CONNECTORS = frozenset({
-    "Vertica", "Splunk", "Hadoop Hive", "Impala", "Presto",
-    "Marketo", "ServiceNow",
+    "Splunk", "Marketo", "ServiceNow",
 })
 
 # ── Unsupported Tableau functions (no DAX / PBI equivalent) ─────────

@@ -94,7 +94,7 @@ def complex_extracted(empty_extracted):
         },
         {
             "name": "SAP",
-            "connection": {"type": "Vertica"},
+            "connection": {"type": "Splunk"},
             "tables": [{"name": "sap_table", "columns": [{"name": "a"}]}],
             "columns": [],
             "relationships": [],
@@ -250,7 +250,7 @@ class TestCheckDatasources:
 
     def test_unsupported_connector(self):
         data = {
-            "datasources": [{"name": "DS", "connection": {"type": "Vertica"}}],
+            "datasources": [{"name": "DS", "connection": {"type": "Splunk"}}],
             "custom_sql": [], "data_blending": [], "published_datasources": [],
         }
         cat = _check_datasources(data)
@@ -318,7 +318,7 @@ class TestCheckDatasources:
             "datasources": [
                 {"name": "DS1", "connection": {"type": "Excel"}},
                 {"name": "DS2", "connection": {"type": "BigQuery"}},
-                {"name": "DS3", "connection": {"type": "Vertica"}},
+                {"name": "DS3", "connection": {"type": "Splunk"}},
             ],
             "custom_sql": [], "data_blending": [], "published_datasources": [],
         }
@@ -327,7 +327,7 @@ class TestCheckDatasources:
         severities = {c.severity for c in conn_checks}
         assert PASS in severities   # Excel
         assert WARN in severities   # BigQuery
-        assert FAIL in severities   # Vertica
+        assert FAIL in severities   # Splunk
 
 
 # ═══════════════════════════════════════════════════════════════════

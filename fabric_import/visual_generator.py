@@ -204,6 +204,7 @@ VISUAL_TYPE_MAP = {
     "donutchart": "donutChart",
     "waterfallchart": "waterfallChart",
     "lineStackedColumnComboChart": "lineStackedColumnComboChart",
+    "linestackedcolumncombochart": "lineStackedColumnComboChart",
 }
 
 

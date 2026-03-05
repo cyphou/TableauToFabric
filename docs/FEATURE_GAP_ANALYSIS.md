@@ -1,6 +1,6 @@
 # Tableau → Fabric Migration Tool: Feature Gap Analysis
 
-> Updated: 2025-06-03 — based on deep codebase audit against actual source code
+> Updated: 2025-06-04 — based on deep codebase audit against actual source code
 > Scope: All Tableau Desktop features vs. current TableauToFabric migration tool coverage
 
 ---
@@ -14,7 +14,7 @@
 | **Covered with known limitations** | 3 |
 | **Out of scope / N/A** | 6 |
 | **Coverage rate** | **~89%** of migratable features (with caveats noted below) |
-| **Test suite** | 884 tests across 24 test files |
+| **Test suite** | 961 tests across 25 test files |
 | **Source modules** | 35 Python files |
 
 > **Honest assessment**: This document was rewritten after a deep source-code audit that
@@ -79,26 +79,28 @@ Complex structural conversions that go beyond simple find-and-replace:
 
 ## 2. Data Connector Coverage — Actual M Generators
 
-The M query builder (`tableau_export/m_query_builder.py`) has **29 `_gen_m_*` functions**:
-27 dedicated connectors + 1 custom SQL handler + 1 fallback.
+The M query builder (`tableau_export/m_query_builder.py`) has **33 `_gen_m_*` functions**:
+31 dedicated connectors + 1 custom SQL handler + 1 fallback, mapped through **41 dispatch table entries** (including aliases like Hive, HDInsight, Trino).
 
 ### Connector Tier Classification (Assessment Module)
 
 | Tier | Connectors | Count |
 |------|-----------|-------|
 | **Fully supported** (PASS) | Excel, CSV, SQL Server, PostgreSQL, MySQL, Oracle, Snowflake, Azure SQL, Synapse, Google Sheets, SharePoint, JSON, XML, PDF, Web, GeoJSON, BigQuery | 17 |
-| **Partially supported** (WARN) | BigQuery, Teradata, SAP HANA, SAP BW, Redshift, Databricks, Spark, Spark SQL, Salesforce, OData, Google Analytics, Azure Blob | 12 |
-| **No M generator** (FAIL) | Vertica, Splunk, Hadoop Hive, Impala, Presto, Marketo, ServiceNow | 7 |
+| **Partially supported** (WARN) | BigQuery, Teradata, SAP HANA, SAP BW, Redshift, Databricks, Spark, Spark SQL, Salesforce, OData, Google Analytics, Azure Blob, Vertica, Impala, Hadoop Hive, Presto | 16 |
+| **No M generator** (FAIL) | Splunk, Marketo, ServiceNow | 3 |
 
 > **Note**: "Partially supported" means a working M generator exists but the connector
 > may require manual credential setup or has limited transformation support in Power Query.
+> Vertica and Presto use ODBC connectors; Impala uses the native `Impala.Database()`;
+> Hadoop Hive uses ODBC or `HdInsight.HiveOdbc` for HDInsight clusters.
 
-### All 27 Dedicated Connectors
+### All 31 Dedicated Connectors
 
 Excel, SQL Server, PostgreSQL, CSV, BigQuery, MySQL, Oracle, Snowflake, GeoJSON,
 Teradata, SAP HANA, SAP BW, Redshift, Databricks, Spark, Azure SQL, Synapse,
 Google Sheets, SharePoint, JSON, XML, PDF, Salesforce, Web, OData, Google Analytics,
-Azure Blob
+Azure Blob, Vertica, Impala, Hadoop Hive, Presto
 
 ---
 
@@ -265,16 +267,16 @@ strategy via `--auto`:
 | **R/Python script calcs** | Converted as comment placeholders — require manual DAX or Python notebook rewrite | Medium |
 | **Approximate visual types** | ~10 specialty charts (Gantt, network, mekko, etc.) use nearest PBI native type | Low |
 | **Set actions** | No automated PBI equivalent — emits placeholder requiring manual bookmarks | Low |
-| **Unsupported connectors** | 7 connectors (Vertica, Splunk, Hive, Impala, Presto, Marketo, ServiceNow) produce fallback M | Medium |
+| **Unsupported connectors** | 3 connectors (Splunk, Marketo, ServiceNow) produce fallback M — no standard Power Query connector exists | Low |
 | **Branching prep flows** | Linear chain conversion only — complex Prep flows need validation | Medium |
 
-### 9.2 Test Coverage Gaps
+### 9.2 Test Coverage Status
 
-| Module | Current Tests | Gap |
-|--------|--------------|-----|
-| `prep_flow_parser.py` | Integration tests only | No unit tests for individual step handlers |
-| Visual type mapping | Visual generator covered | No exhaustive test for all ~120 VISUAL_TYPE_MAP entries |
-| Connector-specific M | M query builder covered | No per-connector validation of output M syntax |
+| Module | Tests | Status |
+|--------|-------|--------|
+| `prep_flow_parser.py` | 56 unit tests (8 expression, 24 action, 12 node parsers, 8 helpers, 2 I/O, 2 integration) | **Covered** |
+| Visual type mapping | 7 exhaustive subtests validating all ~121 VISUAL_TYPE_MAP entries | **Covered** |
+| Connector-specific M | All 41 connector dispatch entries validated for `let`/`in` structure and no Python artifacts | **Covered** |
 | End-to-end with real Tableau files | 12/12 batch migration succeeded | `.twbx` extraction depends on XML structure stability |
 
 ---
@@ -284,7 +286,7 @@ strategy via `--auto`:
 | Module | Purpose | Key Facts |
 |--------|---------|-----------|
 | `tableau_export/dax_converter.py` | Tableau calc → DAX | 111 regex tuples + 29 handler methods |
-| `tableau_export/m_query_builder.py` | Datasource → Power Query M | 29 `_gen_m_*` generators |
+| `tableau_export/m_query_builder.py` | Datasource → Power Query M | 33 `_gen_m_*` generators, 41 dispatch entries |
 | `tableau_export/prep_flow_parser.py` | Prep flow → Power Query M | 13+ step types |
 | `fabric_import/visual_generator.py` | Mark type → PBI visual | ~120 → ~39 type mapping |
 | `fabric_import/pbip_generator.py` | PBIR report generation | Pages, visuals, slicers, bookmarks |
@@ -299,7 +301,7 @@ strategy via `--auto`:
 ## 11. Strengths Summary
 
 - **~130 DAX conversion points** with balanced-paren depth tracking, nested IF/CASE, LOD expressions, iterator detection (SUM(IF) → SUMX), cross-table RELATED()/LOOKUPVALUE()
-- **29 M connector generators** covering 27 data source types + custom SQL + fallback
+- **33 M connector generators** covering 31 data source types + custom SQL + fallback (41 dispatch entries with aliases)
 - **~120 visual type aliases** mapping to ~39 distinct PBI visual types with per-type config templates
 - **40+ M transformation generators** (rename, filter, aggregate, pivot, join, union, sort, conditional columns)
 - **Pre-migration assessment** with 8-category readiness checklist and actionable risk scoring
@@ -308,4 +310,4 @@ strategy via `--auto`:
 - **RLS migration** — user filters, USERNAME(), ISMEMBEROF() → TMDL roles  
 - **6 Fabric artifact types** generated from a single workbook
 - **Full deployment pipeline** — PowerShell scripts with idempotent create, 429 retry, LRO polling
-- **884 tests** across 24 test files
+- **961 tests** across 25 test files

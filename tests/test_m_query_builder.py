@@ -392,8 +392,106 @@ class TestAdditionalConnectors(unittest.TestCase):
             {'name': 'T', 'columns': SAMPLE_COLUMNS})
         self.assertIn('Web.Contents', m)
 
+    def test_vertica(self):
+        m = generate_power_query_m(
+            {'type': 'Vertica', 'details': {'server': 'vrt1', 'port': '5433', 'database': 'mydb'}},
+            {'name': 'T', 'columns': []})
+        self.assertIn('Odbc.DataSource', m)
+        self.assertIn('Vertica', m)
+        self.assertIn('vrt1', m)
 
-class TestCustomSQLGenerator(unittest.TestCase):
+    def test_impala(self):
+        m = generate_power_query_m(
+            {'type': 'Impala', 'details': {'server': 'imp1', 'port': '21050'}},
+            {'name': 'T', 'columns': []})
+        self.assertIn('Impala.Database', m)
+        self.assertIn('imp1', m)
+
+    def test_hadoop_hive_odbc(self):
+        m = generate_power_query_m(
+            {'type': 'Hadoop Hive', 'details': {'server': 'hive1', 'port': '10000', 'database': 'default'}},
+            {'name': 'T', 'columns': []})
+        self.assertIn('Odbc.DataSource', m)
+        self.assertIn('hive1', m)
+
+    def test_hadoop_hive_hdinsight(self):
+        m = generate_power_query_m(
+            {'type': 'Hadoop Hive', 'details': {'server': 'mycluster.azurehdinsight.net', 'database': 'default'}},
+            {'name': 'T', 'columns': []})
+        self.assertIn('HdInsight', m)
+        self.assertIn('azurehdinsight', m)
+
+    def test_presto(self):
+        m = generate_power_query_m(
+            {'type': 'Presto', 'details': {'server': 'presto1', 'port': '8080', 'catalog': 'hive', 'schema': 'default'}},
+            {'name': 'T', 'columns': []})
+        self.assertIn('Odbc.DataSource', m)
+        self.assertIn('Presto', m)
+
+    def test_trino_alias(self):
+        m = generate_power_query_m(
+            {'type': 'Trino', 'details': {'server': 'trino1'}},
+            {'name': 'T', 'columns': []})
+        self.assertIn('Odbc.DataSource', m)
+        self.assertIn('Presto', m)
+
+    def test_hive_alias(self):
+        m = generate_power_query_m(
+            {'type': 'Hive', 'details': {'server': 'hive2'}},
+            {'name': 'T', 'columns': []})
+        self.assertIn('Odbc.DataSource', m)
+
+
+class TestAllConnectorMSyntax(unittest.TestCase):
+    """Exhaustive validation: every connector in _M_GENERATORS produces valid M."""
+
+    # All connector type keys that should be in the dispatch table
+    ALL_CONNECTOR_TYPES = [
+        'Excel', 'SQL Server', 'PostgreSQL', 'CSV', 'BigQuery', 'MySQL',
+        'Oracle', 'Snowflake', 'GeoJSON', 'Teradata', 'SAP HANA', 'SAP BW',
+        'Amazon Redshift', 'Redshift', 'Databricks', 'Spark SQL', 'Spark',
+        'Azure SQL', 'Azure Synapse', 'Synapse', 'Google Sheets', 'SharePoint',
+        'JSON', 'XML', 'PDF', 'Salesforce', 'Web', 'Custom SQL',
+        'OData', 'Google Analytics', 'Azure Blob', 'Azure Blob Storage',
+        'ADLS', 'Azure Data Lake',
+        'Vertica', 'Impala', 'Hadoop Hive', 'Hive', 'HDInsight',
+        'Presto', 'Trino',
+    ]
+
+    def test_every_connector_produces_let_in(self):
+        """Every connector M output must start with 'let' and contain 'in'."""
+        for conn_type in self.ALL_CONNECTOR_TYPES:
+            with self.subTest(connector=conn_type):
+                details = {
+                    'server': 'localhost', 'port': '1234',
+                    'database': 'testdb', 'schema': 'dbo',
+                    'filename': 'test.csv', 'directory': '/data',
+                    'warehouse': 'WH', 'project': 'proj',
+                    'dataset': 'ds', 'spreadsheet_id': 'abc',
+                    'site_url': 'https://sp.com', 'url': 'https://api.com',
+                    'sql_query': 'SELECT 1', 'http_path': '/sql/1.0',
+                    'catalog': 'main', 'account': 'storage1',
+                    'container': 'data', 'path': 'test.csv',
+                }
+                table = {'name': 'TestTable', 'columns': SAMPLE_COLUMNS}
+                m = generate_power_query_m(
+                    {'type': conn_type, 'details': details}, table)
+                self.assertTrue(m.strip().startswith('let'),
+                                f"M for {conn_type} doesn't start with 'let': {m[:80]}")
+                self.assertIn('\nin', m,
+                              f"M for {conn_type} missing 'in' keyword")
+
+    def test_every_connector_no_python_artifacts(self):
+        """M output should not contain Python f-string artifacts like {details}."""
+        for conn_type in self.ALL_CONNECTOR_TYPES:
+            with self.subTest(connector=conn_type):
+                details = {'server': 'host', 'database': 'db'}
+                m = generate_power_query_m(
+                    {'type': conn_type, 'details': details},
+                    {'name': 'T', 'columns': []})
+                self.assertNotIn('{details}', m)
+                self.assertNotIn('{columns}', m)
+                self.assertNotIn('{table_name}', m)
     """MEDIUM — Custom SQL M query."""
 
     def test_custom_sql(self):

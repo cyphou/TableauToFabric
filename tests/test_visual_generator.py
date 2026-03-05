@@ -444,5 +444,80 @@ class TestColorBy(unittest.TestCase):
         self.assertIn('dataPoint', objects)
 
 
+# ═══════════════════════════════════════════════════════════════════
+# EXHAUSTIVE VISUAL TYPE MAP TESTS
+# ═══════════════════════════════════════════════════════════════════
+
+
+class TestExhaustiveVisualTypeMap(unittest.TestCase):
+    """Verify every entry in VISUAL_TYPE_MAP maps to a non-empty string."""
+
+    def test_all_entries_produce_nonempty_string(self):
+        """Every VISUAL_TYPE_MAP value must be a non-empty PBI visual type string."""
+        for key, value in VISUAL_TYPE_MAP.items():
+            with self.subTest(key=key):
+                self.assertIsInstance(value, str, f"Value for '{key}' is not a string")
+                self.assertTrue(len(value) > 0, f"Value for '{key}' is empty")
+
+    def test_all_entries_resolvable(self):
+        """resolve_visual_type should return each map value for its key."""
+        for key, expected in VISUAL_TYPE_MAP.items():
+            with self.subTest(key=key):
+                self.assertEqual(resolve_visual_type(key), expected)
+
+    def test_minimum_entry_count(self):
+        """Must have at least 100 entries (we claimed ~120)."""
+        self.assertGreaterEqual(len(VISUAL_TYPE_MAP), 100)
+
+    def test_all_categories_have_entries(self):
+        """Verify coverage of all major visual categories."""
+        values = set(VISUAL_TYPE_MAP.values())
+        expected_types = {
+            'clusteredBarChart', 'stackedBarChart', 'clusteredColumnChart',
+            'lineChart', 'areaChart', 'pieChart', 'donutChart', 'scatterChart',
+            'map', 'filledMap', 'tableEx', 'matrix', 'card', 'gauge',
+            'treemap', 'waterfallChart', 'funnel', 'slicer',
+        }
+        for vtype in expected_types:
+            with self.subTest(vtype=vtype):
+                self.assertIn(vtype, values, f"PBI type '{vtype}' has no mapping")
+
+    def test_specialty_fallback_mappings_exist(self):
+        """Approximate mappings for specialty Tableau types should exist."""
+        specialty = {
+            'histogram': 'clusteredColumnChart',
+            'ganttbar': 'clusteredBarChart',
+            'bumpchart': 'lineChart',
+            'slopechart': 'lineChart',
+            'butterfly': 'hundredPercentStackedBarChart',
+            'waffle': 'hundredPercentStackedBarChart',
+            'pareto': 'lineClusteredColumnComboChart',
+            'network': 'decompositionTree',
+            'mekko': 'stackedBarChart',
+            'lollipop': 'clusteredBarChart',
+        }
+        for key, expected in specialty.items():
+            with self.subTest(key=key):
+                self.assertEqual(VISUAL_TYPE_MAP.get(key), expected)
+
+    def test_custom_visuals_mapped(self):
+        """Custom visuals (sankey, chord) should map to AppSource types."""
+        self.assertEqual(VISUAL_TYPE_MAP['sankey'], 'sankeyChart')
+        self.assertEqual(VISUAL_TYPE_MAP['chord'], 'chordChart')
+
+    def test_pbi_passthrough_entries_consistent(self):
+        """Keys that are PBI names should map back to themselves."""
+        passthrough = [
+            ('clusteredbarchart', 'clusteredBarChart'),
+            ('stackedcolumnchart', 'stackedColumnChart'),
+            ('piechart', 'pieChart'),
+            ('waterfallchart', 'waterfallChart'),
+        ]
+        for key, expected in passthrough:
+            with self.subTest(key=key):
+                self.assertEqual(VISUAL_TYPE_MAP[key], expected)
+
+
+
 if __name__ == '__main__':
     unittest.main()
