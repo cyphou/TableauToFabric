@@ -47,6 +47,9 @@ _FULLY_SUPPORTED_CONNECTORS = frozenset({
     "GeoJSON", "OData", "Azure Blob", "ADLS",
     "Azure SQL", "Synapse", "Google Sheets", "SharePoint",
     "JSON", "XML", "PDF", "Web",
+    # Tableau extract / flat-file connectors
+    "dataengine", "DATAENGINE", "textscan", "hyper",
+    "sqlserver", "postgres", "mysql", "excel-direct",
 })
 
 _PARTIALLY_SUPPORTED_CONNECTORS = frozenset({
@@ -123,6 +126,10 @@ _MAPPED_CHART_TYPES = frozenset({
     "ribbon", "ribbonchart",
     "gantt", "timeline",
     "wordcloud", "tagcloud",
+    # Power BI native chart type names (may appear verbatim)
+    "clusteredbarchart", "stackedbarchart", "clusteredcolumnchart",
+    "stackedcolumnchart", "linechart", "areachart", "piechart",
+    "donutchart", "funnelchart", "scatterchart",
 })
 
 
@@ -258,9 +265,22 @@ def _check_datasources(extracted: Dict) -> CategoryResult:
     # Connection types
     connector_types: Dict[str, list] = {}
     for ds in datasources:
+        ds_name = ds.get("name") or "?"
+        # Skip Tableau's virtual "Parameters" datasource — not a real connector
+        if ds_name == "Parameters" or ds_name.startswith("Parameters."):
+            continue
         conn = ds.get("connection", {})
         conn_type = conn.get("type") or "Unknown"
-        connector_types.setdefault(conn_type, []).append(ds.get("name") or "?")
+        # If type is Unknown, try to infer from datasource name prefix
+        # (Tableau names like "sqlserver.187abc..." embed the connector type)
+        if conn_type == "Unknown" and "." in ds_name:
+            prefix = ds_name.split(".")[0].lower()
+            if prefix in _FULLY_SUPPORTED_CONNECTORS:
+                conn_type = prefix
+            elif prefix in ("sqlproxy",):
+                # sqlproxy = Tableau Bridge / Cloud relay — treat as pass-through
+                conn_type = "sqlproxy"
+        connector_types.setdefault(conn_type, []).append(ds_name)
 
     for conn_type, ds_names in connector_types.items():
         if conn_type in _FULLY_SUPPORTED_CONNECTORS:
@@ -283,6 +303,12 @@ def _check_datasources(extracted: Dict) -> CategoryResult:
                 f"Used by: {', '.join(ds_names)}.",
                 "Consider migrating data to a supported source (e.g. Azure SQL, "
                 "ADLS) or use a custom Spark connector.",
+            ))
+        elif conn_type == "sqlproxy":
+            cat.checks.append(CheckItem(
+                cat.name, "Connector: sqlproxy (Tableau Bridge)", PASS,
+                f"Tableau Bridge relay detected. Used by: {', '.join(ds_names)}. "
+                "The underlying datasource type is supported.",
             ))
         elif conn_type == "Unknown":
             cat.checks.append(CheckItem(
@@ -666,7 +692,7 @@ def _check_interactivity(extracted: Dict) -> CategoryResult:
     # Action types
     action_types: Dict[str, int] = {}
     for a in actions:
-        atype = a.get("type", "unknown")
+        atype = a.get("type", "").strip() or "filter"  # empty type = auto filter action
         action_types[atype] = action_types.get(atype, 0) + 1
 
     for atype, count in action_types.items():
