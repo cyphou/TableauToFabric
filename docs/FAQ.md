@@ -98,7 +98,7 @@ python migrate.py "path/to/folder/" -o output/
 All `.twb` / `.twbx` files in the directory are migrated.
 
 ### What about Tableau formulas — are they converted?
-Yes. **172+ Tableau functions** are converted to DAX for use in the Semantic Model (measures and calculated columns).
+Yes. **~130 Tableau functions** are converted to DAX for use in the Semantic Model (measures and calculated columns).
 See the [DAX reference](TABLEAU_TO_DAX_REFERENCE.md) for the complete mapping.
 
 ### What DAX conversions are approximate or manual?
@@ -237,7 +237,7 @@ A standalone Fabric SemanticModel item with DirectLake mode:
 A `.pbip` project compatible with Power BI Desktop:
 - DirectLake TMDL semantic model (same structure as standalone)
 - PBIR v4.0 visual definitions (60+ visual type mappings)
-- 172+ DAX formula conversions from Tableau calculated fields
+- ~130 DAX conversion points from Tableau calculated fields
 
 ---
 
@@ -299,7 +299,7 @@ for name, result in results.items():
 ### How do I run the tests?
 
 ```bash
-# All 884 tests
+# All 961 tests
 python -m pytest tests/ -v
 
 # Specific module

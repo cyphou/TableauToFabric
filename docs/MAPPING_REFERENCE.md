@@ -142,7 +142,7 @@ Tableau mark types → Power BI visual types in the generated `.pbip` report.
 
 Tableau formulas → DAX (measures and calculated columns in the Semantic Model).
 
-> Full 172-function reference: [TABLEAU_TO_DAX_REFERENCE.md](TABLEAU_TO_DAX_REFERENCE.md)
+> Full reference (~130 conversion points covering 172 Tableau functions): [TABLEAU_TO_DAX_REFERENCE.md](TABLEAU_TO_DAX_REFERENCE.md)
 
 ### Aggregation
 
@@ -284,7 +284,7 @@ Tableau formulas → DAX (measures and calculated columns in the Semantic Model)
 ```
                ┌────────────────────────┐
                │   Tableau Data Source   │
-               │   (25 connector types)  │
+               │   (31 connector types)  │
                └───────────┬────────────┘
                            │
                            ▼

@@ -16,7 +16,7 @@ Covers both Tableau Prep (.tfl/.tflx) operations and Tableau Desktop data-source
 
 | # | Tableau Prep Step | Power Query M Equivalent | Status | Notes |
 |---|------------------|-------------------------|--------|-------|
-| 1 | Connect to Database | `Sql.Database()`, `PostgreSQL.Database()`, etc. | ✅ | 25 connector types supported |
+| 1 | Connect to Database | `Sql.Database()`, `PostgreSQL.Database()`, etc. | ✅ | 31 connector types supported |
 | 2 | Connect to File (Excel) | `Excel.Workbook(File.Contents())` | ✅ | Sheet selection, headers |
 | 3 | Connect to File (CSV) | `Csv.Document(File.Contents())` | ✅ | Delimiter, encoding |
 | 4 | Connect to File (JSON) | `Json.Document(File.Contents())` | ✅ | List/record handling |

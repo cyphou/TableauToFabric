@@ -7,9 +7,9 @@ Automated migration tool for Tableau workbooks (`.twb`, `.twbx`) and Tableau Pre
 ### Migration Engine
 - **Full extraction** of datasources, tables, columns, calculations, relationships, and parameters (16 object types)
 - **6 Fabric artifact types**: Lakehouse, Dataflow Gen2, Notebook, Semantic Model (DirectLake), Pipeline, Power BI Report
-- **172+ DAX conversions** of Tableau formulas (LOD, table calcs, IF/THEN/END, ISNULL, CONTAINS, security, stats, etc.)
+- **~130 DAX conversion points** for Tableau formulas (LOD, table calcs, IF/THEN/END, ISNULL, CONTAINS, security, stats, etc.) — see [172-function reference](docs/TABLEAU_TO_DAX_REFERENCE.md)
 - **60+ visual type mappings**: Tableau marks → Power BI visuals (bar, line, pie, scatter, map, gauge, KPI, waterfall, box plot, funnel, word cloud, combo, matrix, treemap, etc.)
-- **25 connector types** in Power Query M (Excel, CSV, SQL Server, PostgreSQL, BigQuery, Oracle, MySQL, Snowflake, Teradata, SAP HANA, SAP BW, Redshift, Databricks, Spark, Azure SQL/Synapse, Google Sheets, SharePoint, JSON, XML, PDF, Salesforce, Web, etc.)
+- **31 connector types** in Power Query M (Excel, CSV, SQL Server, PostgreSQL, BigQuery, Oracle, MySQL, Snowflake, Teradata, SAP HANA, SAP BW, Redshift, Databricks, Spark, Azure SQL/Synapse, Google Sheets, SharePoint, JSON, XML, PDF, Salesforce, Web, Vertica, Impala, Hadoop Hive, Presto, etc.)
 - **40+ Power Query M transformation generators**: rename, filter, aggregate, pivot/unpivot, join, union, sort, conditional columns — chainable via `inject_m_steps()`
 - **165 Tableau Prep → Power Query M** operation mappings ([reference doc](docs/TABLEAU_PREP_TO_POWERQUERY_REFERENCE.md))
 - **Calculated column materialisation**: automatic classification (measure vs calculated column) with physical materialisation in Lakehouse Delta tables via Dataflow Gen2 (M) and Notebook (PySpark)
@@ -40,7 +40,7 @@ Automated migration tool for Tableau workbooks (`.twb`, `.twbx`) and Tableau Pre
 - **Structured logging**: `--verbose` and `--log-file` flags
 - **Artifact validation**: validate generated artifacts (JSON, TMDL, report structure, notebooks)
 - **Fabric deployment**: deploy to Microsoft Fabric via PowerShell scripts (idempotent, 429 retry, LRO polling)
-- **884 tests**: 23 test files covering all modules, 0 failures
+- **961 tests**: 25 test files covering all modules, 0 failures
 
 ## Quick Start
 
@@ -186,8 +186,8 @@ TableauToFabric/
 ├── tableau_export/                            # Tableau extraction
 │   ├── extract_tableau_data.py                #   TWB/TWBX parser
 │   ├── datasource_extractor.py                #   Connection/table/calc extractor
-│   ├── dax_converter.py                       #   172+ DAX formula conversions
-│   ├── m_query_builder.py                     #   25 connector types + 40+ transform generators
+│   ├── dax_converter.py                       #   ~130 DAX conversion points (111 regex + 29 handlers)
+│   ├── m_query_builder.py                     #   31 connector types + 40+ transform generators
 │   └── prep_flow_parser.py                    #   Tableau Prep flow parser (.tfl/.tflx)
 ├── fabric_import/                             # Fabric artifact generation
 │   ├── import_to_fabric.py                    #   Orchestrator (routes to 6 generators)
@@ -213,7 +213,7 @@ TableauToFabric/
 │       ├── settings.py                        #     Env-var based settings
 │       └── environments.py                    #     Dev/staging/production configs
 ├── conversion/                                # Legacy per-object converters
-├── tests/                                     # 884 tests (23 test files)
+├── tests/                                     # 961 tests (25 test files)
 ├── docs/                                      # Documentation (7 guides + FAQ)
 ├── examples/                                  # Sample Tableau files (see Examples section)
 │   └── tableau_samples/
@@ -325,8 +325,8 @@ flowchart TB
     subgraph STEP1["Step 1 — Extraction (tableau_export/)"]
         PARSE["extract_tableau_data.py\nParse Tableau XML"]
         DSE["datasource_extractor.py\nExtract connections, tables,\ncolumns, relationships"]
-        DAX["dax_converter.py\n172+ Tableau → DAX\nformula conversions"]
-        MQ["m_query_builder.py\nGenerate Power Query M\n25 connectors + 40+ transforms"]
+        DAX["dax_converter.py\n~130 Tableau → DAX\nconversion points"]
+        MQ["m_query_builder.py\nGenerate Power Query M\n31 connectors + 40+ transforms"]
 
         PARSE --> DSE
         DSE --> DAX
@@ -393,7 +393,7 @@ flowchart TB
     style OUTPUT fill:#e0f2f1,stroke:#009688,color:#000
 ```
 
-## DAX Conversions (172+ functions)
+## DAX Conversions (~130 conversion points)
 
 > **Full reference:** [docs/TABLEAU_TO_DAX_REFERENCE.md](docs/TABLEAU_TO_DAX_REFERENCE.md)
 
@@ -662,7 +662,7 @@ Requires: `pip install azure-identity requests`
 ## Testing
 
 ```bash
-# Run all 884 tests
+# Run all 961 tests
 python -m pytest tests/ -v
 
 # Run specific test file
@@ -707,7 +707,7 @@ A GitHub Actions workflow runs automatically on every push to `main`/`develop` a
 │  │                                                                    │  │
 │  │  1. Checkout repository                                            │  │
 │  │  2. Setup Python ${{ matrix.python-version }}                      │  │
-│  │  3. Run 884 unit tests (pytest)                                │  │
+│  │  3. Run 961 unit tests (pytest)                                │  │
 │  │  4. Generate JUnit XML test report                             │  │
 │  │  5. Upload test results artifact (30-day retention)                │  │
 │  │  6. Publish test report (dorny/test-reporter, Python 3.11 only)   │  │
@@ -734,7 +734,7 @@ A GitHub Actions workflow runs automatically on every push to `main`/`develop` a
 ```bash
 # Same checks the CI runs:
 
-# 1. Unit tests (884 tests)
+# 1. Unit tests (961 tests)
 python -m pytest tests/ -v
 
 # 2. Syntax check (all .py files)
@@ -755,7 +755,7 @@ checks tab, showing pass/fail per test with timing data.
 
 | Check | Description | Fail Condition |
 |-------|-------------|----------------|
-| **unit-tests** | 884 tests × 5 Python versions | Any test failure |
+| **unit-tests** | 961 tests × 5 Python versions | Any test failure |
 | **lint** | `py_compile` + module import | Syntax error or broken import |
 
 ## Documentation
