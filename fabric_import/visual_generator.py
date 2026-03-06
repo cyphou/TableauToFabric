@@ -23,6 +23,7 @@ import hashlib
 import logging
 
 from .constants import literal_expr as _L
+from .naming import clean_field_name as _clean_field_name
 
 logger = logging.getLogger(__name__)
 
@@ -763,6 +764,12 @@ def _build_visual_filters(viz_filters, col_table_map):
     filter_list = []
     for vf in viz_filters:
         field_name = vf.get('field', '')
+        # Clean Tableau derivation/federated prefixes
+        field_name = _clean_field_name(field_name.replace('[', '').replace(']', ''))
+        # Skip Tableau virtual fields
+        if field_name.lower() in ('measure names', 'measure values',
+                                   ':measure names', ':measure values'):
+            continue
         filter_type = vf.get('type', 'basic')
         values = vf.get('values', [])
         table_name = col_table_map.get(field_name, 'Table')

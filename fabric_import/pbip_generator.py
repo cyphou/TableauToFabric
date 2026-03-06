@@ -782,8 +782,19 @@ class FabricPBIPGenerator:
         return _clean_field_name_impl(name)
 
     def _resolve_field_entity(self, field_name):
-        """Resolve a field name to (table, column)."""
+        """Resolve a field name to (table, column).
+
+        Returns ``(table, column)`` or ``None`` when the field is a
+        Tableau-only virtual field (e.g. ``:Measure Names``) that has
+        no Power BI equivalent.
+        """
         clean = field_name.replace('[', '').replace(']', '')
+        # Strip Tableau federated datasource prefixes & derivation qualifiers
+        clean = _clean_field_name_impl(clean)
+        # Skip Tableau virtual fields that have no Power BI equivalent
+        if clean.lower() in ('measure names', 'measure values',
+                              ':measure names', ':measure values'):
+            return None
         if hasattr(self, '_field_map'):
             if clean in self._field_map:
                 return self._field_map[clean]
@@ -1018,12 +1029,20 @@ class FabricPBIPGenerator:
 
     def _create_visual_filters(self, filters):
         visual_filters = []
+        seen_fields = set()
         for f in filters:
             field = f.get('field', '')
             if not field:
                 continue
             clean_field = field.replace('[', '').replace(']', '')
-            entity, prop = self._resolve_field_entity(clean_field)
+            resolved = self._resolve_field_entity(clean_field)
+            if resolved is None:
+                continue
+            entity, prop = resolved
+            # Deduplicate filters on the same field
+            if (entity, prop) in seen_fields:
+                continue
+            seen_fields.add((entity, prop))
             filter_type = f.get('type', 'categorical')
 
             if filter_type == 'range' or f.get('min') is not None:

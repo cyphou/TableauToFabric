@@ -17,6 +17,7 @@ _NON_ALNUM_UNDER = re.compile(r'[^a-zA-Z0-9_]')
 _NON_ALNUM_UNDER_SPACE = re.compile(r'[^a-zA-Z0-9_ ]')
 _LEADING_DIGITS = re.compile(r'^[0-9]+')
 _MULTI_UNDER = re.compile(r'_+')
+_FEDERATED_PREFIX = re.compile(r'federated\.[^.]+\.')
 _DERIVATION_PREFIX = re.compile(
     r'^(none|sum|avg|count|min|max|usr|yr|mn|dy|qr|wk|attr|md|mdy|hms|hr|mt|sc|thr|trunc|tmn):',
 )
@@ -101,6 +102,7 @@ def clean_field_name(name: str) -> str:
 
     Examples: ``sum:Sales`` → ``Sales``, ``Region:nk`` → ``Region``.
     """
+    name = _FEDERATED_PREFIX.sub('', name)
     name = _DERIVATION_PREFIX.sub('', name)
     name = _DERIVATION_SUFFIX.sub('', name)
     return name
