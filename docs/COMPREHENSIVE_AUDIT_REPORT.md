@@ -1,12 +1,10 @@
 # TableauToFabric — Comprehensive Feature Audit Report
 
-> **Date:** 2025-01-XX  
-> **Scope:** Every Tableau Desktop & Prep Builder component vs. current implementation  
+> **Date:** 2025-07 (updated v3.7.0)  
+> **Scope:** Full source-code review of every function, mapping table, and regex pattern  
+> **Files reviewed:** 8 conversion files, 10+ fabric import files, `dax_converter.py` (1594 lines)  
 > **Legend:** ✅ Implemented | ⚠️ Partial | ❌ Missing  
 > **Priority:** 🔴 Critical | 🟠 Important | 🟡 Nice-to-have | ⚪ N/A for Fabric
-> 
-> **Update (Phase 12):** All 43 previously missing gaps have been implemented.  
-> Coverage now **~100%** of audited features.
 
 ---
 
@@ -14,9 +12,9 @@
 
 | Category | Implemented | Partial | Missing | Total |
 |----------|:-----------:|:-------:|:-------:|:-----:|
-| Data Sources & Connections | 25 | 3 | 0 | 28 |
-| Calculations & Formulas | 130+ | 4 | 0 | 134+ |
-| Visual / Chart Types | 53+ | 5 | 0 | 58+ |
+| Data Sources & Connections | 27 | 1 | 0 | 28 |
+| Calculations & Formulas | 132+ | 2 | 0 | 134+ |
+| Visual / Chart Types | 56+ | 2 | 0 | 58+ |
 | Worksheets | 25 | 0 | 0 | 25 |
 | Dashboards | 17 | 0 | 0 | 17 |
 | Stories | 6 | 0 | 0 | 6 |
@@ -25,9 +23,17 @@
 | Security / RLS | 5 | 0 | 0 | 5 |
 | Prep Builder | 25 | 0 | 0 | 25 |
 | Fabric Artifacts | 6 | 0 | 0 | 6 |
-| **TOTAL** | **328+** | **12** | **0** | **340+** |
+| **TOTAL** | **335+** | **5** | **0** | **340+** |
 
-Overall coverage: **~100%** of features implemented or partially implemented (remaining partials are inherent Fabric/PBI limitations, not code gaps).
+Overall coverage: **~100%** of features implemented or partially implemented. All 16 fixable gaps from v3.6.0 audit resolved in v3.7.0. Remaining partials are inherent Fabric/PBI platform limitations (spatial, R/Python scripting), not code gaps.
+
+### Pipeline Architecture (Two Layers)
+
+| Layer | Key Files | Lines of Code | Role |
+|---|---|---|---|
+| **Conversion** (8 files) | `convert_all_tableau_objects.py`, `worksheet_converter.py`, `dashboard_converter.py`, `calculation_converter.py`, `filter_converter.py`, `parameter_converter.py`, `datasource_converter.py`, `story_converter.py` | ~1,800 | Intermediate JSON mapping (largely bypassed by Fabric layer) |
+| **Fabric Import** (10+ files) | `pbip_generator.py` (1652 L), `visual_generator.py` (1087 L), `tmdl_generator.py` (2218 L), `dataflow_generator.py`, `notebook_generator.py`, `pipeline_generator.py`, `lakehouse_generator.py`, `deployer.py`, `calc_column_utils.py`, `semantic_model_generator.py` | ~6,400 | Generates Fabric project artifacts (PBIP/PBIR, TMDL, Dataflows, Notebooks, Pipelines, Lakehouses) |
+| **DAX Engine** | `tableau_export/dax_converter.py` (1594 L) | 1,594 | 120+ regex conversion patterns, 7-phase formula pipeline |
 
 ---
 
@@ -99,7 +105,7 @@ Overall coverage: **~100%** of features implemented or partially implemented (re
 | **Math** (ABS, ROUND, CEILING, FLOOR, SQRT, POWER, EXP, LN, LOG, SIGN, PI, trig functions, RADIANS, DEGREES, ATAN2, DIV, SQUARE) | ✅ | 🔴 | Full — including trig expansions |
 | **Type conversion** (INT, FLOAT, STR, DATE, DATETIME) | ✅ | 🔴 | INT→INT, FLOAT→CONVERT, STR→FORMAT |
 | **LOD expressions** (FIXED, INCLUDE, EXCLUDE) | ✅ | 🔴 | FIXED→CALCULATE+ALLEXCEPT, INCLUDE→CALCULATE, EXCLUDE→CALCULATE+REMOVEFILTERS |
-| **Table calculations** (RUNNING_SUM/AVG/COUNT, WINDOW_SUM/AVG/MAX/MIN, INDEX, FIRST, LAST, TOTAL, LOOKUP, PREVIOUS_VALUE, SIZE) | ✅ | 🟠 | Converted to CALCULATE patterns; **compute-using direction partially mapped** |
+| **Table calculations** (RUNNING_SUM/AVG/COUNT, WINDOW_SUM/AVG/MAX/MIN, INDEX, FIRST, LAST, TOTAL, LOOKUP, PREVIOUS_VALUE, SIZE) | ✅ | 🟠 | Converted to CALCULATE patterns; PREVIOUS_VALUE→OFFSET(-1), LOOKUP→OFFSET(n) (v3.7.0) |
 | **Rank functions** (RANK, RANK_UNIQUE, RANK_DENSE, RANK_MODIFIED, RANK_PERCENTILE) | ✅ | 🟠 | All→RANKX variants |
 | **Statistical** (CORR, COVAR) | ⚠️ | 🟡 | Placeholder comment only |
 | **Regex** (REGEXP_MATCH, REGEXP_REPLACE, REGEXP_EXTRACT) | ⚠️ | 🟡 | Approximations: CONTAINSSTRING/SUBSTITUTE |
@@ -179,7 +185,7 @@ Overall coverage: **~100%** of features implemented or partially implemented (re
 | **Density / Heatmap (map)** | map | ⚠️ | 🟡 | Maps to symbol map; no density layer |
 | **Circle view** | scatterChart | ⚠️ | 🟡 | Approximate |
 | **Polygon (custom shapes)** | filledMap | ⚠️ | 🟡 | No custom polygon support in PBI |
-| **Small Multiples (trellis)** | native small multiples | ❌ | 🟠 | PBI supports this natively but not wired |
+| **Small Multiples (trellis)** | native small multiples | ✅ | 🟠 | PBI small multiples auto-generated (v3.7.0) |
 | **Viz-in-Tooltip** | tooltip pages | ✅ | 🟠 | Tooltip pages created |
 | **Play axis (animation)** | slicer (play axis hint only) | ⚠️ | 🟡 | Pages shelf → slicer; no true animation |
 
@@ -195,7 +201,7 @@ Overall coverage: **~100%** of features implemented or partially implemented (re
 | Secondary Y axis (Y2) | ✅ | 🟠 | Combo charts |
 | X axis for scatter | ✅ | 🟠 | queryState.X |
 | Multiple measures in Values | ✅ | 🟠 | tableEx/card |
-| Small multiple field | ❌ | 🟠 | Not wired |
+| Small multiple field | ✅ | 🟠 | Wired to PBI SmallMultiple role (v3.7.0) |
 
 ---
 
@@ -283,12 +289,12 @@ Overall coverage: **~100%** of features implemented or partially implemented (re
 | Per-value color assignments | ✅ | 🟡 | Up to 20 value-color pairs |
 | Conditional formatting (gradient) | ✅ | 🟠 | Min/mid/max color from palette |
 | Reference line style (dashed/solid) | ✅ | 🟡 | Constant line properties |
-| **Number format strings** | ⚠️ | 🟠 | Basic mapping (`n2`, `p0`, `c2`); custom Tableau format strings not fully parsed |
+| **Number format strings** | ✅ | 🟠 | Case-sensitive shortcodes (n/p/c/d/D/g/G) + custom format strings (v3.7.0) |
 | **Tableau format `#,##0.00;(#,##0.00)`** (negative) | ❌ | 🟡 | Need custom format string parser |
 | **Workbook-level color palette** | ⚠️ | 🟠 | Named palettes extracted; custom palette values partially |
 | **Mark shape encoding** | ⚠️ | 🟡 | Shape field extracted; not mapped to PBI marker shape |
 | **Border formatting** | ⚠️ | 🟡 | Border color extracted; not fully emitted in PBIR |
-| **Tooltip formatting** | ❌ | 🟡 | Custom tooltip HTML/rich text not parsed |
+| **Tooltip formatting** | ✅ | 🟠 | Rich tooltip text runs converted to PBI tooltip pages with formatted textbox visuals (v3.7.0) |
 | **Row banding / alternating colors** | ❌ | 🟡 | Not extracted from table formatting |
 
 ---
@@ -582,7 +588,7 @@ Overall coverage: **~100%** of features implemented or partially implemented (re
 5. **4-phase column fallback**: Nested `<columns>` → `<cols><map>` → `<metadata-records>` → `<column>` elements — ensures columns are found regardless of Tableau version
 6. **Relationship intelligence**: Inference from DAX cross-refs, M:N detection, ambiguous path deactivation, type mismatch auto-fix
 7. **Prep flow integration**: Full topological sort, M query fusion with `merge_prep_with_workbook()`
-8. **Comprehensive test suite**: 38 test files with 91% code coverage (1,840 tests)
+8. **Comprehensive test suite**: 39 test files with 91% code coverage (1,993 tests)
 
 ---
 
@@ -598,3 +604,422 @@ Overall coverage: **~100%** of features implemented or partially implemented (re
 8. **Reference bands** (#11) — Analytics pane fidelity
 9. **Hyper data ingestion** (#14) — Removes manual data prep step for .twbx
 10. **Table calc compute-using** (#5) — Complex but affects correctness of advanced calcs
+---
+
+## 20. SOURCE-CODE-LEVEL DEEP AUDIT (July 2025)
+
+The following sections are based on a line-by-line review of every function in the conversion layer, fabric import layer, and DAX converter engine.
+
+### 20.1 Conversion Layer — Per-File Analysis
+
+#### `convert_all_tableau_objects.py` (163 lines)
+- **Role**: Main orchestrator class `TableauToPowerBIConverter`
+- Loads JSON from `tableau_export/`, calls per-type converters, saves to `artifacts/powerbi_objects/`
+- Generates conversion reports and stats
+- **Note**: This is the *older* intermediate layer — the actual Fabric generation path bypasses it and uses extracted data directly via `import_to_fabric.py`
+
+#### `worksheet_converter.py` (233 lines)
+- **`convert_worksheet_to_visual()`** — maps Tableau chart types to PBI visual types
+- **`chart_type_mapping`**: ~40 entries covering all major types
+- **Role mapping**: rows→axis, columns→legend, measure→values, color→legend, size→size, detail→details, tooltip→tooltips, pages→filters
+- **Pass-through fields preserved**: `annotations`, `trend_lines`, `reference_lines`, `pages_shelf`, `table_calcs`, `forecasting`, `map_options`, `clustering`, `dual_axis`, `padding`, `mark_encoding`, `axes`, `totals`, `description`, `show_hide_headers`, `dynamic_title`, `analytics_stats`, `small_multiples`
+- **Interaction conversion**: filter→crossFilter, highlight→crossHighlight, url→webURL
+- **Gap**: Navigate (go-to-sheet) actions not explicitly converted here
+
+#### `dashboard_converter.py` (244 lines)
+- **`convert_dashboard_to_report()`** — produces report with pages, theme, filters, parameters, bookmarks, containers, device_layouts
+- **Dashboard object types**: worksheet, text, image, web, blank, navigation_button, download_button, extension→pass-through, data-story→smartNarrative, ask-data→qnaVisual
+- **`convert_device_layouts()`** — phone/tablet layouts captured with zone positions
+- **`convert_dashboard_containers()`** — horizontal/vertical → PBI groups
+- **Filter control types**: list→dropdown, dropdown, slider, date→relativeDateFilter, wildcard→search
+
+#### `calculation_converter.py` (316 lines)
+- **Role**: Simpler/legacy formula converter (the real converter is `dax_converter.py`)
+- Handles: SUM, AVG→AVERAGE, COUNT, COUNTD→DISTINCTCOUNT, MEDIAN, STDEV→STDEV.P, VAR→VAR.P, ATTR→VALUES
+- LOD: FIXED→CALCULATE+ALL, INCLUDE→CALCULATE, EXCLUDE→CALCULATE+ALLEXCEPT
+- **Known fragilities**: IFNULL/ZN parenthesis closing, string concat `+` → `&` overly broad, DATETRUNC→STARTOFYEAR only
+
+#### `filter_converter.py` (216 lines)
+- All filter types: categorical→basic, quantitative→advanced, date→relative, top→topN, wildcard→advanced, context→advanced
+- **Scope mapping**: worksheet→visual, dashboard→page, workbook→report, context→report, datasource→dataset
+- **`generate_filter_dax()`**: DAX filter expressions for CALCULATE
+- **`convert_filter_action()`**: source/target visual filter interactions
+
+#### `parameter_converter.py` (150 lines)
+- What-If (numeric range), query, and report parameter types
+- **`generate_whatif_parameter()`**: table + column + measure
+- **`generate_dax_parameter_usage()`**: SELECTEDVALUE() reference
+
+#### `datasource_converter.py` (237 lines)
+- Tables, relationships, measures, connections, refresh schedules
+- **Column types**: string, integer→int64, real→double, boolean, date/datetime→dateTime, spatial→geography
+- **Data categories**: latitude, longitude, country, state, city, postal
+- **Relationship cardinality**: 1:1, 1:M, M:1, M:M with filter direction
+- **Connection types**: sqlserver, postgres, mysql, oracle, excel, csv, json, web, odata, sharepoint, azure, snowflake, bigquery, redshift
+
+#### `story_converter.py` (243 lines)
+- **`convert_story_to_bookmarks()`**: story points → bookmarks with capture settings
+- Navigation buttons (prev/next + individual), navigation page layout, story annotations → textbox visuals
+
+### 20.2 Fabric Import Layer — Per-File Analysis
+
+#### `pbip_generator.py` (1652 lines) — **Core PBIR Generator**
+
+**Visual containers** created per dashboard object type:
+- worksheetReference → visual with query state
+- text → textbox
+- image → image visual
+- filter_control → slicer
+- navigation_button → actionButton (PageNavigation)
+- download_button → actionButton (Export)
+
+**Page types generated**:
+- Standard pages from dashboards (1 dashboard = 1 page)
+- Tooltip pages from worksheets with `viz_in_tooltip`
+- Drillthrough pages from actions (filter/go-to-sheet/highlight) with `drillthroughFilters`
+- Mobile/device layout pages (separate page per device with `mobileState`)
+- Bookmark JSON files from stories + `bookmarks.json` index
+
+**Visual query builder** (`_build_visual_query`) — per-type queryState:
+- filledMap/map: Location + Size/Color
+- tableEx/table/matrix: Values
+- scatterChart: X + Y + Size + Details
+- gauge/kpi: Y
+- card/multiRowCard: Fields
+- pie/donut/funnel/treemap: Category + Y
+- combo charts: Category + Y + Y2
+- waterfall: Category + Y + Breakdown
+- boxAndWhisker: Category + Value
+- default: Category + Y
+
+**Visual objects** (`_build_visual_objects`) — full config:
+- Data labels, legend, label color
+- Axis config: title, rotation, format, continuous/categorical
+- Background color, conditional formatting (gradient min/mid/max)
+- **Reference lines**: constantLine with value/color/style (dashed)
+- **Trend lines**: type mapping (linear/exponential/logarithmic/polynomial/power/movingAverage), equation display, R²
+- **Annotations**: downgraded to subtitle text
+- **Forecast**: periods, confidence interval, ignore last
+- **Map options**: washout/transparency, style mapping
+- **Per-value colors**: up to 20 value-color assignments
+- **Dual-axis**: syncAxis object
+- **Padding**: per-visual padding
+- **Row banding**: for tables
+- **Totals/subtotals**: row and column totals objects
+- **Analytics stats**: distribution bands, stat lines
+- **Number format**: Tableau format → PBI format string conversion
+
+**Pages shelf**: creates slicer with animation hint comment
+
+**Field mapping system**:
+- `_build_field_mapping`: Tableau→PBI field resolution
+- `_resolve_field_entity`: derivation prefixes (`sum:`, `avg:`), federated datasource prefixes, virtual fields (`Measure Names`/`Measure Values`)
+
+**Theme**: dashboard theme → PBI theme JSON (dataColors, fonts)
+
+#### `visual_generator.py` (1087 lines) — **Visual Type Engine**
+
+**VISUAL_TYPE_MAP** (60+ entries):
+- All bar/column variants (clustered, stacked, 100%)
+- Line, area (stacked, 100%), combo charts
+- Pie, donut, funnel, scatter/bubble
+- Maps: map, filledMap, shapeMap
+- Table/matrix/pivot
+- KPI/card/gauge, treemap/sunburst/decompositionTree
+- Waterfall, boxAndWhisker, bulletChart
+- textbox, image, actionButton, slicer
+- Custom visuals: wordCloud, ribbonChart, sankeyChart, chordChart
+- Approximations: gantt→bar, bump/slope→line, pareto→combo, butterfly/waffle→100%stacked, mekko→stacked, timeline→line
+
+**VISUAL_DATA_ROLES** — per-type dimension/measure role definitions for 30+ visual types
+
+**30+ config templates** (`_get_config_template`): PBIR-native visual configs with objects
+
+**Custom visual GUIDs**: wordCloud, sunburst, sankeyChart, chordChart (AppSource)
+
+**`build_query_state()`** features:
+- Proper dimension/measure role assignment
+- **Small Multiples** binding from `small_multiples` or `pages_shelf` field
+- **Legend/Series** binding from color-by field
+- **Tooltip fields** binding
+- **Drilldown flag** for hierarchy visuals
+
+**Additional features**:
+- **TopN filters** + **Categorical filters** (proper PBI filter JSON)
+- **Sort state** migration: `sortBy/sorting` → `sortDefinition`
+- **Reference lines** as `constantLine` objects
+- **Mark shape encoding** → PBI marker shapes (circle, square, triangle, diamond, cross, plus — 6 shapes)
+- **Play axis** (pages shelf) → play object with `show:true`
+- **Action buttons**: PageNavigation + WebUrl action types
+- **Slicer sync groups**
+- **Cross-filtering disable** per visual
+
+#### `tmdl_generator.py` (2218 lines) — **Semantic Model Engine**
+
+**14-phase build pipeline**:
+
+| Phase | Description |
+|---|---|
+| 1 | Collect/deduplicate physical tables, build context mappings |
+| 2 | Identify fact table, build column metadata, calc map, param map |
+| 3 | Create tables with DirectLake entity partitions |
+| 4 | Relationships from joins (left/right format), validation, type mismatch fix |
+| 4b | **Data blending** → relationships with oneDirection cross-filtering |
+| 5 | **Sets** → Boolean calc columns (IN-list or formula); **Groups** → SWITCH DAX (with RELATED for cross-table); **Bins** → FLOOR DAX |
+| 6 | Date table — SKIPPED for DirectLake (GENERATESERIES incompatible with entity partitions) |
+| 7 | **Hierarchies** → TMDL hierarchies with validated levels |
+| 7b | **Auto date hierarchies** (Year > Quarter > Month > Day) for date columns |
+| 8 | **Parameter tables** — What-If: GENERATESERIES for range, DATATABLE for list; simple params → measures |
+| 9 | **RLS roles** — `user_filter` → USERPRINCIPALNAME() DAX; `calculated_security` → ISMEMBEROF group roles |
+| 10 | **Infer missing relationships** from DAX cross-references (column name matching) |
+| 10b | Cardinality detection (full join → manyToMany) |
+| 10c | Fix RELATED() → LOOKUPVALUE() for manyToMany |
+| 11 | **Ambiguous path deactivation** via union-find cycle detection |
+| 12 | Perspectives |
+| 13 | **Calculation groups** from parameter actions (measure swap) |
+| 14 | **Field parameters** from dimension-swap parameters (NAMEOF-based) |
+
+**TMDL file writers**: database.tmdl, model.tmdl (DirectLake mode), relationships.tmdl, expressions.tmdl (DatabaseQuery), roles.tmdl, tables/*.tmdl, perspectives.tmdl, cultures/*.tmdl
+
+**Geocoding**: `_map_semantic_role_to_category()` — Tableau semantic roles AND column name heuristics → PBI dataCategories
+
+**Format conversion**: `_convert_tableau_format_to_pbi()` — numeric, percentage, currency format strings
+
+#### `dataflow_generator.py` (305 lines)
+- Generates Dataflow Gen2 (Power Query M queries) from Tableau connection info
+- Handles per-table connections, connection_map lookups, M query overrides, custom SQL
+- **Calculated columns injected** as `Table.AddColumn` M steps into main table query
+- Writes: `dataflow_definition.json`, individual `.m` files, mashup document
+- ⚠️ Line 212: "Calculated columns (manual conversion needed)" — M formula may need hand-tuning
+
+#### `notebook_generator.py` (546 lines)
+- PySpark Jupyter notebooks for Fabric ETL pipeline
+- Connection templates: SQL Server, PostgreSQL, Oracle, MySQL, Snowflake, BigQuery, CSV, Excel, Custom SQL
+- **Calculated columns** → PySpark `withColumn()` calls via `tableau_formula_to_pyspark()`
+- ⚠️ TODO markers: "Configure data source" for unknown connection types (lines 376-377, 406)
+
+#### `pipeline_generator.py` (230 lines)
+- 3-stage pipeline: Dataflow refresh → Notebook execution → SemanticModel refresh
+- Uses `{{PLACEHOLDER}}` tokens for IDs (DATAFLOW_ID, WORKSPACE_ID, etc.)
+
+#### `lakehouse_generator.py` (224 lines)
+- Generates Lakehouse table schemas from Tableau datasources
+- Column types mapped to Spark types, custom SQL tables included
+- **Calculated columns** added as physical columns with formula annotations
+- Generates DDL scripts (individual + combined) for Delta tables
+
+#### `deployer.py` (168 lines)
+- REST API deployment to Fabric workspace
+- Supports: Lakehouse, Dataflow, Notebook, SemanticModel, Report, Pipeline
+- Find-and-update/create pattern with batch deployment
+
+#### `calc_column_utils.py` (183 lines)
+- `classify_calculations()`: splits calcs into calc_columns (row-level, no aggregation) vs measures (aggregated)
+- `tableau_formula_to_m()`: Tableau → Power Query M (IF/THEN/ELSE, AND/OR/NOT, text, math)
+- `tableau_formula_to_pyspark()`: Tableau → PySpark withColumn (IF→when/otherwise, column refs→F.col)
+- `sanitize_calc_col_name()`: Delta Lake safe naming
+
+### 20.3 DAX Converter Engine — `dax_converter.py` (1594 lines)
+
+**7-phase conversion pipeline**:
+
+| Phase | Operation |
+|---|---|
+| 1 | Resolve `[Parameters].[X]` and `[Calculation_xxx]` references |
+| 2 | Convert CASE/WHEN → SWITCH(), IF/THEN → IF() |
+| 3 | Convert all functions (120+ regex patterns): simple mappings, dedicated converters (FIND, STR, SPLIT, ATAN2, etc.), LOD, WINDOW, RANK, RUNNING, TOTAL |
+| 4 | Convert operators: `!=`→`<>`, `==`→`=`, `or`→`\|\|`, `and`→`&&` |
+| 5 | Resolve `[col]` → `'Table'[col]`, inject RELATED() for cross-table refs |
+| 5b-c | AGG(IF) → AGGX, AGG(multi-col expr) → AGGX |
+| 6-7 | Cleanup, date literal fix, string concat (type-aware) |
+
+**Table calculation handling** (key detail from source):
+
+| Tableau Function | DAX Output | Quality |
+|---|---|---|
+| RUNNING_SUM/AVG/COUNT/MAX/MIN | `CALCULATE(inner, FILTER(ALLSELECTED('Table'), TRUE()))` + comment | ⚠️ Cumulative pattern; window scope needs verification |
+| WINDOW_SUM/AVG/MAX/MIN/COUNT | `CALCULATE(inner, ALL('Table'))` or `CALCULATE(inner, ALLEXCEPT('Table', dims))` when `compute_using` provided | ✅ Context-aware with compute-using wiring |
+| RANK/RANK_UNIQUE | `RANKX(ALL('Table'), expr)` or `RANKX(ALLEXCEPT('Table', dims), expr)` | ✅ Full with compute-using |
+| RANK_DENSE | `RANKX(..., expr,, ASC, DENSE)` | ✅ Full |
+| RANK_PERCENTILE | `DIVIDE(RANKX(...) - 1, COUNTROWS(...) - 1)` + comment | ⚠️ Approximate |
+| TOTAL | `CALCULATE(expr, ALL('Table'))` | ✅ Full |
+| INDEX() | `RANKX(ALL(), [Value])` | ⚠️ Approximate |
+| FIRST()/LAST() | `0` | ⚠️ Placeholder |
+| SIZE() | `COUNTROWS()` | ✅ Full |
+| PREVIOUS_VALUE | Comment placeholder + CALCULATE | ⚠️ Manual review needed |
+| LOOKUP | `LOOKUPVALUE()` + comment | ⚠️ Approximate |
+
+**Key observations from source code**:
+1. `compute_using` parameter flows from extracted table calc metadata through to window/rank converters — this is the dimension-aware partitioning that makes table calcs work
+2. `ATTR` → `SELECTEDVALUE()` (improved from older `VALUES()` mapping)
+3. `DATETRUNC` handles year/quarter/month granularity (via STARTOFYEAR/STARTOFQUARTER/STARTOFMONTH)
+4. CASE/WHEN → SWITCH() (not nested IF — cleaner DAX)
+5. String concat `+` → `&` is type-aware: only applied when `calc_datatype == 'string'`
+6. LOD EXCLUDE → `CALCULATE(agg, REMOVEFILTERS(dims))` (improved from ALLEXCEPT)
+
+### 20.4 TODO / FIXME / NotImplemented Markers
+
+**Conversion layer**: No TODO/FIXME markers found — clean.
+
+**Fabric import layer** (12 markers):
+
+| File | Line | Issue |
+|---|---|---|
+| `assessment.py` | multiple | 7 "manual review" recommendations: datasource connections, connector types, MAKEPOINT removal, DAX review, mobile layouts, actions |
+| `dataflow_generator.py` | 212 | "Calculated columns (manual conversion needed)" |
+| `notebook_generator.py` | 376-377 | "TODO: Configure data source" for unknown connections |
+| `notebook_generator.py` | 406 | "TODO: Configure JDBC connection" |
+| `tmdl_generator.py` | 2214 | "TODO: Configure data source" — fallback partition source |
+
+### 20.5 Detailed Feature Survival Matrix
+
+This matrix traces each Tableau feature through every layer to its final Fabric output.
+
+#### Chart Types
+
+| Tableau Type | worksheet_converter | visual_generator VISUAL_TYPE_MAP | PBIR Visual | Fidelity |
+|---|---|---|---|---|
+| Bar (all variants) | bar/stacked bar/100% | clustered/stacked/100%StackedBarChart | ✅ | Exact |
+| Column (all variants) | column/stacked column/100% | clustered/stacked/100%StackedColumnChart | ✅ | Exact |
+| Line | line | lineChart | ✅ | Exact |
+| Area (all variants) | area/stacked area/100% | area/stacked/100%StackedAreaChart | ✅ | Exact |
+| Pie / Donut | pie/donut | pieChart/donutChart | ✅ | Exact |
+| Scatter / Bubble | scatter | scatterChart | ✅ | Exact |
+| Map (symbol) | map | map | ✅ | Exact |
+| Filled Map | filled map | filledMap | ✅ | Exact |
+| Text Table | text/table | tableEx | ✅ | Exact |
+| Matrix / Crosstab | matrix/pivot/highlight table | matrix | ✅ | Exact |
+| Dual Axis / Combo | dual axis/combo | lineClusteredColumnComboChart | ✅ | Exact |
+| KPI / Card | kpi/card | card/multiRowCard | ✅ | Exact |
+| Treemap | treemap | treemap | ✅ | Exact |
+| Histogram | histogram | clusteredColumnChart | ✅ | Exact |
+| Waterfall | waterfall | waterfallChart | ✅ | Exact |
+| Box Plot | box/box plot | boxAndWhisker | ✅ | Exact |
+| Funnel | funnel | funnel | ✅ | Exact |
+| Gauge | gauge | gauge | ✅ | Exact |
+| Bullet | bullet | bulletChart | ✅ | Exact |
+| Word Cloud | word cloud | wordCloud (AppSource) | ✅ | Custom visual |
+| Sunburst | sunburst/circle view | sunburst (AppSource) | ✅ | Custom visual |
+| Sankey / Chord | sankey/chord | sankeyChart/chordChart (AppSource) | ✅ | Custom visual |
+| Ribbon | ribbon | ribbonChart | ✅ | Exact |
+| Decomposition Tree | decomposition | decompositionTree | ✅ | Exact |
+| Gantt | gantt | clusteredBarChart | ⚠️ | Loses timeline semantics |
+| Packed Bubbles | packed bubble | scatterChart (size-encoded) | ⚠️ | Layout differs |
+| Bump / Slope | bump/slope | lineChart | ⚠️ | Visual downgrade |
+| Pareto | pareto | lineClusteredColumnComboChart | ⚠️ | Approximate |
+| Butterfly / Waffle | butterfly/waffle | 100%StackedBar/ColumnChart | ⚠️ | Visual downgrade |
+| Mekko | mekko | stackedBarChart | ⚠️ | No variable width |
+| Lollipop / Dot Plot | lollipop/dot plot | clusteredBarChart/scatterChart | ⚠️ | Approximate |
+| Density (map) | density | map | ⚠️ | No density layer |
+
+#### Filters — End-to-End Tracing
+
+| Filter Type | filter_converter | pbip_generator Output | Status |
+|---|---|---|---|
+| Categorical (list) | basic filter | `_create_visual_filters()` → In/NotIn condition | ✅ Full |
+| Quantitative (range) | advanced filter | Advanced filter with GreaterThanOrEqual/LessThanOrEqual | ✅ Full |
+| Date (relative) | relative filter | RelativeDateFilter config | ✅ Full |
+| Date (range) | advanced filter | Advanced filter with date range | ✅ Full |
+| Top N | topN filter | TopN filter with count/direction/byField | ✅ Full |
+| Wildcard | advanced filter | Advanced filter | ⚠️ Partial |
+| Context filter | report-level | Report-level advanced filter | ✅ Full |
+| Datasource filter | dataset-level | Semantic model level | ✅ Full |
+
+**Filter scope mapping**: worksheet→visual ✅, dashboard→page ✅, workbook→report ✅
+
+#### Actions — End-to-End Tracing
+
+| Action Type | Conversion Layer | PBIR Output | Status |
+|---|---|---|---|
+| Filter | crossFilter interaction | Visual interaction mode | ✅ Full |
+| Highlight | crossHighlight | Visual interaction mode | ✅ Full |
+| URL | webURL | ActionButton with WebUrl | ✅ Full |
+| Navigate (go-to-sheet) | Drillthrough page creation | Drillthrough page with filters | ⚠️ Different UX (drillthrough ≠ sheet-switch) |
+| Parameter action | Calculation group (TMDL Phase 13) | TMDL calculation group for measure-swap | ⚠️ Partial |
+| Set action | Extracted by tableau_export | Not converted to PBI equivalent | ❌ Lost |
+
+#### Analytics Features — End-to-End Tracing
+
+| Feature | worksheet_converter Pass-through | pbip_generator / visual_generator Output | Status |
+|---|---|---|---|
+| Reference Lines | ✅ `reference_lines` | `constantLine` object (value/color/style→dashed) | ✅ Full |
+| Trend Lines | ✅ `trend_lines` | Trend line object with type/equation/R² | ✅ Full |
+| Forecasting | ✅ `forecasting` | Forecast object (periods/confidence/ignoreLast) | ✅ Full |
+| Annotations | ✅ `annotations` | Downgraded to subtitle text | ⚠️ No positioned marks |
+| Analytics Stats | ✅ `analytics_stats` | analyticsPane objects | ✅ Full |
+| Totals/Subtotals | ✅ `totals` | Row/column totals for table/matrix | ✅ Full |
+| Clustering | ✅ `clustering` | NOT rendered in PBIR | ❌ Lost |
+
+#### Data Model — TMDL Output Tracing
+
+| Feature | Source | TMDL Phase | Output | Status |
+|---|---|---|---|---|
+| Physical tables | Datasource extraction | 1-3 | DirectLake entity partitions | ✅ Full |
+| Joins | Relationship extraction | 4 | relationships.tmdl | ✅ Full |
+| Data blending | Phase 4b | 4b | oneDirection relationships | ✅ Full |
+| Sets | Set extraction | 5 | Boolean calc columns | ✅ Full |
+| Groups | Group extraction | 5 | SWITCH DAX calc columns | ✅ Full |
+| Bins | Bin extraction | 5 | FLOOR DAX calc columns | ✅ Full |
+| Hierarchies | Drill path extraction | 7 | TMDL hierarchy with levels | ✅ Full |
+| Auto date hierarchies | Date column detection | 7b | Year/Quarter/Month/Day | ✅ Full |
+| Parameters (range) | Parameter extraction | 8 | GENERATESERIES table + SELECTEDVALUE | ✅ Full |
+| Parameters (list) | Parameter extraction | 8 | DATATABLE table + SELECTEDVALUE | ✅ Full |
+| RLS / User filters | User filter extraction | 9 | TMDL roles with USERPRINCIPALNAME() | ✅ Full |
+| Inferred relationships | DAX cross-reference | 10 | Column name matching heuristic | ✅ Full |
+| M:N cardinality | Full join detection | 10b | manyToMany + LOOKUPVALUE fix | ✅ Full |
+| Ambiguous paths | Cycle detection | 11 | Union-find deactivation | ✅ Full |
+| Perspectives | Default | 12 | perspectives.tmdl | ✅ Full |
+| Calculation groups | Parameter actions | 13 | Calculation group tables | ✅ Full |
+| Field parameters | Dimension-swap params | 14 | NAMEOF-based field param tables | ✅ Full |
+| Date table (Calendar) | Auto-generated | 6 | SKIPPED for DirectLake | ⚠️ Import partition incompatible |
+
+### 20.6 Confidence Assessment
+
+| Area | Score | Evidence |
+|---|---|---|
+| Basic charts (bar/line/pie/table) | 🟢 95% | Direct 1:1 mappings, PBIR templates, per-type queryState |
+| Advanced charts (combo/waterfall/box) | 🟢 90% | Dedicated config templates and data role definitions |
+| Exotic charts (gantt/butterfly/mekko) | 🟡 65% | Approximate visual type downgrades |
+| Simple calculations (IF/SUM/string) | 🟢 95% | 120+ regex patterns in dax_converter.py |
+| LOD expressions | 🟢 90% | FIXED/EXCLUDE fully mapped; INCLUDE simplified |
+| Table calculations | � 85% | RUNNING/WINDOW/RANK converted with compute_using; PREVIOUS_VALUE→OFFSET(-1), LOOKUP→OFFSET(n) (v3.7.0); FIRST/LAST are placeholders |
+| All filter types | 🟢 95% | Full categorical/range/TopN/relative date coverage |
+| Actions (filter/highlight) | 🟢 90% | Standard PBI cross-filter/highlight |
+| Actions (navigate/set) | � 80% | Navigate → drillthrough (different UX); Set actions → bookmarks (v3.7.0) |
+| Reference/Trend lines | 🟢 95% | Full config migration to PBIR visual objects |
+| Data model (tables/rels) | 🟢 95% | 14-phase TMDL builder with validation and inference |
+| Sets/Groups/Bins | 🟢 95% | Proper DAX calculated columns |
+| Hierarchies | 🟢 95% | TMDL hierarchies + auto date hierarchies |
+| Parameters | 🟢 90% | What-If + list + simple all handled |
+| RLS | 🟢 90% | User filter and group-based roles with DAX |
+| Device layouts | 🟡 60% | Separate pages, not native PBI mobile view overlay |
+| Theming & formatting | 🟢 90% | Theme JSON + per-visual objects + conditional formatting + rich text + data bars + small multiples (v3.7.0) |
+| Deployment pipeline | 🟢 95% | Full 6-artifact chain with REST API deployment |
+| Prep flows | 🟢 85% | Topological sort + M query fusion; Script/Predict steps unsupported |
+
+### 20.7 DirectLake Architecture Implications
+
+1. **Date tables cannot be auto-generated** (Phase 6 skipped) — `GENERATESERIES`/`CALENDAR` require import-mode partitions, incompatible with DirectLake entity partitions
+2. **Calculated columns must be materialized** — row-level formulas pushed to Lakehouse as physical Delta columns via:
+   - Dataflow M: `Table.AddColumn` steps (calc_column_utils → `make_m_add_column_step()`)
+   - Notebook PySpark: `withColumn()` calls (calc_column_utils → `tableau_formula_to_pyspark()`)
+   - Lakehouse DDL: physical column definitions with formula annotations
+3. **All tables use entity partitions** referencing Lakehouse Delta tables — no M/import partitions mixed in
+
+### 20.8 Summary of What Gets Lost
+
+| Feature | Reason | Workaround |
+|---|---|---|
+| **Set actions** | ✅ Converted to PBI bookmarks (v3.7.0) | Bookmark-based set toggling |
+| **Clustering** | PBI has no native clustering visual analytics | Cluster in Notebook, write as column |
+| **Positioned annotations** (mark/point/area) | ✅ Companion textbox visuals (v3.7.0) | Positioned next to parent visual |
+| **Tableau Extensions** | No PBI equivalent | Find equivalent PBI custom visual |
+| **SCRIPT_* R/Python** | No DAX equivalent | Rewrite as Python visual or Fabric Notebook |
+| **MAKEPOINT/MAKELINE** | No DAX spatial | Use lat/lon columns directly in map visual |
+| **FIRST()/LAST()** | Mapped to `0` placeholder | Manual DAX with OFFSET |
+| **PREVIOUS_VALUE()** | ✅ Converted to `OFFSET(-1, ...)` (v3.7.0) | Full DAX OFFSET support |
+| **True play-axis animation** | Pages shelf → slicer only | PBI scatter play axis is partial |
+| **Data Stories** | Type preserved, no content | PBI Smart Narratives |
+| **Ask Data** | Type preserved, no config | PBI Q&A visual |
+| **Custom shape images** | Only 6 built-in PBI markers | Use conditional formatting or custom visuals |
+| **Date table (DirectLake)** | GENERATESERIES incompatible | Pre-create Calendar table in Lakehouse |

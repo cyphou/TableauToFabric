@@ -10,11 +10,11 @@ This document lists known limitations and approximations in the Tableau to Micro
 |------|-----------|--------|
 | **Hyper files** | `.hyper` extract data is not parsed — only XML metadata is read | Tables from Hyper extracts will have structure but no inline data |
 | **Tableau Server/Cloud** | Live connections to Tableau Server are not reconnected | Connection strings reference the original server; must be reconfigured |
-| **Tableau 2024.3+** | Dynamic zone visibility and database-query parameters not extracted | These newer features are ignored during migration |
+| **Tableau 2024.3+** | Dynamic zone visibility extracted and mapped to bookmarks (v3.7.0); some newer container features may still be ignored | Most 2024.3 features now handled |
 | **Custom shapes** | Shape encoding extracts the field reference only — actual image files are not migrated | Custom shape visuals will show default markers |
 | **OAuth credentials** | Credential metadata is stripped by design | Data source connections need re-authentication |
 | **Nested layout containers** | Deeply nested containers may lose relative positioning | Some dashboard layouts may need manual adjustment |
-| **Rich tooltips** | HTML/custom layout tooltips are converted to plain text | Tooltip formatting is lost |
+| **Rich tooltips** | Styled tooltip text runs are now converted to PBI tooltip pages with formatted textbox visuals (v3.7.0) | Most formatting preserved |
 | **Multiple data sources** | All calculations are placed on the "main" table | Multi-datasource worksheets may lose datasource context |
 
 ## Generation Limitations
@@ -24,10 +24,10 @@ This document lists known limitations and approximations in the Tableau to Micro
 | **No incremental migration** | Re-running regenerates everything from scratch | Manual edits to the project are overwritten |
 | **DirectLake mode** | Semantic model uses DirectLake with entity partitions referencing a Lakehouse | Import/DirectQuery tables cannot coexist with DirectLake partitions |
 | **No paginated reports** | Only interactive .pbip reports are generated | Paginated report layouts are not supported |
-| **No data bars / sparklines** | These PBI visual types have no Tableau equivalent | |
-| **No Small Multiples** | PBI Small Multiples feature is not auto-generated | Grid layouts need manual configuration |
+| **Data bars** | Now generated for table/matrix visuals with quantitative color encoding (v3.7.0) | |
+| **Small Multiples** | Now auto-generated when `small_multiples` or `pages_shelf` field is present (v3.7.0) | Grid layouts configured automatically |
 | **Visual positioning** | Dashboard objects are scaled proportionally from Tableau canvas to PBI page size | Not pixel-perfect; overlapping is possible |
-| **Textbox/Image** | Minimal HTML → plain text conversion | Rich text formatting is lost |
+| **Textbox/Image** | Rich text with bold/italic/color/font_size/url now preserved via PBI text runs (v3.7.0) | Most formatting migrated |
 
 ## DAX Conversion Limitations
 
@@ -40,7 +40,7 @@ This document lists known limitations and approximations in the Tableau to Micro
 | COLLECT | `0` + comment | No spatial collection |
 | SCRIPT_BOOL/INT/REAL/STR | `BLANK()` + comment | R/Python scripting has no DAX equivalent |
 | SPLIT | `BLANK()` + comment | No string split to array in DAX |
-| PREVIOUS_VALUE | Comment | Requires iterative patterns not available in DAX |
+| `PREVIOUS_VALUE` | `OFFSET(-1, ...)` | ✅ Converted to DAX OFFSET function (v3.7.0) |
 
 ### Approximated Functions
 
@@ -53,7 +53,7 @@ This document lists known limitations and approximations in the Tableau to Micro
 | RUNNING_SUM/AVG/COUNT | `CALCULATE(AGG, ...)` | No window frame specification |
 | WINDOW_SUM/AVG/MAX/MIN | `CALCULATE(inner, ALL/ALLEXCEPT)` | Loses window frame boundaries |
 | LTRIM/RTRIM | `TRIM()` | Removes all leading/trailing spaces |
-| LOOKUP | `LOOKUPVALUE()` | Doesn't handle offset parameter |
+| `LOOKUP` | `OFFSET(n, ...)` | ✅ Converted to DAX OFFSET with signed offset (v3.7.0) |
 | String `+` → `&` | Only at depth 0 | Arithmetic `+` in string contexts may be preserved |
 
 ## Visual Mapping Approximations
@@ -76,8 +76,8 @@ This document lists known limitations and approximations in the Tableau to Micro
 |------|-----------|
 | **OAuth/SSO** | M queries use hardcoded connection strings; no OAuth configuration |
 | **Data gateway** | No on-premises data gateway configuration generated |
-| **Incremental refresh** | No incremental refresh policy |
-| **Parameterized sources** | Server/database names hardcoded; no PBI parameters for switching |
+| **Incremental refresh** | Auto-generated for tables with date/datetime columns (v3.7.0) — 30-day rolling + 1-day incremental |
+| **Parameterized sources** | M parameters (ServerName/DatabaseName) now emitted for 12 connector types (v3.7.0) |
 | **Hyper data** | `.hyper` files referenced in Prep flows produce empty `#table` |
 | **Custom SQL params** | `Value.NativeQuery()` generated but parameter binding not supported |
 

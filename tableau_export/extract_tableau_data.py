@@ -166,6 +166,7 @@ class TableauExtractor:
                 'device_layouts': self.extract_device_layouts(dashboard),
                 'containers': self.extract_dashboard_containers(dashboard),
                 'show_hide_containers': self.extract_show_hide_containers(dashboard),
+                'dynamic_zone_visibility': self.extract_dynamic_zone_visibility(dashboard),
                 'floating_tiled': self.extract_floating_tiled(dashboard),
             }
             dashboards.append(db_data)
@@ -509,7 +510,8 @@ class TableauExtractor:
                 'min': filter_min,
                 'max': filter_max,
                 'exclude': exclude_mode,
-                'include_null': include_null
+                'include_null': include_null,
+                'is_context': filt.get('context', '') == 'true',
             })
         return filters
     
@@ -640,17 +642,34 @@ class TableauExtractor:
             # Texte
             if zone_type == 'text' or zone.get('type-v2') == 'text':
                 text_content = ''
+                text_runs = []
                 formatted = zone.find('.//formatted-text')
                 if formatted is not None:
                     parts = []
                     for run in formatted.findall('.//run'):
                         if run.text:
                             parts.append(run.text)
+                            run_data = {'text': run.text}
+                            if run.get('bold', run.get('fontweight', '')).lower() in ('true', 'bold'):
+                                run_data['bold'] = True
+                            if run.get('italic', run.get('fontstyle', '')).lower() in ('true', 'italic'):
+                                run_data['italic'] = True
+                            color = run.get('fontcolor', run.get('color', ''))
+                            if color:
+                                run_data['color'] = color
+                            font_size = run.get('fontsize', '')
+                            if font_size:
+                                run_data['font_size'] = font_size
+                            url = run.get('href', run.get('url', ''))
+                            if url:
+                                run_data['url'] = url
+                            text_runs.append(run_data)
                     text_content = ''.join(parts)
                 objects.append({
                     'type': 'text',
                     'name': zone_name or f'text_{zone_id}',
                     'content': text_content,
+                    'text_runs': text_runs,
                     'position': pos,
                     'layout': layout_mode
                 })
@@ -969,6 +988,24 @@ class TableauExtractor:
                         palette_colors.append(pc.text)
                 if palette_colors:
                     color_data['palette_colors'] = palette_colors
+                # Stepped color thresholds from <bucket> elements
+                thresholds = []
+                for bucket in color.findall('.//bucket'):
+                    thresh = {'color': bucket.get('color', '')}
+                    val = bucket.get('value', bucket.get('low', ''))
+                    if val:
+                        try:
+                            thresh['value'] = float(val)
+                        except (ValueError, TypeError):
+                            pass
+                    if thresh.get('color'):
+                        thresholds.append(thresh)
+                if thresholds:
+                    color_data['thresholds'] = thresholds
+                # Legend position
+                legend = color.find('.//legend')
+                if legend is not None:
+                    color_data['legend_position'] = legend.get('position', 'right')
                 encoding['color'] = color_data
             
             # Size
@@ -995,9 +1032,11 @@ class TableauExtractor:
                 column = label.get('column', '')
                 col_refs = re.findall(r'\[([^\]]+)\]\.\[([^\]]+)\]', column)
                 show_labels = label.get('show-label', 'false') == 'true'
+                label_position = label.get('position', label.get('mark-position', ''))
                 encoding['label'] = {
                     'field': _clean_field_ref(col_refs[0][1]) if col_refs else column.replace('[', '').replace(']', ''),
-                    'show': show_labels
+                    'show': show_labels,
+                    'position': label_position,
                 }
         
         return encoding
@@ -1336,6 +1375,17 @@ class TableauExtractor:
                 action_data['parameter'] = action.get('param', '')
                 action_data['source_field'] = action.get('source-field', '').replace('[', '').replace(']', '')
             
+            # Set-value action: parse target set details
+            if action_type == 'set-value':
+                set_elem = action.find('.//set')
+                if set_elem is not None:
+                    action_data['target_set'] = set_elem.get('name', '').replace('[', '').replace(']', '')
+                    action_data['target_field'] = set_elem.get('field', '').replace('[', '').replace(']', '')
+                    action_data['assign_behavior'] = set_elem.get('behavior', 'assign')
+                # Also capture from attributes
+                action_data['set_name'] = action.get('set', action.get('set-name', '')).replace('[', '').replace(']', '')
+                action_data['set_field'] = action.get('set-field', '').replace('[', '').replace(']', '')
+
             actions.append(action_data)
         
         self.workbook_data['actions'] = actions
@@ -2006,6 +2056,28 @@ class TableauExtractor:
                     'button_style': btn.get('style', ''),
                 })
         return containers
+
+    def extract_dynamic_zone_visibility(self, dashboard):
+        """Extracts dynamic zone visibility settings (Tableau 2024.3+).
+
+        Dynamic zone visibility allows zones to show/hide based on a parameter
+        or calculated field value. In PBI this maps to bookmark toggle groups.
+        """
+        zones = []
+        for zone in dashboard.findall('.//zone'):
+            dz = zone.find('.//dynamic-zone-visibility')
+            if dz is None:
+                dz = zone.find('dynamic-zone-visibility')
+            if dz is not None:
+                zones.append({
+                    'zone_name': zone.get('name', ''),
+                    'zone_id': zone.get('id', ''),
+                    'field': dz.get('field', dz.get('column', '')),
+                    'value': dz.get('value', ''),
+                    'condition': dz.get('condition', 'equals'),
+                    'default_visible': dz.get('default', 'true') == 'true',
+                })
+        return zones
 
     def extract_floating_tiled(self, dashboard):
         """Extracts floating vs tiled layout info for each dashboard zone."""

@@ -83,6 +83,8 @@ def generate_tmdl(datasources, report_name, extra_objects, output_dir,
                                    calendar_start=calendar_start,
                                    calendar_end=calendar_end,
                                    culture=culture)
+    # Store datasources for parameterized connection output
+    model['_datasources'] = datasources
 
     # Step 2: Write TMDL files
     _write_tmdl_files(model, output_dir)
@@ -930,6 +932,8 @@ def _convert_tableau_format_to_pbi(tableau_format):
     Tableau formats:  #,##0.00  |  0.0%  |  $#,##0  |  0.000  |  #,##0
     PBI formats:      #,0.00   |  0.0%  |  $#,0    |  0.000  |  #,0
 
+    Also handles shorthand codes: n0/n2 (number), p0/p2 (percent), c0/c2 (currency).
+
     Args:
         tableau_format: Tableau format string (from default-format attribute)
 
@@ -940,6 +944,20 @@ def _convert_tableau_format_to_pbi(tableau_format):
         return ''
 
     fmt = tableau_format.strip()
+
+    # Shorthand codes (Tableau internal format descriptors)
+    _SHORTHAND = {
+        'n0': '#,0', 'n1': '#,0.0', 'n2': '#,0.00', 'n3': '#,0.000',
+        'p0': '0%', 'p1': '0.0%', 'p2': '0.00%',
+        'c0': '$#,0', 'c1': '$#,0.0', 'c2': '$#,0.00',
+        'd': 'Short Date', 'D': 'General Date',
+        'g': 'General Date', 'G': 'General Date',
+    }
+    # Try case-sensitive first (D ≠ d), then case-insensitive
+    if fmt in _SHORTHAND:
+        return _SHORTHAND[fmt]
+    if fmt.lower() in _SHORTHAND:
+        return _SHORTHAND[fmt.lower()]
 
     # Already a PBI-compatible format
     if fmt in ('0', '#,0', '#,0.00', '0.00%', '$#,0.00', 'General Date', 'Short Date'):
@@ -1796,7 +1814,7 @@ def _write_tmdl_files(model_data, output_dir):
     _write_database_tmdl(def_dir, model)
     _write_model_tmdl(def_dir, model, tables, roles)
     _write_relationships_tmdl(def_dir, relationships)
-    _write_expressions_tmdl(def_dir, tables)
+    _write_expressions_tmdl(def_dir, tables, model.get('_datasources', []))
 
     if roles:
         _write_roles_tmdl(def_dir, roles)
@@ -1925,8 +1943,9 @@ def _write_model_tmdl(def_dir, model, tables, roles=None):
         f.write(content)
 
 
-def _write_expressions_tmdl(def_dir, tables):
-    """Generate expressions.tmdl with DatabaseQuery for DirectLake."""
+def _write_expressions_tmdl(def_dir, tables, datasources=None):
+    """Generate expressions.tmdl with DatabaseQuery for DirectLake and
+    optional M parameters for parameterized data source connections."""
     lines = []
     # DirectLake uses a DatabaseQuery expression that references the Lakehouse
     lines.append('expression DatabaseQuery =')
@@ -1936,6 +1955,35 @@ def _write_expressions_tmdl(def_dir, tables):
     lines.append('\t\tdatabase')
     lines.append('\tmeta [IsParameterQuery=false]')
     lines.append("")
+
+    # Emit M parameters for unique server/database connections
+    _DB_CONNECTOR_TYPES = {
+        'SQL Server', 'PostgreSQL', 'MySQL', 'Oracle', 'Snowflake',
+        'Azure SQL', 'Azure Synapse', 'Synapse', 'Teradata',
+        'Amazon Redshift', 'Redshift', 'Databricks', 'SAP HANA',
+    }
+    if datasources:
+        servers = set()
+        databases = set()
+        for ds in datasources:
+            conn = ds.get('connection', {})
+            conn_type = conn.get('type', '')
+            if conn_type in _DB_CONNECTOR_TYPES:
+                details = conn.get('details', conn)
+                srv = details.get('server', '')
+                db = details.get('database', '')
+                if srv:
+                    servers.add(srv)
+                if db:
+                    databases.add(db)
+        if servers:
+            default_server = sorted(servers)[0]
+            lines.append(f'expression ServerName = "{default_server}" meta [IsParameterQuery=true, Type="Text", IsParameterQueryRequired=true]')
+            lines.append("")
+        if databases:
+            default_db = sorted(databases)[0]
+            lines.append(f'expression DatabaseName = "{default_db}" meta [IsParameterQuery=true, Type="Text", IsParameterQueryRequired=true]')
+            lines.append("")
 
     content = '\n'.join(lines) + '\n'
     filepath = os.path.join(def_dir, 'expressions.tmdl')
@@ -2041,6 +2089,21 @@ def _write_table_tmdl(tables_dir, table):
 
     for partition in table.get('partitions', []):
         _write_partition(lines, table_name, partition)
+
+    # Incremental refresh policy — emit if table has a date/datetime column
+    date_col = None
+    for col in table.get('columns', []):
+        dt = col.get('dataType', '').lower()
+        if dt in ('dateTime', 'datetime', 'date'):
+            date_col = col.get('name', '')
+            break
+    if date_col:
+        lines.append("")
+        lines.append(f"\tannotation __PBI_IncrementalRefreshDateColumn = {date_col}")
+        lines.append("\tannotation __PBI_IncrementalRefreshRangeStart = RangeStart")
+        lines.append("\tannotation __PBI_IncrementalRefreshRangeEnd = RangeEnd")
+        lines.append("\tannotation __PBI_IncrementalRefreshIncrementalPeriods = 30")
+        lines.append("\tannotation __PBI_IncrementalRefreshArchivePeriods = 365")
 
     lines.append("\tannotation PBI_ResultType = Table")
     lines.append("")

@@ -361,6 +361,11 @@ class FabricPBIPGenerator:
                     "width": page_width
                 }
                 db_filters = db.get('filters', [])
+                # Also promote context filters from worksheets to page level
+                for ws in worksheets:
+                    for f in ws.get('filters', []):
+                        if f.get('is_context', False):
+                            db_filters.append(f)
                 if db_filters:
                     pf = self._create_visual_filters(db_filters)
                     if pf:
@@ -496,6 +501,62 @@ class FabricPBIPGenerator:
             )
             print(f"  \U0001f4a1 Tooltip page '{tip_display}'")
 
+        # Custom formatted tooltip pages (worksheets with styled tooltip runs)
+        formatted_tooltip_ws = [ws for ws in worksheets
+                                if any(tt.get('runs') for tt in ws.get('tooltips', []) if tt.get('type') == 'text')
+                                and ws not in tooltip_ws]
+        for ft_ws in formatted_tooltip_ws:
+            ft_name = f"Tooltip_{uuid.uuid4().hex[:12]}"
+            ft_display = f"Tooltip - {ft_ws.get('name', 'Formatted')}"
+            page_names.append(ft_name)
+            ft_dir = os.path.join(pages_dir, ft_name)
+            os.makedirs(ft_dir, exist_ok=True)
+            ft_page = {
+                "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/page/2.0.0/schema.json",
+                "name": ft_name, "displayName": ft_display,
+                "displayOption": "FitToPage", "height": 320, "width": 480,
+                "pageType": "Tooltip"
+            }
+            with open(os.path.join(ft_dir, 'page.json'), 'w', encoding='utf-8') as f:
+                json.dump(ft_page, f, indent=2)
+            ft_vis_dir = os.path.join(ft_dir, 'visuals')
+            os.makedirs(ft_vis_dir, exist_ok=True)
+            # Build textbox from tooltip runs
+            pbi_runs = []
+            for tt in ft_ws.get('tooltips', []):
+                if tt.get('type') != 'text' or not tt.get('runs'):
+                    continue
+                for run in tt['runs']:
+                    pbi_run = {"value": run.get('text', '')}
+                    if run.get('bold'):
+                        pbi_run["fontWeight"] = "bold"
+                    if run.get('color'):
+                        pbi_run["color"] = run['color']
+                    if run.get('font_size'):
+                        try:
+                            pbi_run["fontSize"] = f"{int(float(run['font_size'].replace('pt', '').replace('px', '')))}pt"
+                        except (ValueError, TypeError):
+                            pass
+                    pbi_runs.append(pbi_run)
+            if pbi_runs:
+                tb_id = new_visual_id()
+                tb_dir = os.path.join(ft_vis_dir, tb_id)
+                os.makedirs(tb_dir, exist_ok=True)
+                tb_json = {
+                    "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/2.5.0/schema.json",
+                    "name": tb_id,
+                    "position": {"x": 0, "y": 0, "z": 0, "height": 320, "width": 480, "tabOrder": 0},
+                    "visual": {
+                        "visualType": "textbox",
+                        "objects": {"general": [{"properties": {"paragraphs": {
+                            "expr": {"Literal": {"Value": json.dumps([{"textRuns": pbi_runs}])}}}
+                        }}]}
+                    }
+                }
+                with open(os.path.join(tb_dir, 'visual.json'), 'w', encoding='utf-8') as f:
+                    json.dump(tb_json, f, indent=2, ensure_ascii=False)
+            print(f"  \U0001f4a1 Formatted tooltip page '{ft_display}'")
+
         # Drill-through pages from "Go to Sheet" actions
         actions = converted_objects.get('actions', [])
         drillthrough_targets = set()
@@ -593,7 +654,32 @@ class FabricPBIPGenerator:
                     print(f"  \U0001f4f1 Mobile page '{mobile_display}': {len(zones)} zones")
 
         # -- Bookmarks from stories -
-        bookmarks = converted_objects.get('bookmarks', [])
+        bookmarks = list(converted_objects.get('bookmarks', []))
+
+        # -- Bookmarks from set-value actions --
+        for action in converted_objects.get('actions', []):
+            if action.get('type') == 'set-value':
+                set_name = action.get('set_name', '') or action.get('target_set', '')
+                if set_name:
+                    bookmarks.append({
+                        'name': f"Set: {action.get('name', set_name)}",
+                        'filters': {},
+                        'set_action': True,
+                    })
+
+        # -- Bookmarks from dynamic zone visibility (Tableau 2024.3+) --
+        for db_data in converted_objects.get('dashboards', []):
+            for dz in db_data.get('dynamic_zone_visibility', []):
+                zone_name = dz.get('zone_name', dz.get('zone_id', ''))
+                field = dz.get('field', '')
+                value = dz.get('value', '')
+                if zone_name:
+                    bookmarks.append({
+                        'name': f"Show: {zone_name}" + (f" ({field}={value})" if field else ''),
+                        'filters': {},
+                        'dynamic_zone': True,
+                    })
+
         if bookmarks:
             bm_dir = os.path.join(def_dir, 'bookmarks')
             os.makedirs(bm_dir, exist_ok=True)
@@ -852,19 +938,71 @@ class FabricPBIPGenerator:
         with open(os.path.join(visual_dir, 'visual.json'), 'w', encoding='utf-8') as f:
             json.dump(visual_json, f, indent=2, ensure_ascii=False)
 
+        # Generate companion textbox visuals for annotations
+        if ws_data:
+            annotations = ws_data.get('annotations', [])
+            for anno_idx, anno in enumerate(annotations):
+                anno_text = anno.get('text', '')
+                if not anno_text:
+                    continue
+                anno_vid = new_visual_id()
+                anno_dir = os.path.join(visuals_dir, anno_vid)
+                os.makedirs(anno_dir, exist_ok=True)
+                # Position the annotation textbox near the parent visual
+                vis_pos = self._make_visual_position(pos, scale_x, scale_y, visual_count)
+                anno_x = vis_pos.get('x', 0) + vis_pos.get('width', 300) - 120
+                anno_y = vis_pos.get('y', 0) + 5 + anno_idx * 30
+                anno_json = {
+                    "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/2.5.0/schema.json",
+                    "name": anno_vid,
+                    "position": {"x": anno_x, "y": anno_y, "z": (visual_count + anno_idx + 1) * 1000,
+                                 "height": 28, "width": 200, "tabOrder": (visual_count + anno_idx + 1) * 1000},
+                    "visual": {
+                        "visualType": "textbox",
+                        "objects": {"general": [{"properties": {"paragraphs": {
+                            "expr": {"Literal": {"Value": json.dumps([{"textRuns": [{"value": anno_text, "fontSize": "9pt"}]}])}}}
+                        }}]}
+                    }
+                }
+                with open(os.path.join(anno_dir, 'visual.json'), 'w', encoding='utf-8') as f:
+                    json.dump(anno_json, f, indent=2, ensure_ascii=False)
+
     def _create_visual_textbox(self, visuals_dir, obj, scale_x, scale_y, visual_count):
         visual_id = new_visual_id()
         visual_dir = os.path.join(visuals_dir, visual_id)
         os.makedirs(visual_dir, exist_ok=True)
         pos = obj.get('position', {})
         content = obj.get('content', '')
+        # Build rich text paragraphs from text_runs if available
+        text_runs = obj.get('text_runs', [])
+        if text_runs:
+            pbi_runs = []
+            for run in text_runs:
+                pbi_run = {"value": run.get('text', '')}
+                if run.get('bold'):
+                    pbi_run["fontWeight"] = "bold"
+                if run.get('italic'):
+                    pbi_run["fontStyle"] = "italic"
+                if run.get('color'):
+                    pbi_run["color"] = run['color']
+                if run.get('font_size'):
+                    try:
+                        pbi_run["fontSize"] = f"{int(float(run['font_size'].replace('pt', '').replace('px', '')))}pt"
+                    except (ValueError, TypeError):
+                        pass
+                if run.get('url'):
+                    pbi_run["url"] = run['url']
+                pbi_runs.append(pbi_run)
+            paragraphs = [{"textRuns": pbi_runs}]
+        else:
+            paragraphs = [{"textRuns": [{"value": content}]}]
         visual_json = {
             "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/2.5.0/schema.json",
             "name": visual_id,
             "position": self._make_visual_position(pos, scale_x, scale_y, visual_count),
             "visual": {
                 "visualType": "textbox",
-                "objects": {"general": [{"properties": {"paragraphs": {"expr": {"Literal": {"Value": json.dumps([{"textRuns": [{"value": content}]}])}}}}}]}
+                "objects": {"general": [{"properties": {"paragraphs": {"expr": {"Literal": {"Value": json.dumps(paragraphs)}}}}}]}
             }
         }
         with open(os.path.join(visual_dir, 'visual.json'), 'w', encoding='utf-8') as f:
@@ -1121,6 +1259,23 @@ class FabricPBIPGenerator:
         if show_labels:
             objects["labels"] = [{"properties": {"show": {"expr": {"Literal": {"Value": "true"}}}}}]
 
+        # Data label position
+        label_enc = mark_encoding.get('label', {})
+        label_pos = label_enc.get('position', '')
+        if label_pos and "labels" in objects:
+            _LABEL_POS_MAP = {
+                'top': 'OutsideEnd', 'above': 'OutsideEnd',
+                'bottom': 'InsideBase', 'below': 'InsideBase',
+                'center': 'InsideCenter', 'middle': 'InsideCenter',
+                'left': 'InsideEnd', 'right': 'InsideEnd',
+                'inside': 'InsideCenter', 'outside': 'OutsideEnd',
+            }
+            pbi_label_pos = _LABEL_POS_MAP.get(label_pos.lower(), '')
+            if pbi_label_pos:
+                objects["labels"][0]["properties"]["labelPosition"] = {
+                    "expr": {"Literal": {"Value": f"'{pbi_label_pos}'"}}
+                }
+
         # Legend
         color_field = mark_encoding.get('color', {}).get('field', '')
         if color_field and color_field != 'Multiple Values':
@@ -1342,6 +1497,30 @@ class FabricPBIPGenerator:
                 gradient_props["maxColor"] = {"solid": {"color": {"expr": {"Literal": {"Value": f"'{palette[-1]}'"}}}}}
                 objects["colorBorder"] = [{"properties": gradient_props}]
 
+        # -- Conditional formatting: stepped color rules -------
+        color_thresholds = color_enc.get('thresholds', [])
+        if color_thresholds and len(color_thresholds) >= 2:
+            rules = []
+            for thresh in color_thresholds:
+                rule = {"properties": {
+                    "fill": {"solid": {"color": {"expr": {"Literal": {"Value": f"'{thresh.get('color', '#cccccc')}'"}}}}}
+                }}
+                if thresh.get('value') is not None:
+                    rule["properties"]["inputValue"] = {"expr": {"Literal": {"Value": f"{thresh['value']}D"}}}
+                rules.append(rule)
+            objects["dataPoint"] = rules
+
+        # -- Data bars for table/matrix columns ----------------
+        if visual_type in ('tableEx', 'matrix', 'pivotTable'):
+            value_fields = [f for f in ws_data.get('fields', []) if f.get('role') == 'measure']
+            if value_fields and color_enc.get('type') == 'quantitative':
+                data_bar_props = {
+                    "show": {"expr": {"Literal": {"Value": "true"}}},
+                    "positiveColor": {"solid": {"color": {"expr": {"Literal": {"Value": "'#4472C4'"}}}}},
+                    "negativeColor": {"solid": {"color": {"expr": {"Literal": {"Value": "'#ED7D31'"}}}}}
+                }
+                objects["dataBar"] = [{"properties": data_bar_props}]
+
         # -- Continuous vs discrete axis scale -----------------
         axes_detail = ws_data.get('axes', {})
         for axis_key, axis_obj_key in [('x', 'categoryAxis'), ('y', 'valueAxis')]:
@@ -1429,6 +1608,18 @@ class FabricPBIPGenerator:
                     "show": {"expr": {"Literal": {"Value": "true"}}},
                     "style": {"expr": {"Literal": {"Value": "'dashed'"}}},
                 })
+
+        # -- Small Multiples formatting -------------------------
+        sm_field = ws_data.get('small_multiples', '')
+        if not sm_field:
+            pages_shelf = ws_data.get('pages_shelf', {})
+            if isinstance(pages_shelf, dict):
+                sm_field = pages_shelf.get('field', '')
+        if sm_field:
+            objects["smallMultiple"] = [{"properties": {
+                "layoutMode": {"expr": {"Literal": {"Value": "'Flow'"}}},
+                "showChartTitle": {"expr": {"Literal": {"Value": "true"}}},
+            }}]
 
         # -- Number format mapping -----------------------------
         fmt_info = formatting.get('number_format', formatting.get('format_string', ''))

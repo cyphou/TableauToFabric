@@ -322,7 +322,8 @@ def extract_tables_with_columns(datasource_elem, connection_map=None):
                 'datatype': col_elem.get('datatype', 'string'),
                 'ordinal': int(col_elem.get('ordinal', 0)),
                 'length': col_elem.get('length', None),
-                'nullable': col_elem.get('nullable', 'true') == 'true'
+                'nullable': col_elem.get('nullable', 'true') == 'true',
+                'default_format': col_elem.get('default-format', ''),
             }
             columns.append(column)
         
@@ -372,7 +373,8 @@ def extract_tables_with_columns(datasource_elem, connection_map=None):
                 'datatype': col_elem.get('datatype', 'string'),
                 'ordinal': 0,
                 'length': None,
-                'nullable': True
+                'nullable': True,
+                'default_format': col_elem.get('default-format', ''),
             }
         
         # Populate columns for each table that needs them

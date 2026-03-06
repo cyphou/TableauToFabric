@@ -16,6 +16,11 @@ def convert_filter_to_powerbi(filter_obj):
     
     filter_name = filter_obj.get('field', 'Unnamed Filter')
     filter_type = filter_obj.get('type', 'categorical')
+
+    # Context filters in Tableau act as pre-filters → promote to page/report level
+    scope = filter_obj.get('scope', 'worksheet')
+    if filter_obj.get('is_context', False) and scope == 'worksheet':
+        scope = 'page'
     
     powerbi_filter = {
         'field': filter_name,
@@ -23,9 +28,10 @@ def convert_filter_to_powerbi(filter_obj):
         'filterType': convert_filter_type(filter_type),
         'operator': convert_filter_operator(filter_obj.get('operator', 'in')),
         'values': filter_obj.get('values', []),
-        'level': convert_filter_level(filter_obj.get('scope', 'worksheet')),
+        'level': convert_filter_level(scope),
         'isRequired': filter_obj.get('required', False),
         'allowMultiple': filter_obj.get('allow_multiple', True),
+        'isContext': filter_obj.get('is_context', False),
     }
     
     # Configuration spécifique selon le type
@@ -88,6 +94,7 @@ def convert_filter_level(tableau_scope):
         'dashboard': 'page',
         'workbook': 'report',
         'context': 'report',
+        'page': 'page',
         'datasource': 'dataset',
     }
     return level_mapping.get(tableau_scope.lower(), 'visual')

@@ -172,8 +172,7 @@ _SIMPLE_FUNCTION_MAP = [
     (r'\bFIRST\s*\(\s*\)', '0'),
     (r'\bLAST\s*\(\s*\)', '0'),
     (r'\bTOTAL\s*\(', 'CALCULATE('),
-    (r'\bPREVIOUS_VALUE\s*\(', '/* PREVIOUS_VALUE → use OFFSET(-1) or iterative pattern */ CALCULATE( /*'),
-    (r'\bLOOKUP\s*\(', '/* LOOKUP(expr, offset) → OFFSET-based or LOOKUPVALUE */ LOOKUPVALUE('),
+    # PREVIOUS_VALUE and LOOKUP handled by dedicated converters below
     (r'\bSIZE\s*\(\s*\)', 'COUNTROWS()'),
 
     # Additional WINDOW_* table calculations
@@ -274,6 +273,10 @@ def convert_tableau_formula_to_dax(formula, column_name='Measure', table_name='T
     )
     
     # 3b-pre. Dedicated converters (functions needing special arg handling)
+    dax = _convert_previous_value(dax, table_name, compute_using=compute_using,
+                                   column_table_map=column_table_map)
+    dax = _convert_lookup(dax, table_name, compute_using=compute_using,
+                           column_table_map=column_table_map)
     dax = _convert_radians_degrees(dax)
     dax = _convert_find(dax)
     dax = _convert_str_to_format(dax)
@@ -556,6 +559,86 @@ def _convert_ifnull(dax):
         else:
             replacement = dax[start:end]
         dax = dax[:start] + replacement + dax[end:]
+    return dax
+
+
+def _convert_previous_value(dax, table_name, compute_using=None, column_table_map=None):
+    """Convert PREVIOUS_VALUE(seed) → OFFSET-based DAX.
+
+    Output:
+        VAR __prev = CALCULATE([inner], OFFSET(-1, ALLSELECTED('Table'), ORDERBY([dim])))
+        RETURN IF(ISBLANK(__prev), <seed>, __prev)
+
+    When compute_using is present, uses those dimensions for ORDERBY.
+    """
+    column_table_map = column_table_map or {}
+    pattern = re.compile(r'\bPREVIOUS_VALUE\s*\(', re.IGNORECASE)
+    match = pattern.search(dax)
+    while match:
+        start_pos = match.end()
+        depth = 1
+        i = start_pos
+        while i < len(dax) and depth > 0:
+            if dax[i] == '(':
+                depth += 1
+            elif dax[i] == ')':
+                depth -= 1
+            i += 1
+        if depth == 0:
+            inner = dax[start_pos:i - 1].strip()
+            seed = inner if inner else '0'
+            if compute_using:
+                order_col = compute_using[0]
+                order_table = column_table_map.get(order_col, table_name)
+                orderby = f"ORDERBY('{order_table}'[{order_col}])"
+            else:
+                orderby = "ORDERBY([Value])"
+            replacement = (
+                f"VAR __prev = CALCULATE({seed}, "
+                f"OFFSET(-1, ALLSELECTED('{table_name}'), {orderby})) "
+                f"RETURN IF(ISBLANK(__prev), {seed}, __prev)"
+            )
+            dax = dax[:match.start()] + replacement + dax[i:]
+        match = pattern.search(dax, match.start() + 1 if depth != 0 else 0)
+    return dax
+
+
+def _convert_lookup(dax, table_name, compute_using=None, column_table_map=None):
+    """Convert LOOKUP(expr, offset) → OFFSET-based DAX.
+
+    Output:
+        CALCULATE(<expr>, OFFSET(<offset>, ALLSELECTED('Table'), ORDERBY([dim])))
+    """
+    column_table_map = column_table_map or {}
+    pattern = re.compile(r'\bLOOKUP\s*\(', re.IGNORECASE)
+    match = pattern.search(dax)
+    while match:
+        start_pos = match.end()
+        depth = 1
+        i = start_pos
+        while i < len(dax) and depth > 0:
+            if dax[i] == '(':
+                depth += 1
+            elif dax[i] == ')':
+                depth -= 1
+            i += 1
+        if depth == 0:
+            inner = dax[start_pos:i - 1].strip()
+            args = _split_args(inner)
+            expr = args[0].strip() if args else 'BLANK()'
+            offset = args[1].strip() if len(args) > 1 else '0'
+            if compute_using:
+                order_col = compute_using[0]
+                order_table = column_table_map.get(order_col, table_name)
+                orderby = f"ORDERBY('{order_table}'[{order_col}])"
+            else:
+                orderby = "ORDERBY([Value])"
+            replacement = (
+                f"CALCULATE({expr}, "
+                f"OFFSET({offset}, ALLSELECTED('{table_name}'), {orderby}))"
+            )
+            dax = dax[:match.start()] + replacement + dax[i:]
+        match = pattern.search(dax, match.start() + 1 if depth != 0 else 0)
     return dax
 
 
