@@ -2,6 +2,28 @@
 
 All notable changes to TableauToFabric are documented here.
 
+## [3.6.0] — 2026-03-06
+
+### Added
+- **823 new tests** across 12 test files — coverage campaign raising from 64% → 91%
+- `test_dax_converter_coverage.py` (90 tests) — nested parens, unbalanced parens, LOD edge cases, window/rank/total, iterator/agg conversions
+- `test_tmdl_generator_coverage.py` (67 tests) — date tables, relationships, RLS, cross-table refs, format strings, hierarchy builders
+- `test_tmdl_generator_coverage2.py` (62 tests) — calc groups, field parameters, M:N detection, ambiguous path deactivation, sets/groups/bins
+- `test_extract_tableau_data_coverage.py` (133 tests) — ~45 extraction methods via inline XML (worksheets, dashboards, filters, parameters, stories, actions, sets, groups, bins, hierarchies, aliases, custom SQL, user filters, published datasources, data blending)
+- `test_datasource_extractor_coverage.py` (72 tests) — CSV delimiter detection, twbx header reading, 15 connection types, 4-phase column fallback, legacy joins, object-model relationships
+- `test_pbip_generator_coverage.py` (116 tests) — page/visual/slicer/bookmark generation, filter mapping, format conversion
+- `test_validator_coverage.py` (58 tests) — TMDL/JSON/notebook/report validation
+- `test_visual_generator_coverage.py` (44 tests) — visual config templates, encoding bindings
+- `test_dashboard_converter_coverage.py` (37 tests) — layout, navigation, show/hide
+- `test_filter_converter_coverage.py` (47 tests) — categorical, range, relative date, top-N filters
+- `test_prep_flow_parser_coverage.py` (86 tests) — all 17 clean actions, 6 input types, expression converter
+- `test_convert_all.py` (11 tests) — end-to-end conversion orchestration
+
+### Changed
+- Test suite: **1,017 → 1,840 tests** across **26 → 38 test files**
+- Code coverage: **64% → 91%** (762 missing lines, down from 3,100+)
+- Updated all documentation to reflect current coverage metrics
+
 ## [3.5.0] — 2026-03-05
 
 ### Added

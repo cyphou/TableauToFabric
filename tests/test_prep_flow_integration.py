@@ -334,9 +334,9 @@ class TestPipelineGeneratorPrep(unittest.TestCase):
             defn = json.load(f)
         activities = defn['properties']['activities']
         types = [a['type'] for a in activities]
-        self.assertIn('DataflowRefresh', types)
-        self.assertIn('NotebookActivity', types)
-        self.assertIn('SemanticModelRefresh', types)
+        self.assertIn('RefreshDataflow', types)
+        self.assertIn('TridentNotebook', types)
+        self.assertIn('TridentDatasetRefresh', types)
 
     def test_notebook_depends_on_dataflow(self):
         """Notebook activity should depend on Dataflow refresh."""
@@ -346,9 +346,9 @@ class TestPipelineGeneratorPrep(unittest.TestCase):
         with open(def_path, 'r', encoding='utf-8') as f:
             defn = json.load(f)
         activities = defn['properties']['activities']
-        nb = [a for a in activities if a['type'] == 'NotebookActivity'][0]
+        nb = [a for a in activities if a['type'] == 'TridentNotebook'][0]
         deps = [d['activity'] for d in nb['dependsOn']]
-        df_names = [a['name'] for a in activities if a['type'] == 'DataflowRefresh']
+        df_names = [a['name'] for a in activities if a['type'] == 'RefreshDataflow']
         for df_name in df_names:
             self.assertIn(df_name, deps)
 
@@ -366,7 +366,7 @@ class TestPipelineGeneratorPrep(unittest.TestCase):
         with open(def_path, 'r', encoding='utf-8') as f:
             defn = json.load(f)
         df_activity = [a for a in defn['properties']['activities']
-                       if a['type'] == 'DataflowRefresh'][0]
+                       if a['type'] == 'RefreshDataflow'][0]
         self.assertIn('CleanedOrders', df_activity['name'])
 
     def test_creates_platform_file(self):

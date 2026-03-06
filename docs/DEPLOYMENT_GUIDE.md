@@ -109,7 +109,7 @@ The project includes a 5-stage CI/CD pipeline in `.github/workflows/ci.yml`:
   └──────────┘    └──────────┘    └──────────┘    └───────────┘    └───────────┘
        │               │               │                │                │
        v               v               v                v                v
-   Code quality    All 1017+      Artifact gen      Auto-deploy      Auto-deploy
+   Code quality    All 1840+      Artifact gen      Auto-deploy      Auto-deploy
    checks          tests pass    + validation      on push           on push
 ```
 

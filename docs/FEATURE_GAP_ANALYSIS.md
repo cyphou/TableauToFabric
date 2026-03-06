@@ -1,6 +1,6 @@
 # Tableau → Fabric Migration Tool: Feature Gap Analysis
 
-> Updated: 2025-06-04 — based on deep codebase audit against actual source code
+> Updated: 2026-03-06 — based on deep codebase audit against actual source code
 > Scope: All Tableau Desktop features vs. current TableauToFabric migration tool coverage
 
 ---
@@ -14,7 +14,8 @@
 | **Covered with known limitations** | 3 |
 | **Out of scope / N/A** | 6 |
 | **Coverage rate** | **~89%** of migratable features (with caveats noted below) |
-| **Test suite** | 961 tests across 25 test files |
+| **Test suite** | 1,840 tests across 38 test files |
+| **Code coverage** | **91%** (8,642 statements, 762 missing) |
 | **Source modules** | 35 Python files |
 
 > **Honest assessment**: This document was rewritten after a deep source-code audit that
@@ -38,22 +39,29 @@ through two mechanisms: **regex-replacement tuples** and **handler methods**.
 | Handler methods (`_convert_*`) | 29 | Complex structural conversions (IF/CASE, LOD, table calcs, iterators) |
 | **Distinct conversion points** | **~130** | After deduplication between regex patterns and handlers |
 
-### 11 Functions With No Real DAX Equivalent
+### 18 Functions With No Real DAX Equivalent
 
-These Tableau functions produce only a comment or `BLANK()` — there is no Power BI
+These Tableau functions produce only a comment, `BLANK()`, or a zero placeholder — there is no Power BI
 equivalent. This is the correct behaviour; the comment tells the user what to do manually.
 
 | Function | Output | Reason |
 |----------|--------|--------|
-| `AREA` | Comment | GIS spatial — no DAX spatial engine |
-| `BUFFER` | Comment | GIS spatial |
-| `COLLECT` | Comment | GIS spatial aggregate |
-| `HEXBINX` / `HEXBINY` | Comment | Hex-binning — use map visual instead |
-| `INTERSECTION` | Comment | GIS spatial |
-| `REGEXP_EXTRACT_NTH` | Comment | DAX has no regex; first match handled via `REGEXP_EXTRACT` → manual |
-| `USERDOMAIN` | Comment | No AD domain concept in PBI service |
-| `WINDOW_CORR` | Comment | No DAX windowed correlation |
-| `WINDOW_COVAR` / `WINDOW_COVARP` | Comment | No DAX windowed covariance |
+| `AREA` | `0` + comment | GIS spatial — no DAX spatial engine |
+| `BUFFER` | `BLANK()` + comment | GIS spatial |
+| `COLLECT` | `BLANK()` + comment | GIS spatial aggregate |
+| `DISTANCE` | `0` + comment | GIS spatial distance |
+| `HEXBINX` / `HEXBINY` | `0` + comment | Hex-binning — use map visual instead |
+| `INTERSECTION` | `BLANK()` + comment | GIS spatial |
+| `MAKEPOINT` | `BLANK()` + comment | GIS spatial — use Lat/Long columns |
+| `MAKELINE` | `BLANK()` + comment | GIS spatial |
+| `REGEXP_EXTRACT_NTH` | Comment + `CONTAINSSTRING()` fallback | DAX has no regex; first match handled via `REGEXP_EXTRACT` → manual |
+| `SCRIPT_BOOL` | `BLANK()` + comment | R/Python scripting — no DAX equivalent |
+| `SCRIPT_INT` | `0` + comment | R/Python scripting — no DAX equivalent |
+| `SCRIPT_REAL` | `0` + comment | R/Python scripting — no DAX equivalent |
+| `SCRIPT_STR` | `""` + comment | R/Python scripting — no DAX equivalent |
+| `USERDOMAIN` | `""` + comment | No AD domain concept in PBI service |
+| `WINDOW_CORR` | `0` + comment | No DAX windowed correlation |
+| `WINDOW_COVAR` / `WINDOW_COVARP` | `0` + comment | No DAX windowed covariance |
 
 ### 1 Approximate Conversion
 
@@ -133,14 +141,19 @@ These Tableau vis types have no direct PBI equivalent and map to the nearest nat
 | pareto | lineClusteredColumnComboChart | Good — dual axis similar |
 | network | decompositionTree | Approximate — semantically different |
 | mekko | stackedBarChart | Approximate |
-| lollipop | clusteredBarChart | Approximate |
-
+| lollipop | clusteredBarChart | Approximate || sparkline | lineChart | OK — size reduced |
+| timeline | lineChart | Approximate |
+| packedbubble / stripplot / dotplot | scatterChart | Approximate — size encoding may not transfer |
+| semicircle / ring | donutChart | OK |
+| calendar / heatmap / highlighttable | matrix | Approximate — lacks calendar grid |
 ### Custom Visual Support
 
 | Custom Type | AppSource Visual | GUID Injected |
 |-------------|-----------------|---------------|
 | sankey | `sankeyChart` | Yes |
 | chord | `chordChart` | Yes |
+| wordCloud | `wordCloud` | Yes |
+| sunburst | `sunburst` | Yes |
 
 ---
 
@@ -151,9 +164,12 @@ Builder flow files (`.tfl`) to Power Query M.
 
 ### What Works
 
-- Standard step types: filter, rename, aggregate, pivot, unpivot, join, union, sort,
-  calculated field, group/replace, clean, change type, split
-- Cross-join handler, published datasource input, ExtractValues
+- **7 node-level step types**: Input (Load*), Clean (SuperTransform), Aggregate, Join, Union, Pivot, Output
+- **17 clean action types**: RenameColumn, RemoveColumn, DuplicateColumn, ChangeColumnType, FilterOperation, FilterValues, FilterRange, ReplaceValues, ReplaceNulls, SplitColumn, MergeColumns, AddColumn, CleanOperation (trim/upper/lower/proper/clean), FillValues, GroupReplace, ConditionalColumn, ExtractValues, CustomCalculation
+- **6 input types**: LoadCsv, LoadExcel, LoadSql, LoadJson, LoadHyper, LoadGoogle
+- **6 join types**: inner, left, right, full, leftOnly, rightOnly
+- **25 connection types** mapped in `_PREP_CONNECTION_MAP`
+- Cross-join handler, published datasource input
 
 ### Known Limitations
 
@@ -161,7 +177,8 @@ Builder flow files (`.tfl`) to Power Query M.
 |-----------|----------|----------|
 | Python/R script steps | Warning comment emitted | Medium — manual rewrite required |
 | Prediction (ML) steps | Warning comment emitted | Low — niche feature |
-| Complex nested flows | Linear chain only | Medium — Prep supports branching |
+| Complex nested/branching flows | Linear chain only | Medium — Prep supports branching |
+| `.hyper` file references | Empty `#table` produced | Low — schema only, no data |
 
 ---
 
@@ -170,16 +187,16 @@ Builder flow files (`.tfl`) to Power Query M.
 The assessment module (`fabric_import/assessment.py`) provides an 8-category
 pre-migration readiness checklist via `--assess`:
 
-| Category | What It Checks |
-|----------|---------------|
-| Datasources | Connector tiers, custom SQL, data blending, published DS |
-| Calculations | LOD complexity, table calcs, spatial functions, R/Python scripts |
-| Visuals | Custom visuals, dual-axis, density marks |
-| Dashboard layout | Object count, deep nesting, device layouts |
-| Filters | Complex filters, context filters, cross-datasource filters |
-| Parameters | Parameter count, data type, domain type |
-| Security | User filters, RLS rules, USERNAME/ISMEMBEROF |
-| Data volume | Table/column counts, relationship complexity |
+| # | Category | Check Function | What It Checks |
+|---|----------|---------------|---------------|
+| 1 | Datasources | `_check_datasources` | Connector tiers, custom SQL, data blending, published DS |
+| 2 | Calculations | `_check_calculations` | LOD complexity, table calcs, spatial functions, R/Python scripts |
+| 3 | Visuals | `_check_visuals` | Custom visuals, dual-axis, density marks |
+| 4 | Filters & Parameters | `_check_filters` | Complex filters, context filters, cross-datasource filters, parameter counts |
+| 5 | Data Model | `_check_data_model` | Table/column counts, relationship complexity |
+| 6 | Interactivity | `_check_interactivity` | Actions, set actions, URL actions |
+| 7 | Extracts & Packaging | `_check_extract_and_packaging` | Hyper files, TWB vs TWBX packaging |
+| 8 | Migration Scope | `_check_migration_scope` | Dashboard/story count, device layouts, deep nesting |
 
 **Output**: Colour-coded PASS / WARN / FAIL per check, overall risk score, and an
 actionable migration plan.
@@ -262,22 +279,32 @@ strategy via `--auto`:
 
 | Area | What to Check | Impact |
 |------|--------------|--------|
-| **Spatial calculations** | 11 GIS functions produce comments only — verify map visuals work with Lat/Long columns | Medium |
+| **Spatial calculations** | 18 GIS / scripting functions produce comments or placeholders only — verify map visuals work with Lat/Long columns | Medium |
 | **Complex LODs** | Deeply nested or multi-level LODs may need DAX formula review | Low–Medium |
-| **R/Python script calcs** | Converted as comment placeholders — require manual DAX or Python notebook rewrite | Medium |
-| **Approximate visual types** | ~10 specialty charts (Gantt, network, mekko, etc.) use nearest PBI native type | Low |
+| **R/Python script calcs** | 4 SCRIPT_* functions produce BLANK()/0/"" placeholders — require manual DAX or Python notebook rewrite | Medium |
+| **Approximate visual types** | ~15 specialty charts (Gantt, network, mekko, sparkline, calendar, etc.) use nearest PBI native type | Low |
+| **3 visual types not handled** | Motion chart, violin plot, parallel coordinates — no standard PBI equivalent | Low |
 | **Set actions** | No automated PBI equivalent — emits placeholder requiring manual bookmarks | Low |
 | **Unsupported connectors** | 3 connectors (Splunk, Marketo, ServiceNow) produce fallback M — no standard Power Query connector exists | Low |
 | **Branching prep flows** | Linear chain conversion only — complex Prep flows need validation | Medium |
+| **Power Query M** | No OAuth/SSO, no data gateway config, no incremental refresh, parameterized sources hardcoded, custom SQL params unsupported | Medium |
 
 ### 9.2 Test Coverage Status
 
-| Module | Tests | Status |
-|--------|-------|--------|
-| `prep_flow_parser.py` | 56 unit tests (8 expression, 24 action, 12 node parsers, 8 helpers, 2 I/O, 2 integration) | **Covered** |
-| Visual type mapping | 7 exhaustive subtests validating all ~121 VISUAL_TYPE_MAP entries | **Covered** |
-| Connector-specific M | All 41 connector dispatch entries validated for `let`/`in` structure and no Python artifacts | **Covered** |
-| End-to-end with real Tableau files | 12/12 batch migration succeeded | `.twbx` extraction depends on XML structure stability |
+| Module | Coverage | Tests | Status |
+|--------|----------|-------|--------|
+| `dax_converter.py` | **99%** | 90+ dedicated coverage tests | **Covered** |
+| `prep_flow_parser.py` | **100%** | 86+ coverage tests + 56 unit tests | **Covered** |
+| `m_query_builder.py` | **96%** | Connector dispatch + transform validation | **Covered** |
+| `pbip_generator.py` | **95%** | 116 coverage tests | **Covered** |
+| `datasource_extractor.py` | **93%** | 72 coverage tests (all 10 functions) | **Covered** |
+| `tmdl_generator.py` | **91%** | 67 + 62 coverage tests (date tables, calc groups, RLS, relationships) | **Covered** |
+| `validator.py` | **89%** | 58 coverage tests | **Covered** |
+| `visual_generator.py` | **96%** | 44 coverage tests + 7 exhaustive subtests | **Covered** |
+| `extract_tableau_data.py` | **74%** | 133 coverage tests (~45 extraction methods) | **Covered** |
+| `assessment.py` | **97%** | Full 8-category checklist validation | **Covered** |
+| End-to-end with real Tableau files | — | 12/12 batch migration succeeded | `.twbx` extraction depends on XML structure stability |
+| **Total** | **91%** | **1,840 tests across 38 test files** | **All passing** |
 
 ---
 
@@ -302,12 +329,12 @@ strategy via `--auto`:
 
 - **~130 DAX conversion points** with balanced-paren depth tracking, nested IF/CASE, LOD expressions, iterator detection (SUM(IF) → SUMX), cross-table RELATED()/LOOKUPVALUE()
 - **33 M connector generators** covering 31 data source types + custom SQL + fallback (41 dispatch entries with aliases)
-- **~120 visual type aliases** mapping to ~39 distinct PBI visual types with per-type config templates
-- **40+ M transformation generators** (rename, filter, aggregate, pivot, join, union, sort, conditional columns)
+- **121 visual type aliases** mapping to 39 distinct PBI visual types + 4 custom AppSource visuals with per-type config templates
+- **40 M transformation generators** (rename, filter, aggregate, pivot, join, union, sort, conditional columns)
 - **Pre-migration assessment** with 8-category readiness checklist and actionable risk scoring
 - **Auto ETL strategy** selection based on datasource characteristics
 - **Calculated column materialisation** — automatic classification and 3-way output (DDL + M + PySpark)
 - **RLS migration** — user filters, USERNAME(), ISMEMBEROF() → TMDL roles  
 - **6 Fabric artifact types** generated from a single workbook
 - **Full deployment pipeline** — PowerShell scripts with idempotent create, 429 retry, LRO polling
-- **961 tests** across 25 test files
+- **1,840 tests** across 38 test files — **91% code coverage**

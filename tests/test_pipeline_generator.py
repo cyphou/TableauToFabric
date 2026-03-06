@@ -88,17 +88,17 @@ class TestPipelineGenerator(unittest.TestCase):
         activities = definition['properties']['activities']
 
         # Dataflow activities have no dependencies
-        df_activities = [a for a in activities if a['type'] == 'DataflowRefresh']
+        df_activities = [a for a in activities if a['type'] == 'RefreshDataflow']
         for a in df_activities:
             self.assertEqual(a['dependsOn'], [])
 
         # Notebook depends on dataflows
-        nb_activities = [a for a in activities if a['type'] == 'NotebookActivity']
+        nb_activities = [a for a in activities if a['type'] == 'TridentNotebook']
         self.assertEqual(len(nb_activities), 1)
         self.assertGreater(len(nb_activities[0]['dependsOn']), 0)
 
         # SM refresh depends on notebook
-        sm_activities = [a for a in activities if a['type'] == 'SemanticModelRefresh']
+        sm_activities = [a for a in activities if a['type'] == 'TridentDatasetRefresh']
         self.assertEqual(len(sm_activities), 1)
         self.assertGreater(len(sm_activities[0]['dependsOn']), 0)
 

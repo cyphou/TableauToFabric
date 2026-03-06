@@ -582,7 +582,7 @@ Overall coverage: **~100%** of features implemented or partially implemented (re
 5. **4-phase column fallback**: Nested `<columns>` → `<cols><map>` → `<metadata-records>` → `<column>` elements — ensures columns are found regardless of Tableau version
 6. **Relationship intelligence**: Inference from DAX cross-refs, M:N detection, ambiguous path deactivation, type mismatch auto-fix
 7. **Prep flow integration**: Full topological sort, M query fusion with `merge_prep_with_workbook()`
-8. **Comprehensive test suite**: 20+ test files covering all modules
+8. **Comprehensive test suite**: 38 test files with 91% code coverage (1,840 tests)
 
 ---
 

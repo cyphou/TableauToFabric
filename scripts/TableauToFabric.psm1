@@ -1099,7 +1099,9 @@ function Get-PipelineDefinitionParts {
     .SYNOPSIS
         Reads the pipeline definition JSON, extracts the 'properties' block
         (the only content Fabric API accepts), and returns it as a definition part.
-        Rewrites activity references using actual deployed item IDs when provided.
+        Resolves {{TOKEN}} placeholders and legacy activity types using actual
+        deployed item IDs — first from $DeployedItems, then by querying the
+        workspace API for existing items.
     #>
     param(
         [string]$PipelineDir,
@@ -1113,32 +1115,83 @@ function Get-PipelineDefinitionParts {
         return @()
     }
 
-    # Read and extract only { properties: { activities: [...] } }
-    # Strip $schema, name, annotations, parameters etc. that the API rejects
-    $raw = Get-Content -Path $defFile -Raw -Encoding UTF8 | ConvertFrom-Json
+    # ── Build an ID lookup by querying workspace for existing items ──────
+    # This handles the case where items were deployed in a previous run
+    # and aren't in the $DeployedItems hashtable.
+    $resolvedIds = @{
+        "WORKSPACE_ID" = $WorkspaceId
+    }
+
+    # Seed from $DeployedItems first
+    foreach ($key in $DeployedItems.Keys) {
+        $parts = $key -split ':', 2
+        if ($parts.Count -eq 2) {
+            $itemType = $parts[0]
+            switch ($itemType) {
+                "Dataflow"      { $resolvedIds["DATAFLOW_ID"]       = $DeployedItems[$key] }
+                "Notebook"      { $resolvedIds["NOTEBOOK_ID"]       = $DeployedItems[$key] }
+                "SemanticModel" { $resolvedIds["SEMANTIC_MODEL_ID"] = $DeployedItems[$key] }
+            }
+        }
+    }
+
+    # Query workspace API for any missing IDs
+    $typesToQuery = @{
+        "DATAFLOW_ID"       = "Dataflow"
+        "NOTEBOOK_ID"       = "Notebook"
+        "SEMANTIC_MODEL_ID" = "SemanticModel"
+    }
+
+    $token = Get-FabricToken
+    foreach ($tokenKey in $typesToQuery.Keys) {
+        if (-not $resolvedIds.ContainsKey($tokenKey) -or -not $resolvedIds[$tokenKey]) {
+            $fabricType = $typesToQuery[$tokenKey]
+            try {
+                $items = (Invoke-RestMethod `
+                    -Uri "$($script:FabricApiBase)/workspaces/$WorkspaceId/items?type=$fabricType" `
+                    -Headers @{ Authorization = "Bearer $token" }).value
+                # Pick the first item whose displayName matches the pipeline/project name
+                $pipelineName = (Split-Path $PipelineDir -Leaf) -replace '\.Pipeline$', ''
+                $match = $items | Where-Object { $_.displayName -eq $pipelineName } | Select-Object -First 1
+                if ($match) {
+                    $resolvedIds[$tokenKey] = $match.id
+                    Write-Info "  Resolved $fabricType '$pipelineName' -> $($match.id)"
+                }
+                elseif ($items.Count -eq 1) {
+                    # If exactly one item of this type, use it
+                    $resolvedIds[$tokenKey] = $items[0].id
+                    Write-Info "  Resolved $fabricType '$($items[0].displayName)' -> $($items[0].id)"
+                }
+            }
+            catch {
+                Write-Warn "  Could not query workspace for $fabricType items"
+            }
+        }
+    }
+
+    # ── Read and process the definition ──────────────────────────────────
+    $rawJson = Get-Content -Path $defFile -Raw -Encoding UTF8
+
+    # Replace {{TOKEN}} placeholders with resolved IDs
+    foreach ($tokenKey in $resolvedIds.Keys) {
+        $rawJson = $rawJson -replace "\{\{${tokenKey}\}\}", $resolvedIds[$tokenKey]
+    }
+
+    $raw = $rawJson | ConvertFrom-Json
 
     $activities = @()
     if ($raw.properties -and $raw.properties.activities) {
         $activities = @($raw.properties.activities)
     }
 
-    # Rewrite activity references with actual item IDs
+    # ── Backward compat: rewrite legacy activity types ───────────────────
     foreach ($activity in $activities) {
         $tp = $activity.typeProperties
         if (-not $tp) { continue }
 
         switch ($activity.type) {
             "NotebookActivity" {
-                # Convert to Fabric TridentNotebook format with objectId
-                $nbName = $tp.notebookReference.referenceName
-                $nbId = $null
-                # Look up notebook ID from deployed items
-                foreach ($key in $DeployedItems.Keys) {
-                    if ($key -like "Notebook:*") {
-                        $nbId = $DeployedItems[$key]
-                        break
-                    }
-                }
+                $nbId = $resolvedIds["NOTEBOOK_ID"]
                 if ($nbId) {
                     $activity.type = "TridentNotebook"
                     $activity.typeProperties = @{
@@ -1148,31 +1201,21 @@ function Get-PipelineDefinitionParts {
                 }
             }
             "DataflowRefresh" {
-                # Add objectId for the dataflow
-                $dfId = $null
-                foreach ($key in $DeployedItems.Keys) {
-                    if ($key -like "Dataflow:*") {
-                        $dfId = $DeployedItems[$key]
-                        break
-                    }
-                }
+                $dfId = $resolvedIds["DATAFLOW_ID"]
                 if ($dfId) {
+                    $activity.type = "RefreshDataflow"
                     $activity.typeProperties = @{
-                        dataflowId  = $dfId
-                        workspaceId = $WorkspaceId
+                        dataflowId     = $dfId
+                        workspaceId    = $WorkspaceId
+                        notifyOption   = "NoNotification"
+                        dataflowType   = "DataflowFabric"
                     }
                 }
             }
             "SemanticModelRefresh" {
-                # Add objectId for the semantic model
-                $smId = $null
-                foreach ($key in $DeployedItems.Keys) {
-                    if ($key -like "SemanticModel:*") {
-                        $smId = $DeployedItems[$key]
-                        break
-                    }
-                }
+                $smId = $resolvedIds["SEMANTIC_MODEL_ID"]
                 if ($smId) {
+                    $activity.type = "TridentDatasetRefresh"
                     $activity.typeProperties = @{
                         datasetId   = $smId
                         workspaceId = $WorkspaceId
@@ -1182,10 +1225,15 @@ function Get-PipelineDefinitionParts {
         }
     }
 
+    # ── Strip fields the Fabric API rejects ──────────────────────────────
     $cleanContent = @{
         properties = @{
             activities = $activities
         }
+    }
+    # Carry over description if present
+    if ($raw.properties -and $raw.properties.description) {
+        $cleanContent.properties.description = $raw.properties.description
     }
 
     $contentJson = $cleanContent | ConvertTo-Json -Depth 15 -Compress:$false

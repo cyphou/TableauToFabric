@@ -105,18 +105,20 @@ class PipelineGenerator:
             safe_name = _sanitize(ds_name)
             activity = {
                 'name': f'Refresh_Dataflow_{safe_name}',
-                'type': 'DataflowRefresh',
+                'type': 'RefreshDataflow',
                 'dependsOn': [],
                 'policy': {
-                    'timeout': '0.01:00:00',
+                    'timeout': '0.12:00:00',
                     'retry': 2,
                     'retryIntervalInSeconds': 30,
+                    'secureOutput': False,
+                    'secureInput': False,
                 },
                 'typeProperties': {
-                    'dataflowName': self.pipeline_name,
-                    'workspaceReference': {
-                        'type': 'WorkspaceReference',
-                    },
+                    'dataflowId': '{{DATAFLOW_ID}}',
+                    'workspaceId': '{{WORKSPACE_ID}}',
+                    'notifyOption': 'NoNotification',
+                    'dataflowType': 'DataflowFabric',
                 },
                 'description': f'Refresh Dataflow Gen2 for datasource: {ds_name}',
             }
@@ -127,7 +129,7 @@ class PipelineGenerator:
         """Create a Notebook execution activity."""
         return {
             'name': 'Run_ETL_Notebook',
-            'type': 'NotebookActivity',
+            'type': 'TridentNotebook',
             'dependsOn': [
                 {'activity': dep, 'dependencyConditions': ['Succeeded']}
                 for dep in (depends_on or [])
@@ -138,19 +140,8 @@ class PipelineGenerator:
                 'retryIntervalInSeconds': 60,
             },
             'typeProperties': {
-                'notebookReference': {
-                    'type': 'NotebookReference',
-                    'referenceName': self.pipeline_name,
-                },
-                'parameters': {
-                    'lakehouse_name': {
-                        'value': self.lakehouse_name,
-                        'type': 'string',
-                    },
-                },
-                'sparkPool': {
-                    'type': 'AutoResolve',
-                },
+                'notebookId': '{{NOTEBOOK_ID}}',
+                'workspaceId': '{{WORKSPACE_ID}}',
             },
             'description': 'Execute PySpark ETL notebook to transform data into Delta tables.',
         }
@@ -159,7 +150,7 @@ class PipelineGenerator:
         """Create a Semantic Model refresh activity."""
         return {
             'name': 'Refresh_SemanticModel',
-            'type': 'SemanticModelRefresh',
+            'type': 'TridentDatasetRefresh',
             'dependsOn': [
                 {'activity': dep, 'dependencyConditions': ['Succeeded']}
                 for dep in (depends_on or [])
@@ -168,13 +159,12 @@ class PipelineGenerator:
                 'timeout': '0.01:00:00',
                 'retry': 1,
                 'retryIntervalInSeconds': 30,
+                'secureOutput': False,
+                'secureInput': False,
             },
             'typeProperties': {
-                'semanticModelReference': {
-                    'type': 'SemanticModelReference',
-                    'referenceName': self.pipeline_name,
-                },
-                'refreshType': 'Full',
+                'datasetId': '{{SEMANTIC_MODEL_ID}}',
+                'workspaceId': '{{WORKSPACE_ID}}',
             },
             'description': 'Refresh the DirectLake semantic model after ETL completes.',
         }

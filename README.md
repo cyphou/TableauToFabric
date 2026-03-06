@@ -16,7 +16,7 @@ Automated migration tool for Tableau workbooks (`.twb`, `.twbx`) and Tableau Pre
 - **Pre-migration assessment** (`--assess`) with 8-category readiness scoring
 - **Auto ETL selection** (`--auto`)  picks Dataflow, Notebook, or both based on complexity
 - **Batch migration**, **artifact selection**, **structured logging**
-- **1017 tests**, 0 failures
+- **1,840 tests**, 91% code coverage
 
 ## Quick Start
 
@@ -119,7 +119,7 @@ See [Fabric Project Guide](docs/FABRIC_PROJECT_GUIDE.md) for the full directory 
 | Generation | `fabric_import/` | 6 artifact generators, assessment, strategy advisor, validator |
 | Legacy | `conversion/` | Per-object converters (retained for compatibility) |
 | Deployment | `scripts/` | PowerShell scripts for Fabric workspace + artifact deployment |
-| Tests | `tests/` | 1017 tests (pytest) |
+| Tests | `tests/` | 1,840 tests across 38 files (pytest, 91% coverage) |
 | Docs | `docs/` | Guides, references, checklists |
 | Examples | `examples/` | Sample Tableau files (3 tiers + real-world) |
 
