@@ -21,6 +21,10 @@ build/
 # ── Logs ──
 *.log
 
+# ── Coverage ──
+.coverage
+htmlcov/
+
 # ── Generated migration output ──
 # (per-workbook output dirs created by migrate.py)
 output/

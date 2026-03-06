@@ -1,6 +1,6 @@
 [project]
 name = "tableautofabric"
-version = "3.5.0"
+version = "3.6.0"
 description = "Automated migration tool for Tableau workbooks to Microsoft Fabric artifacts"
 readme = "README.md"
 license = "MIT"
