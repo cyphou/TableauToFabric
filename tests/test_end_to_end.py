@@ -149,10 +149,36 @@ FULL_CONVERTED_OBJECTS = {
     'bins': [],
     'aliases': {},
     'user_filters': [],
-    'filters': [],
+    'filters': [
+        {'field': 'Region', 'type': 'categorical', 'values': ['West', 'East']},
+    ],
     'stories': [],
     'actions': [],
     'custom_sql': [],
+}
+
+# Same dataset but with raw Tableau-style field names (federated prefixes,
+# :Measure Names) to exercise the cleaning pipeline end-to-end.
+_FEDERATED_HASH = 'federated.10vks1203pgcxf1bkw5yk1bwzy2f'
+FULL_CONVERTED_WITH_DIRTY_FILTERS = {
+    **FULL_CONVERTED_OBJECTS,
+    'filters': [
+        # federated prefix + derivation qualifiers
+        {'field': f'{_FEDERATED_HASH}.none:Region:qk', 'type': 'categorical',
+         'values': ['West']},
+        # Tableau virtual field — must be dropped entirely
+        {'field': f'{_FEDERATED_HASH}.:Measure Names', 'type': 'categorical',
+         'values': [f'{_FEDERATED_HASH}.sum:Sales:qk']},
+    ],
+    'worksheets': [
+        {**ws, 'filters': [
+            {'field': f'{_FEDERATED_HASH}.none:{ws["fields"][0]["name"].replace("sum:", "")}:qk',
+             'type': 'categorical', 'values': ['test']},
+            {'field': ':Measure Names', 'type': 'categorical',
+             'values': ['sum:Sales']},
+        ]}
+        for ws in FULL_CONVERTED_OBJECTS['worksheets']
+    ],
 }
 
 
@@ -465,6 +491,201 @@ class TestNonRegressionEdgeCases(unittest.TestCase):
             self.assertTrue(result['pages'] >= 1)
         finally:
             shutil.rmtree(tmpdir, ignore_errors=True)
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  Cross-validation: PBIR output ↔ semantic model columns
+# ═══════════════════════════════════════════════════════════════════
+
+class TestCrossValidationReportVsModel(unittest.TestCase):
+    """E2E — Verify every Property in generated PBIR JSON exists in the
+    semantic model.  This is the test class that would have caught the
+    federated prefix / :Measure Names bug before deployment.
+    """
+
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+
+    def tearDown(self):
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def _generate_project(self, converted_objects):
+        gen = FabricPBIPGenerator(output_dir=self.tmpdir)
+        gen.generate_project('CrossVal', converted_objects, 'LH')
+        self._project_dir = os.path.join(self.tmpdir, 'CrossVal')
+        return gen
+
+    def _collect_semantic_columns(self):
+        """Walk generated TMDL files and collect all column/measure names
+        per table."""
+        tmdl_dir = os.path.join(
+            self._project_dir, 'CrossVal.SemanticModel', 'definition', 'tables'
+        )
+        columns_by_table = {}
+        if not os.path.isdir(tmdl_dir):
+            return columns_by_table
+        for fname in os.listdir(tmdl_dir):
+            if not fname.endswith('.tmdl'):
+                continue
+            table_name = fname[:-5]  # strip .tmdl
+            cols = set()
+            with open(os.path.join(tmdl_dir, fname), encoding='utf-8') as f:
+                for line in f:
+                    stripped = line.strip()
+                    if stripped.startswith('measure '):
+                        # measure 'Name' = DAX_EXPR
+                        parts = stripped.split("'", 2)
+                        if len(parts) >= 2:
+                            cols.add(parts[1])
+                    elif stripped.startswith('column '):
+                        # column FieldName  (no quotes usually)
+                        col_part = stripped[len('column '):]
+                        # Some columns may be quoted with single quotes
+                        if col_part.startswith("'"):
+                            col_name = col_part.split("'", 2)[1]
+                        else:
+                            col_name = col_part.strip()
+                        cols.add(col_name)
+                    elif stripped.startswith('column: '):
+                        # column: FieldName  (hierarchy levels)
+                        col_name = stripped[len('column: '):]
+                        cols.add(col_name)
+            columns_by_table[table_name] = cols
+        return columns_by_table
+
+    def _collect_pbir_properties(self):
+        """Walk generated visual.json and report.json files, extract all
+        Property values from Column/Measure references."""
+        report_dir = os.path.join(
+            self._project_dir, 'CrossVal.Report', 'definition'
+        )
+        properties = []
+        if not os.path.isdir(report_dir):
+            return properties
+
+        for root, _dirs, files in os.walk(report_dir):
+            for fname in files:
+                if not fname.endswith('.json'):
+                    continue
+                fpath = os.path.join(root, fname)
+                with open(fpath, encoding='utf-8') as f:
+                    try:
+                        data = json.load(f)
+                    except json.JSONDecodeError:
+                        continue
+                self._extract_properties(data, properties, fpath)
+        return properties
+
+    def _extract_properties(self, obj, properties, source_file):
+        """Recursively extract Property values from Column/Measure refs."""
+        if isinstance(obj, dict):
+            # Check for {"Column": {"Expression": ..., "Property": "X"}}
+            # or {"Measure": {"Expression": ..., "Property": "X"}}
+            for key in ('Column', 'Measure'):
+                if key in obj and isinstance(obj[key], dict):
+                    prop = obj[key].get('Property')
+                    entity = None
+                    expr = obj[key].get('Expression', {})
+                    src_ref = expr.get('SourceRef', {})
+                    entity = src_ref.get('Entity') or src_ref.get('Source')
+                    if prop is not None:
+                        properties.append({
+                            'property': prop,
+                            'entity': entity,
+                            'source': source_file,
+                        })
+            for v in obj.values():
+                self._extract_properties(v, properties, source_file)
+        elif isinstance(obj, list):
+            for item in obj:
+                self._extract_properties(item, properties, source_file)
+
+    # ── Actual tests ──
+
+    def test_clean_data_no_invalid_properties(self):
+        """With clean converted objects, all PBIR properties should match
+        semantic model columns."""
+        self._generate_project(FULL_CONVERTED_OBJECTS)
+        columns_by_table = self._collect_semantic_columns()
+        properties = self._collect_pbir_properties()
+
+        all_columns = set()
+        for cols in columns_by_table.values():
+            all_columns.update(cols)
+
+        # Should have found at least some properties
+        self.assertTrue(len(properties) > 0,
+                        "No Property references found in generated PBIR")
+
+        for ref in properties:
+            prop = ref['property']
+            # Ignore internal Power BI names that are valid queryRefs
+            if prop in ('Count',):
+                continue
+            self.assertIn(
+                prop, all_columns,
+                f"Property '{prop}' from {ref['source']} not found in "
+                f"semantic model columns: {sorted(all_columns)}"
+            )
+
+    def test_no_federated_prefix_in_output(self):
+        """No Property in any generated PBIR JSON should contain
+        'federated.' — that's a raw Tableau string leak."""
+        self._generate_project(FULL_CONVERTED_OBJECTS)
+        properties = self._collect_pbir_properties()
+        for ref in properties:
+            self.assertNotIn('federated.', ref['property'],
+                             f"Raw Tableau federated prefix leaked into "
+                             f"PBIR output: {ref}")
+
+    def test_no_measure_names_in_output(self):
+        """No Property should reference ':Measure Names' or 'Measure Names'
+        — these are Tableau virtual fields with no PBI equivalent."""
+        self._generate_project(FULL_CONVERTED_OBJECTS)
+        properties = self._collect_pbir_properties()
+        for ref in properties:
+            self.assertNotIn('Measure Names', ref['property'],
+                             f"Tableau virtual field leaked into PBIR: {ref}")
+            self.assertNotIn('Measure Values', ref['property'],
+                             f"Tableau virtual field leaked into PBIR: {ref}")
+
+    def test_dirty_filters_produce_clean_output(self):
+        """With federated-prefixed filters and :Measure Names, the
+        generated PBIR must still have only clean properties."""
+        self._generate_project(FULL_CONVERTED_WITH_DIRTY_FILTERS)
+        columns_by_table = self._collect_semantic_columns()
+        properties = self._collect_pbir_properties()
+
+        all_columns = set()
+        for cols in columns_by_table.values():
+            all_columns.update(cols)
+
+        for ref in properties:
+            prop = ref['property']
+            if prop in ('Count',):
+                continue
+            # No federated prefix
+            self.assertNotIn('federated.', prop,
+                             f"Federated prefix in PBIR: {ref}")
+            # No Tableau virtual fields
+            self.assertNotIn('Measure Names', prop,
+                             f"Virtual field in PBIR: {ref}")
+            # No derivation qualifiers
+            self.assertFalse(prop.endswith(':qk') or prop.endswith(':nk'),
+                             f"Derivation suffix in PBIR property: {ref}")
+
+    def test_dirty_filters_no_none_prefix_in_property(self):
+        """Properties must not start with 'none:' — that's a Tableau
+        aggregation qualifier that should have been stripped."""
+        self._generate_project(FULL_CONVERTED_WITH_DIRTY_FILTERS)
+        properties = self._collect_pbir_properties()
+        for ref in properties:
+            self.assertFalse(ref['property'].startswith('none:'),
+                             f"Unstripped qualifier in property: {ref}")
+            self.assertFalse(ref['property'].startswith('sum:'),
+                             f"Unstripped qualifier in property: {ref}")
+            self.assertFalse(ref['property'].startswith('avg:'),
+                             f"Unstripped qualifier in property: {ref}")
 
 
 if __name__ == '__main__':

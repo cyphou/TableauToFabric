@@ -296,6 +296,54 @@ class TestBuildVisualFilters(unittest.TestCase):
         result = _build_visual_filters(filters, {'City': 'T'})
         self.assertEqual(len(result), 0)
 
+    # ── Federated prefix handling ──
+
+    def test_federated_prefix_cleaned(self):
+        """federated.HASH.none:City:qk must resolve to clean column name."""
+        filters = [{'field': 'federated.abc.none:City:qk', 'type': 'basic',
+                     'values': ['NYC']}]
+        result = _build_visual_filters(filters, {'City': 'T'})
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0]['expression']['Column']['Property'], 'City')
+
+    def test_federated_prefix_topn(self):
+        """TopN filter with federated prefix must use clean field name."""
+        filters = [{'field': 'federated.hash.sum:Sales:nk', 'type': 'topN',
+                     'count': 10}]
+        result = _build_visual_filters(filters, {'Sales': 'T'})
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0]['expression']['Column']['Property'], 'Sales')
+
+    # ── Measure Names / Measure Values skipping ──
+
+    def test_measure_names_skipped(self):
+        """:Measure Names filter must be dropped."""
+        filters = [{'field': ':Measure Names', 'type': 'basic',
+                     'values': ['sum:Sales']}]
+        result = _build_visual_filters(filters, {})
+        self.assertEqual(len(result), 0)
+
+    def test_measure_values_skipped(self):
+        filters = [{'field': ':Measure Values', 'type': 'basic'}]
+        result = _build_visual_filters(filters, {})
+        self.assertEqual(len(result), 0)
+
+    def test_federated_measure_names_skipped(self):
+        """federated.HASH.:Measure Names must also be skipped."""
+        filters = [{'field': 'federated.abc.:Measure Names', 'type': 'basic',
+                     'values': ['x']}]
+        result = _build_visual_filters(filters, {})
+        self.assertEqual(len(result), 0)
+
+    def test_valid_plus_measure_names_mixed(self):
+        """Valid + Measure Names → only valid kept."""
+        filters = [
+            {'field': 'City', 'type': 'basic', 'values': ['NYC']},
+            {'field': ':Measure Names', 'type': 'basic', 'values': ['x']},
+        ]
+        result = _build_visual_filters(filters, {'City': 'T'})
+        self.assertEqual(len(result), 1)
+
 
 # ── create_projections ───────────────────────────────────────
 

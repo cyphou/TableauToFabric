@@ -294,6 +294,75 @@ class TestCreateVisualFilters(unittest.TestCase):
         self.assertEqual(len(result), 1)
         self.assertEqual(result[0]['filter']['Where'], [])
 
+    # ── Federated prefix handling ──
+
+    def test_federated_prefix_stripped_in_filter(self):
+        """Field with federated.HASH.none:Field:qk must resolve to clean column."""
+        filters = [{'field': 'federated.10vks1203pgcxf1bkw5yk1bwzy2f.none:City:qk',
+                    'type': 'categorical', 'values': ['NYC']}]
+        result = self.gen._create_visual_filters(filters)
+        self.assertEqual(len(result), 1)
+        prop = result[0]['field']['Column']['Property']
+        self.assertEqual(prop, 'City')
+
+    def test_federated_prefix_range_filter(self):
+        """Range filter with federated prefix must clean Property."""
+        filters = [{'field': 'federated.abc.sum:Sales:nk', 'type': 'range',
+                    'min': 10, 'max': 100}]
+        result = self.gen._create_visual_filters(filters)
+        self.assertEqual(len(result), 1)
+        prop = result[0]['field']['Column']['Property']
+        self.assertEqual(prop, 'Sales')
+
+    # ── Measure Names / Measure Values skipping ──
+
+    def test_measure_names_filter_skipped(self):
+        """:Measure Names is a Tableau virtual field — must be dropped."""
+        filters = [{'field': ':Measure Names', 'type': 'categorical',
+                    'values': ['sum:Sales']}]
+        result = self.gen._create_visual_filters(filters)
+        self.assertEqual(len(result), 0)
+
+    def test_measure_values_filter_skipped(self):
+        filters = [{'field': ':Measure Values', 'type': 'categorical'}]
+        result = self.gen._create_visual_filters(filters)
+        self.assertEqual(len(result), 0)
+
+    def test_federated_measure_names_skipped(self):
+        """federated.HASH.:Measure Names must also be skipped."""
+        filters = [{'field': 'federated.10vks1203pgcxf1bkw5yk1bwzy2f.:Measure Names',
+                    'type': 'categorical',
+                    'values': ['federated.hash.sum:Sales:qk']}]
+        result = self.gen._create_visual_filters(filters)
+        self.assertEqual(len(result), 0)
+
+    def test_measure_names_no_colon_prefix_skipped(self):
+        """'Measure Names' without leading colon must also be skipped."""
+        filters = [{'field': 'Measure Names', 'type': 'categorical'}]
+        result = self.gen._create_visual_filters(filters)
+        self.assertEqual(len(result), 0)
+
+    # ── Deduplication ──
+
+    def test_duplicate_filters_deduplicated(self):
+        """Multiple filters on the same resolved field must be deduplicated."""
+        filters = [
+            {'field': 'City', 'type': 'categorical', 'values': ['A']},
+            {'field': 'none:City:qk', 'type': 'categorical', 'values': ['B']},
+        ]
+        result = self.gen._create_visual_filters(filters)
+        self.assertEqual(len(result), 1)
+
+    def test_valid_plus_measure_names_mixed(self):
+        """Valid filter + Measure Names → only valid filter kept."""
+        filters = [
+            {'field': 'City', 'type': 'categorical', 'values': ['NYC']},
+            {'field': ':Measure Names', 'type': 'categorical', 'values': ['x']},
+        ]
+        result = self.gen._create_visual_filters(filters)
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0]['field']['Column']['Property'], 'City')
+
 
 # ═══════════════════════════════════════════════════════════════════
 #  _build_visual_objects  (formatting branches)
@@ -647,6 +716,56 @@ class TestResolveFieldEntity(unittest.TestCase):
     def test_bracket_stripped(self):
         entity, prop = self.gen._resolve_field_entity('[City]')
         self.assertEqual(prop, 'City')
+
+    # ── Federated prefix handling ──
+
+    def test_federated_prefix_stripped(self):
+        """federated.HASH.none:City:qk → ('Orders', 'City')."""
+        result = self.gen._resolve_field_entity(
+            'federated.10vks1203pgcxf1bkw5yk1bwzy2f.none:City:qk'
+        )
+        self.assertEqual(result, ('Orders', 'City'))
+
+    def test_federated_prefix_sum_suffix(self):
+        """federated.HASH.sum:Sales:nk → ('Orders', 'Sales')."""
+        result = self.gen._resolve_field_entity(
+            'federated.abc123.sum:Sales:nk'
+        )
+        self.assertEqual(result, ('Orders', 'Sales'))
+
+    def test_federated_prefix_no_derivation(self):
+        """federated.HASH.City → ('Orders', 'City')."""
+        result = self.gen._resolve_field_entity('federated.xyz.City')
+        self.assertEqual(result, ('Orders', 'City'))
+
+    def test_federated_prefix_with_brackets(self):
+        """[federated.HASH.Sales] → ('Orders', 'Sales')."""
+        result = self.gen._resolve_field_entity(
+            '[federated.abc.Sales]'
+        )
+        self.assertEqual(result, ('Orders', 'Sales'))
+
+    # ── Measure Names / Measure Values → None ──
+
+    def test_measure_names_returns_none(self):
+        """:Measure Names → None (no PBI equivalent)."""
+        result = self.gen._resolve_field_entity(':Measure Names')
+        self.assertIsNone(result)
+
+    def test_measure_values_returns_none(self):
+        result = self.gen._resolve_field_entity(':Measure Values')
+        self.assertIsNone(result)
+
+    def test_measure_names_no_colon_returns_none(self):
+        result = self.gen._resolve_field_entity('Measure Names')
+        self.assertIsNone(result)
+
+    def test_federated_measure_names_returns_none(self):
+        """federated.HASH.:Measure Names → None."""
+        result = self.gen._resolve_field_entity(
+            'federated.10vks1203pgcxf1bkw5yk1bwzy2f.:Measure Names'
+        )
+        self.assertIsNone(result)
 
 
 # ═══════════════════════════════════════════════════════════════════
