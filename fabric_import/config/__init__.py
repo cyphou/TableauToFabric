@@ -1,6 +1,5 @@
-"""Configuration package."""
+"""Configuration management for Tableau to Power BI migration."""
 
-from .settings import get_settings
-from .environments import EnvironmentType, EnvironmentConfig
+from .migration_config import MigrationConfig, load_config
 
-__all__ = ['get_settings', 'EnvironmentType', 'EnvironmentConfig']
+__all__ = ['MigrationConfig', 'load_config']

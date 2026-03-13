@@ -1,0 +1,23 @@
+{
+  "xy": {
+    "original_name": "xy",
+    "source_type": "Unknown",
+    "columns": {
+      "a": {
+        "type": "STRING",
+        "original_name": "a",
+        "original_type": "string"
+      },
+      "x": {
+        "type": "INT",
+        "original_name": "x",
+        "original_type": "integer"
+      },
+      "y": {
+        "type": "INT",
+        "original_name": "y",
+        "original_type": "integer"
+      }
+    }
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "displayName": "global_superstores_db",
+  "type": "SemanticModel",
+  "mode": "DirectLake",
+  "lakehouse": "global_superstores_db",
+  "stats": {
+    "tables": 1,
+    "columns": 30,
+    "measures": 3,
+    "relationships": 0,
+    "hierarchies": 0,
+    "roles": 0
+  }
+}

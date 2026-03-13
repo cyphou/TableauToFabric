@@ -1,0 +1,17 @@
+{
+  "project_name": "global_superstores_db",
+  "source": "TableauToFabric",
+  "generated_at": "2026-03-06T14:49:13.137628",
+  "artifacts_generated": [
+    "pipeline"
+  ],
+  "stats": {
+    "lakehouse_tables": 0,
+    "dataflow_queries": 0,
+    "notebook_cells": 0,
+    "semanticmodel_tables": 0,
+    "pipeline_activities": 3,
+    "pbi_pages": 0,
+    "pbi_visuals": 0
+  }
+}

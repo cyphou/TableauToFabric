@@ -66,7 +66,7 @@ def _append_type_step(m_query, columns, prev_step='#"Promoted Headers"'):
 # ── Per-connector generators ─────────────────────────────────────────────────
 
 def _gen_m_excel(details, table_name, columns):
-    filename = details.get('filename', 'File.xlsx')
+    filename = details.get('filename') or (table_name + '.xlsx')
     file_path_bs = filename.replace('/', '\\')
     safe_step = '#"' + table_name + ' Sheet"'
 
@@ -78,35 +78,36 @@ def _gen_m_excel(details, table_name, columns):
     return _append_type_step(m_query, columns)
 
 
+def _gen_m_schema_item(details, table_name, columns,
+                      comment, pq_func, server_arg, db_arg, schema='dbo'):
+    """Generic M generator for connectors using Schema+Item navigation."""
+    safe = '#"' + table_name + ' Table"'
+    m_query = 'let\n'
+    m_query += f'    // Source {comment}\n'
+    m_query += f'    Source = {pq_func}("{server_arg}", "{db_arg}"),\n'
+    m_query += f'    {safe} = Source{{[Schema="{schema}", Item="{table_name}"]}}[Data],\n'
+    m_query += f'    Result = {safe}\nin\n    Result'
+    return m_query
+
+
 def _gen_m_sql_server(details, table_name, columns):
     server = details.get('server', 'localhost')
     database = details.get('database', 'MyDatabase')
-    safe = '#"' + table_name + ' Table"'
-
-    m_query = 'let\n'
-    m_query += '    // Source SQL Server\n'
-    m_query += f'    Source = Sql.Database("{server}", "{database}"),\n'
-    m_query += f'    {safe} = Source{{[Schema="dbo", Item="{table_name}"]}}[Data],\n'
-    m_query += f'    Result = {safe}\nin\n    Result'
-    return m_query
+    return _gen_m_schema_item(details, table_name, columns,
+                              'SQL Server', 'Sql.Database', server, database, 'dbo')
 
 
 def _gen_m_postgresql(details, table_name, columns):
     server = details.get('server', 'localhost')
     port = details.get('port', '5432')
     database = details.get('database', 'postgres')
-    safe = '#"' + table_name + ' Table"'
-
-    m_query = 'let\n'
-    m_query += '    // Source PostgreSQL\n'
-    m_query += f'    Source = PostgreSQL.Database("{server}:{port}", "{database}"),\n'
-    m_query += f'    {safe} = Source{{[Schema="public", Item="{table_name}"]}}[Data],\n'
-    m_query += f'    Result = {safe}\nin\n    Result'
-    return m_query
+    return _gen_m_schema_item(details, table_name, columns,
+                              'PostgreSQL', 'PostgreSQL.Database',
+                              f'{server}:{port}', database, 'public')
 
 
 def _gen_m_csv(details, table_name, columns):
-    filename = details.get('filename', 'file.csv')
+    filename = details.get('filename') or (table_name + '.csv')
     directory = details.get('directory', '')
     full_path = f"{directory}/{filename}" if directory else filename
     delimiter = details.get('delimiter', ',')
@@ -149,14 +150,9 @@ def _gen_m_mysql(details, table_name, columns):
     server = details.get('server', 'localhost')
     port = details.get('port', '3306')
     database = details.get('database', 'mydb')
-    safe = '#"' + table_name + ' Table"'
-
-    m_query = 'let\n'
-    m_query += f'    // Source MySQL: {server}:{port}\n'
-    m_query += f'    Source = MySQL.Database("{server}:{port}", "{database}"),\n'
-    m_query += f'    {safe} = Source{{[Schema="{database}", Item="{table_name}"]}}[Data],\n'
-    m_query += f'    Result = {safe}\nin\n    Result'
-    return m_query
+    return _gen_m_schema_item(details, table_name, columns,
+                              f'MySQL: {server}:{port}', 'MySQL.Database',
+                              f'{server}:{port}', database, database)
 
 
 def _gen_m_oracle(details, table_name, columns):
@@ -243,16 +239,22 @@ in
 
 def _gen_m_fallback(details, table_name, columns):
     conn_type = details.get('_conn_type', 'Unknown')
+    col_list = ", ".join([f'"{col["name"]}"' for col in columns if 'name' in col])
+    sample1 = ", ".join([f'"Sample {i+1}"' if col.get('datatype') == 'string' else str(i+1) for i, col in enumerate(columns)])
+    sample2 = ", ".join([f'"Sample {i+2}"' if col.get('datatype') == 'string' else str(i+2) for i, col in enumerate(columns)])
     return f'''let
-    // TODO: Configure the source for {conn_type}
-    // Connection type not automatically supported
-    Source = #table(
-        {{{", ".join([f'"{col["name"]}"' for col in columns if 'name' in col])}}},
-        {{
-            {{{", ".join([f'"Sample {i+1}"' if col.get('datatype') == 'string' else str(i+1) for i, col in enumerate(columns)])}}},
-            {{{", ".join([f'"Sample {i+2}"' if col.get('datatype') == 'string' else str(i+2) for i, col in enumerate(columns)])}}}
-        }}
-    )
+    // TODO: Configure the data source for connector type: {conn_type}
+    // Replace the sample table below with the actual source expression.
+    Source = try
+        #table(
+            {{{col_list}}},
+            {{
+                {{{sample1}}},
+                {{{sample2}}}
+            }}
+        )
+    otherwise
+        #table({{{col_list}}}, {{}})  // Empty table on error
 in
     Source'''
 
@@ -307,14 +309,10 @@ def _gen_m_redshift(details, table_name, columns):
     server = details.get('server', 'cluster.redshift.amazonaws.com')
     port = details.get('port', '5439')
     database = details.get('database', 'mydb')
-    safe = '#"' + table_name + ' Table"'
-
-    m_query = 'let\n'
-    m_query += f'    // Source Amazon Redshift: {server}:{port}\n'
-    m_query += f'    Source = AmazonRedshift.Database("{server}:{port}", "{database}"),\n'
-    m_query += f'    {safe} = Source{{[Schema="public", Item="{table_name}"]}}[Data],\n'
-    m_query += f'    Result = {safe}\nin\n    Result'
-    return m_query
+    return _gen_m_schema_item(details, table_name, columns,
+                              f'Amazon Redshift: {server}:{port}',
+                              'AmazonRedshift.Database',
+                              f'{server}:{port}', database, 'public')
 
 
 def _gen_m_databricks(details, table_name, columns):
@@ -350,27 +348,15 @@ def _gen_m_spark(details, table_name, columns):
 def _gen_m_azure_sql(details, table_name, columns):
     server = details.get('server', 'myserver.database.windows.net')
     database = details.get('database', 'MyDatabase')
-    safe = '#"' + table_name + ' Table"'
-
-    m_query = 'let\n'
-    m_query += '    // Source Azure SQL Database\n'
-    m_query += f'    Source = AzureSQL.Database("{server}", "{database}"),\n'
-    m_query += f'    {safe} = Source{{[Schema="dbo", Item="{table_name}"]}}[Data],\n'
-    m_query += f'    Result = {safe}\nin\n    Result'
-    return m_query
+    return _gen_m_schema_item(details, table_name, columns,
+                              'Azure SQL Database', 'AzureSQL.Database', server, database, 'dbo')
 
 
 def _gen_m_synapse(details, table_name, columns):
     server = details.get('server', 'myworkspace.sql.azuresynapse.net')
     database = details.get('database', 'MyPool')
-    safe = '#"' + table_name + ' Table"'
-
-    m_query = 'let\n'
-    m_query += '    // Source Azure Synapse Analytics\n'
-    m_query += f'    Source = AzureSQL.Database("{server}", "{database}"),\n'
-    m_query += f'    {safe} = Source{{[Schema="dbo", Item="{table_name}"]}}[Data],\n'
-    m_query += f'    Result = {safe}\nin\n    Result'
-    return m_query
+    return _gen_m_schema_item(details, table_name, columns,
+                              'Azure Synapse Analytics', 'AzureSQL.Database', server, database, 'dbo')
 
 
 def _gen_m_google_sheets(details, table_name, columns):
@@ -465,170 +451,253 @@ def _gen_m_web(details, table_name, columns):
 
 
 def _gen_m_custom_sql(details, table_name, columns):
-    """Generate M query using native SQL query (for Tableau custom SQL sources)."""
+    """Generate M query using native SQL query (for Tableau custom SQL sources).
+
+    Supports parameter binding via Value.NativeQuery's optional record argument.
+    Parameters are extracted from the ``params`` key in *details*.
+    """
     server = details.get('server', 'localhost')
     database = details.get('database', 'MyDatabase')
     sql_query = details.get('sql_query', f'SELECT * FROM {table_name}')
+    params = details.get('params', {})  # {name: default_value}
     # Escape quotes in SQL for M string
     sql_escaped = sql_query.replace('"', '""')
 
     m_query = 'let\n'
     m_query += '    // Source: Custom SQL Query\n'
-    m_query += f'    Source = Sql.Database("{server}", "{database}", [Query="'
-    m_query += sql_escaped
-    m_query += '"]),\n'
+    if params:
+        # Build parameter record:  [Param1="value1", Param2="value2"]
+        param_items = ', '.join(f'{k}="{v}"' for k, v in params.items())
+        m_query += f'    Source = Value.NativeQuery(Sql.Database("{server}", "{database}"), "'
+        m_query += sql_escaped
+        m_query += f'", [{param_items}], [EnableFolding=true]),\n'
+    else:
+        m_query += f'    Source = Sql.Database("{server}", "{database}", [Query="'
+        m_query += sql_escaped
+        m_query += '"]),\n'
     m_query += '    Result = Source\nin\n    Result'
     return m_query
 
 
 def _gen_m_odata(details, table_name, columns):
-    """Generate M query for OData connector."""
-    url = details.get('url', details.get('server', 'https://services.odata.org/V4/Northwind'))
-    feed = details.get('feed', table_name)
-
+    """Generate M query for OData feed."""
+    url = details.get('server', details.get('url', 'https://services.odata.org/V4/Northwind/Northwind.svc'))
     m_query = 'let\n'
     m_query += f'    // Source OData: {url}\n'
     m_query += f'    Source = OData.Feed("{url}"),\n'
-    m_query += f'    #"{table_name} Table" = Source{{[Name="{feed}",Signature="table"]}}[Data],\n'
-    m_query += f'    Result = #"{table_name} Table"\nin\n    Result'
-    return m_query
+    m_query += f'    {table_name}_Table = Source{{[Name="{table_name}",Signature="table"]}}[Data],\n'
+    m_query += f'    #"Promoted Headers" = {table_name}_Table,\n'
+    return _append_type_step(m_query, columns)
 
 
 def _gen_m_google_analytics(details, table_name, columns):
-    """Generate M query for Google Analytics connector."""
-    property_id = details.get('property_id', details.get('project', ''))
-    view_id = details.get('view_id', '')
-
+    """Generate M query for Google Analytics."""
+    view_id = details.get('view_id', details.get('server', 'GA_VIEW_ID'))
     m_query = 'let\n'
-    m_query += f'    // Source Google Analytics — Property: {property_id}\n'
-    m_query += f'    // NOTE: Requires Google Analytics connector configured in Power BI Gateway\n'
+    m_query += f'    // Source Google Analytics: View {view_id}\n'
+    m_query += '    // Note: Requires Google Analytics connector in Power BI Desktop\n'
     m_query += f'    Source = GoogleAnalytics.Accounts(),\n'
-    m_query += f'    #"Property" = Source{{[Id="{property_id}"]}}[Data],\n'
-    if view_id:
-        m_query += f'    #"View" = #"Property"{{[Id="{view_id}"]}}[Data],\n'
-        m_query += f'    Result = #"View"\n'
-    else:
-        m_query += f'    Result = #"Property"\n'
-    m_query += 'in\n    Result'
-    return m_query
+    m_query += f'    ViewData = Source{{[Name="{view_id}"]}}[Data],\n'
+    m_query += '    #"Promoted Headers" = ViewData,\n'
+    return _append_type_step(m_query, columns)
 
 
 def _gen_m_azure_blob(details, table_name, columns):
-    """Generate M query for Azure Blob Storage / ADLS Gen2 connector."""
+    """Generate M query for Azure Blob Storage / ADLS Gen2."""
     account = details.get('server', details.get('account', 'mystorageaccount'))
-    container = details.get('database', details.get('container', 'data'))
-    path = details.get('filename', details.get('path', ''))
-
-    # Detect ADLS Gen2 vs plain Blob by URL pattern
-    is_adls = 'dfs.core.windows.net' in account or details.get('type', '') == 'adls'
-
-    m_query = 'let\n'
+    container = details.get('database', details.get('container', 'mycontainer'))
+    # Detect ADLS Gen2 vs Blob by URL pattern
+    is_adls = 'dfs.core.windows.net' in account or 'adls' in account.lower()
     if is_adls:
-        endpoint = account if account.startswith('https://') else f'https://{account}.dfs.core.windows.net'
-        m_query += f'    // Source Azure Data Lake Storage Gen2: {endpoint}\n'
-        m_query += f'    Source = AzureStorage.DataLake("{endpoint}/{container}"),\n'
+        m_query = 'let\n'
+        m_query += f'    // Source Azure Data Lake Storage Gen2: {account}\n'
+        m_query += f'    Source = AzureStorage.DataLake("https://{account}.dfs.core.windows.net/{container}"),\n'
     else:
-        endpoint = account if account.startswith('https://') else f'https://{account}.blob.core.windows.net'
-        m_query += f'    // Source Azure Blob Storage: {endpoint}\n'
-        m_query += f'    Source = AzureStorage.Blobs("{endpoint}/{container}"),\n'
+        m_query = 'let\n'
+        m_query += f'    // Source Azure Blob Storage: {account}\n'
+        m_query += f'    Source = AzureStorage.Blobs("https://{account}.blob.core.windows.net/{container}"),\n'
+    m_query += f'    FileRow = Table.SelectRows(Source, each Text.Contains([Name], "{table_name}")),\n'
+    m_query += '    FileContent = FileRow{{0}}[Content],\n'
+    m_query += '    Parsed = Csv.Document(FileContent, [Delimiter=",", Encoding=65001]),\n'
+    m_query += '    #"Promoted Headers" = Table.PromoteHeaders(Parsed, [PromoteAllScalars=true]),\n'
+    return _append_type_step(m_query, columns)
 
-    if path:
-        m_query += f'    #"Filtered" = Table.SelectRows(Source, each [Name] = "{path}"),\n'
-        m_query += '    #"Content" = #"Filtered"{0}[Content],\n'
-        ext = path.rsplit('.', 1)[-1].lower() if '.' in path else ''
-        if ext == 'csv':
-            m_query += '    #"Parsed" = Csv.Document(#"Content", [Delimiter=",", Encoding=65001, QuoteStyle=QuoteStyle.Csv]),\n'
-            m_query += '    #"Promoted Headers" = Table.PromoteHeaders(#"Parsed", [PromoteAllScalars=true]),\n'
-            return _append_type_step(m_query, columns)
-        elif ext in ('json', 'jsonl'):
-            m_query += '    #"Parsed" = Json.Document(#"Content"),\n'
-            m_query += '    #"Converted to Table" = Table.FromRecords(if Value.Is(#"Parsed", type list) then #"Parsed" else {#"Parsed"}),\n'
-            m_query += '    #"Promoted Headers" = #"Converted to Table",\n'
-            return _append_type_step(m_query, columns)
-        elif ext == 'parquet':
-            m_query += '    #"Parsed" = Parquet.Document(#"Content"),\n'
-            m_query += '    Result = #"Parsed"\nin\n    Result'
-            return m_query
-        else:
-            m_query += '    Result = #"Content"\nin\n    Result'
-            return m_query
-    else:
-        m_query += '    Result = Source\nin\n    Result'
-        return m_query
-
-
-# ── Additional connectors (Phase 21) ─────────────────────────────────────────
 
 def _gen_m_vertica(details, table_name, columns):
-    """Generate M query for Vertica Analytics Platform (ODBC-based connector)."""
-    server = details.get('server', 'localhost')
-    port = details.get('port', '5433')
-    database = details.get('database', 'MyDB')
+    """Generate M query for Vertica (via ODBC)."""
+    server = details.get('server', 'vertica-server')
+    database = details.get('database', 'MyDatabase')
     schema = details.get('schema', 'public')
-    safe = '#"' + table_name + ' Table"'
-
     m_query = 'let\n'
-    m_query += f'    // Source Vertica: {server}:{port}\n'
-    m_query += f'    Source = Odbc.DataSource("Driver={{Vertica}};Server={server};Port={port};Database={database}", [HierarchicalNavigation=true]),\n'
-    m_query += f'    #"{schema}" = Source{{[Name="{schema}",Kind="Schema"]}}[Data],\n'
-    m_query += f'    {safe} = #"{schema}"{{[Name="{table_name}",Kind="Table"]}}[Data],\n'
-    m_query += f'    Result = {safe}\nin\n    Result'
-    return m_query
+    m_query += f'    // Source Vertica: {server}/{database}\n'
+    m_query += f'    Source = Odbc.DataSource("DSN=Vertica;Server={server};Database={database}"),\n'
+    m_query += f'    SchemaTable = Source{{[Schema="{schema}",Item="{table_name}"]}}[Data],\n'
+    m_query += '    #"Promoted Headers" = SchemaTable,\n'
+    return _append_type_step(m_query, columns)
 
 
 def _gen_m_impala(details, table_name, columns):
     """Generate M query for Apache Impala."""
-    server = details.get('server', 'localhost')
+    server = details.get('server', 'impala-server')
     port = details.get('port', '21050')
-    safe = '#"' + table_name + ' Table"'
-
     m_query = 'let\n'
-    m_query += f'    // Source Apache Impala: {server}:{port}\n'
-    m_query += f'    Source = Impala.Database("{server}:{port}"),\n'
-    m_query += f'    {safe} = Source{{[Name="{table_name}"]}}[Data],\n'
-    m_query += f'    Result = {safe}\nin\n    Result'
-    return m_query
+    m_query += f'    // Source Impala: {server}:{port}\n'
+    m_query += f'    Source = Odbc.DataSource("Driver={{Cloudera ODBC Driver for Impala}};Host={server};Port={port}"),\n'
+    m_query += f'    Table = Source{{[Name="{table_name}"]}}[Data],\n'
+    m_query += '    #"Promoted Headers" = Table,\n'
+    return _append_type_step(m_query, columns)
 
 
 def _gen_m_hadoop_hive(details, table_name, columns):
-    """Generate M query for Hadoop Hive (via ODBC or HDInsight)."""
-    server = details.get('server', 'localhost')
-    port = details.get('port', '10000')
-    database = details.get('database', 'default')
+    """Generate M query for Hadoop Hive / HDInsight."""
+    server = details.get('server', 'hive-server')
+    port = details.get('port', '443')
+    m_query = 'let\n'
+    m_query += f'    // Source Hadoop Hive: {server}:{port}\n'
+    m_query += f'    Source = Odbc.DataSource("Driver={{Microsoft Hive ODBC Driver}};Host={server};Port={port}"),\n'
+    m_query += f'    Table = Source{{[Name="{table_name}"]}}[Data],\n'
+    m_query += '    #"Promoted Headers" = Table,\n'
+    return _append_type_step(m_query, columns)
+
+
+def _gen_m_presto(details, table_name, columns):
+    """Generate M query for Presto / Trino (via ODBC)."""
+    server = details.get('server', 'presto-server')
+    catalog = details.get('database', details.get('catalog', 'hive'))
+    schema = details.get('schema', 'default')
+    m_query = 'let\n'
+    m_query += f'    // Source Presto/Trino: {server}/{catalog}.{schema}\n'
+    m_query += f'    Source = Odbc.DataSource("Driver={{Starburst Presto ODBC Driver}};Host={server};Catalog={catalog};Schema={schema}"),\n'
+    m_query += f'    Table = Source{{[Name="{table_name}"]}}[Data],\n'
+    m_query += '    #"Promoted Headers" = Table,\n'
+    return _append_type_step(m_query, columns)
+
+
+# ── Microsoft Fabric Lakehouse connector ─────────────────────────────────────
+
+def _gen_m_fabric_lakehouse(details, table_name, columns):
+    """Generate M query for Microsoft Fabric Lakehouse."""
+    workspace_id = details.get('workspace_id', 'WORKSPACE_ID')
+    lakehouse_id = details.get('lakehouse_id', 'LAKEHOUSE_ID')
     safe = '#"' + table_name + ' Table"'
 
-    # HDInsight cluster patterns use HdInsight connector
-    is_hdinsight = 'azurehdinsight' in server.lower() or 'hdinsight' in server.lower()
-
     m_query = 'let\n'
-    if is_hdinsight:
-        m_query += f'    // Source HDInsight Interactive Query: {server}\n'
-        m_query += f'    Source = HdInsight.HiveOdbc("https://{server}", "{database}"),\n'
-    else:
-        m_query += f'    // Source Hadoop Hive (ODBC): {server}:{port}\n'
-        m_query += f'    Source = Odbc.DataSource("Driver={{Hortonworks Hive ODBC Driver}};Host={server};Port={port};Schema={database}", [HierarchicalNavigation=true]),\n'
-    m_query += f'    {safe} = Source{{[Name="{table_name}"]}}[Data],\n'
+    m_query += f'    // Source Microsoft Fabric Lakehouse\n'
+    m_query += f'    Source = Lakehouse.Contents(null, "{workspace_id}", "{lakehouse_id}"),\n'
+    m_query += f'    {safe} = Source{{[Id="{table_name}"]}}[Data],\n'
     m_query += f'    Result = {safe}\nin\n    Result'
     return m_query
 
 
-def _gen_m_presto(details, table_name, columns):
-    """Generate M query for Presto / Trino (ODBC-based)."""
-    server = details.get('server', 'localhost')
-    port = details.get('port', '8080')
-    catalog = details.get('catalog', 'hive')
-    schema = details.get('schema', 'default')
+def _gen_m_dataverse(details, table_name, columns):
+    """Generate M query for Microsoft Dataverse (Common Data Service)."""
+    org_url = details.get('server', details.get('org_url', 'https://org.crm.dynamics.com'))
     safe = '#"' + table_name + ' Table"'
 
     m_query = 'let\n'
-    m_query += f'    // Source Presto/Trino: {server}:{port}\n'
-    m_query += f'    Source = Odbc.DataSource("Driver={{Simba Presto ODBC Driver}};Host={server};Port={port};Catalog={catalog};Schema={schema}", [HierarchicalNavigation=true]),\n'
-    m_query += f'    {safe} = Source{{[Name="{table_name}",Kind="Table"]}}[Data],\n'
+    m_query += f'    // Source Dataverse: {org_url}\n'
+    m_query += f'    Source = CommonDataService.Database("{org_url}"),\n'
+    m_query += f'    {safe} = Source{{[Name="{table_name}"]}}[Data],\n'
     m_query += f'    Result = {safe}\nin\n    Result'
     return m_query
 
 
 # ── Dispatch table ────────────────────────────────────────────────────────────
+
+def _gen_m_hyper(details, table_name, columns):
+    """Generate M query for a Hyper extract data source.
+
+    Tries to load actual schema/data from hyper_reader; falls back to
+    an inline #table() with the column list.
+    """
+    try:
+        from hyper_reader import read_hyper, generate_m_for_hyper_table
+        filename = details.get('filename', '')
+        if filename and os.path.isfile(filename):
+            result = read_hyper(filename, max_rows=20)
+            tables = result.get('tables', [])
+            # Find matching table or use the first
+            target = None
+            for t in tables:
+                if t.get('table', '').lower() == table_name.lower():
+                    target = t
+                    break
+            if target is None and tables:
+                target = tables[0]
+            if target and target.get('columns'):
+                return generate_m_for_hyper_table(target)
+    except Exception:
+        pass
+
+    # Fallback: structured #table() with column names from metadata
+    col_list = ', '.join([f'"{ col["name"] }"' for col in columns if 'name' in col])
+    return f'''let
+    // Hyper extract: {table_name}
+    // TODO: Replace with actual data source or imported CSV.
+    Source = #table(
+        {{{col_list}}},
+        {{}}
+    )
+in
+    Source'''
+
+
+def _gen_m_sqlproxy(details, table_name, columns):
+    """Generate M query for a Tableau Server Published Datasource (sqlproxy).
+
+    sqlproxy is Tableau's internal connector for published datasources on
+    Tableau Server/Cloud.  The actual data lives behind the published
+    datasource — typically a database like SQL Server, Oracle, PostgreSQL, etc.
+
+    The generated M query includes:
+    - The Tableau Server URL and published datasource name as comments
+    - A placeholder SQL Server connection (most common backend)
+    - Alternative connection templates for Oracle, PostgreSQL, and Snowflake
+    - A sample #table() fallback so the report opens without errors
+    """
+    server = details.get('server', 'tableau-server')
+    ds_name = details.get('server_ds_name', '') or details.get('dbname', table_name)
+    port = details.get('port', '443')
+    channel = details.get('channel', 'https')
+
+    col_list = ', '.join([f'"{ col["name"] }"' for col in columns if 'name' in col])
+    sample1 = ', '.join(
+        [f'"Sample {i+1}"' if col.get('datatype') == 'string' else str(i + 1)
+         for i, col in enumerate(columns)])
+    sample2 = ', '.join(
+        [f'"Sample {i+2}"' if col.get('datatype') == 'string' else str(i + 2)
+         for i, col in enumerate(columns)])
+
+    return f'''let
+    // ================================================================
+    // Tableau Server Published Datasource: {ds_name}
+    // Server: {channel}://{server}:{port}
+    // ================================================================
+    // This table was sourced from a Tableau Server published datasource.
+    // Replace the sample data below with your actual database connection.
+    //
+    // Option A — SQL Server:
+    //   Source = Sql.Database("your-server", "your-database"){{[Schema="dbo", Item="{table_name}"]}}[Data]
+    //
+    // Option B — Oracle:
+    //   Source = Oracle.Database("your-server:1521/service"){{[Schema="SCHEMA", Name="{table_name.upper()}"]}}[Data]
+    //
+    // Option C — PostgreSQL:
+    //   Source = PostgreSQL.Database("your-server:5432", "your-database"){{[Schema="public", Name="{table_name}"]}}[Data]
+    //
+    // Option D — Snowflake:
+    //   Source = Snowflake.Databases("account.snowflakecomputing.com", "WAREHOUSE"){{[Name="DB"]}}[Data]{{[Schema="PUBLIC", Name="{table_name.upper()}"]}}[Data]
+    // ================================================================
+    Source = #table(
+        {{{col_list}}},
+        {{
+            {{{sample1}}},
+            {{{sample2}}}
+        }}
+    )
+in
+    Source'''
+
 
 _M_GENERATORS = {
     'Excel':            _gen_m_excel,
@@ -672,6 +741,17 @@ _M_GENERATORS = {
     'HDInsight':        _gen_m_hadoop_hive,
     'Presto':           _gen_m_presto,
     'Trino':            _gen_m_presto,
+    'Fabric Lakehouse': _gen_m_fabric_lakehouse,
+    'Lakehouse':        _gen_m_fabric_lakehouse,
+    'Dataverse':        _gen_m_dataverse,
+    'Common Data Service': _gen_m_dataverse,
+    'CDS':              _gen_m_dataverse,
+    'hyper':            _gen_m_hyper,
+    'Hyper':            _gen_m_hyper,
+    'extract':          _gen_m_hyper,
+    'Tableau Server':   _gen_m_sqlproxy,
+    'sqlproxy':         _gen_m_sqlproxy,
+    'SQLPROXY':         _gen_m_sqlproxy,
 }
 
 
@@ -701,6 +781,94 @@ def generate_power_query_m(connection, table):
     details_copy = dict(details)
     details_copy['_conn_type'] = conn_type
     return _gen_m_fallback(details_copy, table_name, columns)
+
+
+# ── Connection String Templating ─────────────────────────────────────────────
+
+import re as _re
+
+def apply_connection_template(m_query, env_vars=None):
+    """Replace ${ENV.NAME} placeholders in M queries with environment variable values.
+
+    Allows parameterizing M queries for different environments (dev/staging/prod).
+    If env_vars is None, replaces with M parameter references instead.
+
+    Supported placeholders:
+        ${ENV.SERVER}     - Database server hostname
+        ${ENV.DATABASE}   - Database name
+        ${ENV.PORT}       - Port number
+        ${ENV.USERNAME}   - Username
+        ${ENV.PASSWORD}   - Password
+        ${ENV.WAREHOUSE}  - Snowflake/Databricks warehouse
+        ${ENV.SCHEMA}     - Database schema
+        ${ENV.ACCOUNT}    - Storage account name
+        ${ENV.CONTAINER}  - Blob/ADLS container
+        ${ENV.CATALOG}    - Databricks/BigQuery catalog
+        ${ENV.URL}        - Web/API URL
+        Any custom ${ENV.XXXX} patterns
+
+    Args:
+        m_query: M query string potentially containing ${ENV.*} placeholders
+        env_vars: Optional dict mapping env var names to values.
+                  If None, generates M parameter references.
+
+    Returns:
+        str: M query with placeholders replaced
+    """
+    if not m_query or '${ENV.' not in m_query:
+        return m_query
+
+    def _replacer(match):
+        var_name = match.group(1)
+        if env_vars and var_name in env_vars:
+            return env_vars[var_name]
+        # Default: replace with M parameter reference
+        return '" & ' + var_name + ' & "'
+
+    return _re.sub(r'\$\{ENV\.([A-Za-z_]+)\}', _replacer, m_query)
+
+
+def templatize_m_query(m_query, connection=None):
+    """Convert hardcoded connection strings in an M query to ${ENV.*} templates.
+
+    This is the reverse of apply_connection_template — it turns concrete
+    server/database values into environment variable placeholders so the
+    generated M queries can be parameterized per environment.
+
+    Args:
+        m_query: Concrete M query with hardcoded connection values
+        connection: Optional connection dict with 'details' to identify values
+
+    Returns:
+        str: M query with connection values replaced by ${ENV.*} placeholders
+    """
+    if not m_query or not connection:
+        return m_query
+
+    details = connection.get('details', {})
+    replacements = []
+
+    # Build replacement list (longest values first to avoid partial matches)
+    for key, env_var in [
+        ('server', 'SERVER'), ('database', 'DATABASE'), ('port', 'PORT'),
+        ('warehouse', 'WAREHOUSE'), ('schema', 'SCHEMA'),
+        ('account', 'ACCOUNT'), ('container', 'CONTAINER'),
+        ('catalog', 'CATALOG'), ('project', 'PROJECT'),
+        ('dataset', 'DATASET'), ('http_path', 'HTTP_PATH'),
+        ('site_url', 'SITE_URL'), ('url', 'URL'),
+    ]:
+        value = details.get(key, '')
+        if value and len(value) > 2:
+            replacements.append((value, f'${{ENV.{env_var}}}'))
+
+    # Sort by length descending to replace longer values first
+    replacements.sort(key=lambda x: -len(x[0]))
+
+    result = m_query
+    for old_val, new_val in replacements:
+        result = result.replace(old_val, new_val)
+
+    return result
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -751,11 +919,19 @@ def inject_m_steps(m_query, steps):
     lines = before_in.split('\n')
     while lines and lines[-1].strip().startswith('Result'):
         lines.pop()
-    # Strip trailing comma from the last real step
-    if lines and lines[-1].rstrip().endswith(','):
-        pass  # keep the comma — we'll add more steps
-    elif lines:
-        lines[-1] = lines[-1].rstrip() + ','
+    # Strip trailing comma from the last real step.
+    # Must account for // line comments — a comma inside a comment is NOT actual M syntax.
+    if lines:
+        last_line = lines[-1].rstrip()
+        comment_idx = last_line.find('//')
+        if comment_idx > 0:
+            # Strip the comment; check if the code portion already has a trailing comma
+            code_part = last_line[:comment_idx].rstrip()
+            if not code_part.endswith(','):
+                code_part += ','
+            lines[-1] = code_part
+        elif not last_line.endswith(','):
+            lines[-1] = last_line + ','
     before_in = '\n'.join(lines)
 
     # Find the last step name referenced (skip Result and comments)
@@ -852,34 +1028,35 @@ def m_transform_replace_nulls(column, default_value):
             f'Table.ReplaceValue({{prev}}, null, {val_repr}, Replacer.ReplaceValue, {{"{column}"}})')
 
 
+def _m_text_transform(columns, m_func, step_label):
+    """Generic text column transform — shared by trim/clean/upper/lower/proper."""
+    transforms = ', '.join([f'{{"{c}", {m_func}}}' for c in columns])
+    return (f'#"{step_label}"', f'Table.TransformColumns({{prev}}, {{{transforms}}})')
+
+
 def m_transform_trim(columns):
     """Trim whitespace from text columns."""
-    transforms = ', '.join([f'{{"{c}", Text.Trim}}' for c in columns])
-    return ('#"Trimmed Text"', f'Table.TransformColumns({{prev}}, {{{transforms}}})')
+    return _m_text_transform(columns, 'Text.Trim', 'Trimmed Text')
 
 
 def m_transform_clean(columns):
     """Remove non-printable characters from text columns."""
-    transforms = ', '.join([f'{{"{c}", Text.Clean}}' for c in columns])
-    return ('#"Cleaned Text"', f'Table.TransformColumns({{prev}}, {{{transforms}}})')
+    return _m_text_transform(columns, 'Text.Clean', 'Cleaned Text')
 
 
 def m_transform_upper(columns):
     """Convert text columns to uppercase."""
-    transforms = ', '.join([f'{{"{c}", Text.Upper}}' for c in columns])
-    return ('#"Uppercased"', f'Table.TransformColumns({{prev}}, {{{transforms}}})')
+    return _m_text_transform(columns, 'Text.Upper', 'Uppercased')
 
 
 def m_transform_lower(columns):
     """Convert text columns to lowercase."""
-    transforms = ', '.join([f'{{"{c}", Text.Lower}}' for c in columns])
-    return ('#"Lowercased"', f'Table.TransformColumns({{prev}}, {{{transforms}}})')
+    return _m_text_transform(columns, 'Text.Lower', 'Lowercased')
 
 
 def m_transform_proper_case(columns):
     """Convert text columns to proper case (Title Case)."""
-    transforms = ', '.join([f'{{"{c}", Text.Proper}}' for c in columns])
-    return ('#"Proper Cased"', f'Table.TransformColumns({{prev}}, {{{transforms}}})')
+    return _m_text_transform(columns, 'Text.Proper', 'Proper Cased')
 
 
 def m_transform_fill_down(columns):
@@ -1033,8 +1210,28 @@ _M_JOIN_KIND = {
 }
 
 
+def m_transform_buffer(table_ref=None):
+    """Buffer a table to force query-folding boundary.
+
+    Wrapping a table reference in Table.Buffer() forces the engine to
+    materialise the table before the next step.  This is useful before
+    joins to prevent the engine from sending un-foldable join predicates
+    to the data source.
+
+    Args:
+        table_ref: Optional M table reference to buffer.  When *None*,
+                   the ``{prev}`` placeholder is used so the step can be
+                   chained via ``inject_m_steps()``.
+    Returns:
+        (step_name, step_expression) tuple.
+    """
+    ref = table_ref or '{prev}'
+    return ('#"Buffered Table"', f'Table.Buffer({ref})')
+
+
 def m_transform_join(right_table_ref, left_keys, right_keys, join_type='left',
-                     expand_columns=None, joined_name="Joined"):
+                     expand_columns=None, joined_name="Joined",
+                     buffer_right=False):
     """
     Join two tables.
     Args:
@@ -1043,6 +1240,9 @@ def m_transform_join(right_table_ref, left_keys, right_keys, join_type='left',
         join_type: str — inner, left, right, full, leftanti, rightanti
         expand_columns: list of str — columns to expand (None = no expansion step)
         joined_name: str — name of the joined nested column
+        buffer_right: bool — when True, wrap right_table_ref in Table.Buffer()
+                      to create a query-folding boundary (prevents the engine from
+                      sending un-foldable join predicates to the data source)
     Returns:
         list of (step_name, step_expression) tuples (join + optional expand)
     """
@@ -1053,8 +1253,10 @@ def m_transform_join(right_table_ref, left_keys, right_keys, join_type='left',
         lk = '{' + ', '.join([f'"{k}"' for k in left_keys]) + '}'
         rk = '{' + ', '.join([f'"{k}"' for k in right_keys]) + '}'
 
+    effective_right = f'Table.Buffer({right_table_ref})' if buffer_right else right_table_ref
+
     steps = [(f'#"Joined {joined_name}"',
-              f'Table.NestedJoin({{prev}}, {lk}, {right_table_ref}, {rk}, '
+              f'Table.NestedJoin({{prev}}, {lk}, {effective_right}, {rk}, '
               f'"{joined_name}", {kind})')]
     if expand_columns:
         cols = ', '.join([f'"{c}"' for c in expand_columns])
@@ -1163,3 +1365,146 @@ def m_transform_conditional_column(new_col_name, conditions, default_value=None)
     expr += str(default_value) if default_value is not None else 'null'
     return (f'#"Added {new_col_name}"',
             f'Table.AddColumn({{prev}}, "{new_col_name}", each {expr})')
+
+
+# ── Error handling transforms ─────────────────────────────────────────────────
+
+def m_transform_remove_errors(columns=None):
+    """
+    Remove rows containing errors.
+    Args:
+        columns: optional list of column names to check for errors.
+                 If None, removes errors across all columns.
+    """
+    if columns:
+        cols = ', '.join([f'"{c}"' for c in columns])
+        return ('#"Removed Errors"',
+                f'Table.RemoveRowsWithErrors({{prev}}, {{{cols}}})')
+    return ('#"Removed Errors"', 'Table.RemoveRowsWithErrors({prev})')
+
+
+def m_transform_replace_errors(columns, replacement=None):
+    """
+    Replace error values in specified columns with a replacement value.
+    Args:
+        columns: list of column names to process
+        replacement: replacement value (default: null)
+    """
+    repl = str(replacement) if replacement is not None else 'null'
+    transforms = ', '.join([f'{{"{c}", each {repl}}}' for c in columns])
+    return ('#"Replaced Errors"',
+            f'Table.ReplaceErrorValues({{prev}}, {{{transforms}}})')
+
+
+def m_transform_try_otherwise(step_name, expression, fallback_expression):
+    """
+    Wrap a step expression in a try...otherwise block for graceful error handling.
+    Args:
+        step_name: the step name (e.g., '#"Connected Source"')
+        expression: the primary M expression to attempt
+        fallback_expression: the expression to use if the primary fails
+    Returns:
+        (step_name, wrapped_expression) tuple
+    """
+    return (step_name, f'try {expression} otherwise {fallback_expression}')
+
+
+def wrap_source_with_try_otherwise(m_query, empty_table_columns=None):
+    """
+    Wrap the Source step of an M query with try...otherwise for graceful error handling.
+
+    If the data source is unavailable, returns an empty table with the expected schema
+    instead of failing with an error.
+
+    Args:
+        m_query: str — Complete M query (let ... in ...)
+        empty_table_columns: optional list of column name strings for the fallback table
+    Returns:
+        str — Modified M query with Source wrapped in try...otherwise
+    """
+    import re as _re
+
+    # Find "Source = ..." line
+    match = _re.search(r'(\n\s*)(Source\s*=\s*)', m_query)
+    if not match:
+        return m_query
+
+    indent = match.group(1)
+    source_assign = match.group(2)
+    after_assign = m_query[match.end():]
+
+    # Skip if Source is already wrapped with try...otherwise
+    if after_assign.strip().startswith('try'):
+        return m_query
+
+    # Find the end of the Source expression (next line starting with a step name or 'in')
+    lines = after_assign.split('\n')
+    # Find how many lines belong to the Source expression
+    source_lines = []
+    remaining_idx = len(lines)
+    for idx, line in enumerate(lines):
+        stripped = line.strip()
+        if idx > 0 and (stripped.startswith('#"') or stripped.startswith('Result')
+                        or stripped == 'in' or _re.match(r'\w+\s*=', stripped)):
+            remaining_idx = idx
+            break
+        source_lines.append(line)
+
+    source_expr = '\n'.join(source_lines).rstrip().rstrip(',')
+    remaining_start = len('\n'.join(source_lines))
+
+    # Build fallback table
+    if empty_table_columns:
+        col_list = ', '.join([f'"{c}"' for c in empty_table_columns])
+        fallback = f'#table({{{col_list}}}, {{}})'
+    else:
+        fallback = '#table({}, {})'
+
+    # Check if there are more steps after Source (before 'in')
+    has_more_steps = remaining_idx < len(lines) and lines[remaining_idx].strip() != 'in'
+    trailing = ',' if has_more_steps else ''
+
+    # Wrap with try...otherwise
+    new_source = f'{indent}{source_assign}try\n{indent}    {source_expr.strip()}\n{indent}otherwise\n{indent}    {fallback}{trailing}'
+
+    return m_query[:match.start()] + new_source + after_assign[remaining_start:]
+
+
+# ── Hyper data integration ────────────────────────────────────────────────────
+
+
+def generate_m_from_hyper(hyper_tables, table_name=None):
+    """Generate an M query using data from ``hyper_reader``.
+
+    If the datasource has ``hyper_reader_tables`` (populated by
+    ``extract_hyper_metadata``), this function produces an M expression
+    with inline sample data or a CSV reference.
+
+    Args:
+        hyper_tables: list of table dicts from ``hyper_reader.read_hyper()``.
+        table_name: Optional table name to match. If ``None``, uses the first.
+
+    Returns:
+        str | None: M expression, or ``None`` if no suitable data found.
+    """
+    if not hyper_tables:
+        return None
+
+    try:
+        from hyper_reader import generate_m_for_hyper_table
+    except ImportError:
+        return None
+
+    # Find matching table
+    target = None
+    for t in hyper_tables:
+        if table_name and t.get('table', '').lower() == table_name.lower():
+            target = t
+            break
+    if target is None:
+        target = hyper_tables[0]
+
+    if not target.get('columns'):
+        return None
+
+    return generate_m_for_hyper_table(target)

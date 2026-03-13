@@ -1,0 +1,45 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/lakehouse/definition/lakehouse/1.0.0/schema.json",
+  "properties": {
+    "displayName": "multiple_connections_Lakehouse",
+    "description": "Lakehouse generated from Tableau workbook: multiple_connections",
+    "created": "2026-03-05T10:47:16.104077",
+    "defaultSchema": "dbo"
+  },
+  "tables": [
+    {
+      "name": "sqlproxy",
+      "original_name": "sqlproxy",
+      "columns": [],
+      "source_type": "Unknown",
+      "source_connection": {},
+      "format": "delta"
+    },
+    {
+      "name": "xy",
+      "original_name": "xy",
+      "columns": [],
+      "source_type": "MySQL",
+      "source_connection": {
+        "server": "mysql55",
+        "port": "",
+        "database": "testv1",
+        "username": "test"
+      },
+      "format": "delta"
+    },
+    {
+      "name": "xy1",
+      "original_name": "xy1",
+      "columns": [],
+      "source_type": "SQL Server",
+      "source_connection": {
+        "server": "mssql2012",
+        "database": "TestV1",
+        "authentication": "sqlserver",
+        "username": "test"
+      },
+      "format": "delta"
+    }
+  ]
+}

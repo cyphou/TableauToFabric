@@ -1,0 +1,237 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/lakehouse/definition/lakehouse/1.0.0/schema.json",
+  "properties": {
+    "displayName": "shapes_test_Lakehouse",
+    "description": "Lakehouse generated from Tableau workbook: shapes_test",
+    "created": "2026-03-05T10:47:32.608859",
+    "defaultSchema": "dbo"
+  },
+  "tables": [
+    {
+      "name": "orders",
+      "original_name": "Orders",
+      "columns": [
+        {
+          "name": "Row_ID",
+          "datatype": "INT",
+          "nullable": true,
+          "original_name": "Row ID",
+          "original_type": "integer"
+        },
+        {
+          "name": "Order_ID",
+          "datatype": "STRING",
+          "nullable": true,
+          "original_name": "Order ID",
+          "original_type": "string"
+        },
+        {
+          "name": "Order_Date",
+          "datatype": "DATE",
+          "nullable": true,
+          "original_name": "Order Date",
+          "original_type": "date"
+        },
+        {
+          "name": "Ship_Date",
+          "datatype": "DATE",
+          "nullable": true,
+          "original_name": "Ship Date",
+          "original_type": "date"
+        },
+        {
+          "name": "Ship_Mode",
+          "datatype": "STRING",
+          "nullable": true,
+          "original_name": "Ship Mode",
+          "original_type": "string"
+        },
+        {
+          "name": "Customer_ID",
+          "datatype": "STRING",
+          "nullable": true,
+          "original_name": "Customer ID",
+          "original_type": "string"
+        },
+        {
+          "name": "Customer_Name",
+          "datatype": "STRING",
+          "nullable": true,
+          "original_name": "Customer Name",
+          "original_type": "string"
+        },
+        {
+          "name": "Segment",
+          "datatype": "STRING",
+          "nullable": true,
+          "original_name": "Segment",
+          "original_type": "string"
+        },
+        {
+          "name": "Country_Region",
+          "datatype": "STRING",
+          "nullable": true,
+          "original_name": "Country/Region",
+          "original_type": "string"
+        },
+        {
+          "name": "City",
+          "datatype": "STRING",
+          "nullable": true,
+          "original_name": "City",
+          "original_type": "string"
+        },
+        {
+          "name": "State",
+          "datatype": "STRING",
+          "nullable": true,
+          "original_name": "State",
+          "original_type": "string"
+        },
+        {
+          "name": "Postal_Code",
+          "datatype": "INT",
+          "nullable": true,
+          "original_name": "Postal Code",
+          "original_type": "integer"
+        },
+        {
+          "name": "Region",
+          "datatype": "STRING",
+          "nullable": true,
+          "original_name": "Region",
+          "original_type": "string"
+        },
+        {
+          "name": "Product_ID",
+          "datatype": "STRING",
+          "nullable": true,
+          "original_name": "Product ID",
+          "original_type": "string"
+        },
+        {
+          "name": "Category",
+          "datatype": "STRING",
+          "nullable": true,
+          "original_name": "Category",
+          "original_type": "string"
+        },
+        {
+          "name": "Sub_Category",
+          "datatype": "STRING",
+          "nullable": true,
+          "original_name": "Sub-Category",
+          "original_type": "string"
+        },
+        {
+          "name": "Product_Name",
+          "datatype": "STRING",
+          "nullable": true,
+          "original_name": "Product Name",
+          "original_type": "string"
+        },
+        {
+          "name": "Sales",
+          "datatype": "DOUBLE",
+          "nullable": true,
+          "original_name": "Sales",
+          "original_type": "real"
+        },
+        {
+          "name": "Quantity",
+          "datatype": "INT",
+          "nullable": true,
+          "original_name": "Quantity",
+          "original_type": "integer"
+        },
+        {
+          "name": "Discount",
+          "datatype": "DOUBLE",
+          "nullable": true,
+          "original_name": "Discount",
+          "original_type": "real"
+        },
+        {
+          "name": "Profit",
+          "datatype": "DOUBLE",
+          "nullable": true,
+          "original_name": "Profit",
+          "original_type": "real"
+        },
+        {
+          "name": "profit_bin",
+          "datatype": "INT",
+          "nullable": true,
+          "original_name": "Profit (bin)",
+          "original_type": "integer",
+          "is_calculated": true,
+          "formula": "[Profit]"
+        }
+      ],
+      "source_type": "Excel",
+      "source_connection": {
+        "filename": "/Users/mkorotchenkov/Documents/My Tableau Repository/Datasources/2021.2/en_US-US/Sample - Superstore.xls",
+        "caption": "Sample - Superstore",
+        "cleaning": "no",
+        "compat": "no"
+      },
+      "format": "delta"
+    },
+    {
+      "name": "people",
+      "original_name": "People",
+      "columns": [
+        {
+          "name": "Regional_Manager",
+          "datatype": "STRING",
+          "nullable": true,
+          "original_name": "Regional Manager",
+          "original_type": "string"
+        },
+        {
+          "name": "Region",
+          "datatype": "STRING",
+          "nullable": true,
+          "original_name": "Region",
+          "original_type": "string"
+        }
+      ],
+      "source_type": "Excel",
+      "source_connection": {
+        "filename": "/Users/mkorotchenkov/Documents/My Tableau Repository/Datasources/2021.2/en_US-US/Sample - Superstore.xls",
+        "caption": "Sample - Superstore",
+        "cleaning": "no",
+        "compat": "no"
+      },
+      "format": "delta"
+    },
+    {
+      "name": "returns",
+      "original_name": "Returns",
+      "columns": [
+        {
+          "name": "Returned",
+          "datatype": "STRING",
+          "nullable": true,
+          "original_name": "Returned",
+          "original_type": "string"
+        },
+        {
+          "name": "Order_ID",
+          "datatype": "STRING",
+          "nullable": true,
+          "original_name": "Order ID",
+          "original_type": "string"
+        }
+      ],
+      "source_type": "Excel",
+      "source_connection": {
+        "filename": "/Users/mkorotchenkov/Documents/My Tableau Repository/Datasources/2021.2/en_US-US/Sample - Superstore.xls",
+        "caption": "Sample - Superstore",
+        "cleaning": "no",
+        "compat": "no"
+      },
+      "format": "delta"
+    }
+  ]
+}

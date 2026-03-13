@@ -1,0 +1,38 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/dataflow/definition/dataflowGen2/1.0.0/schema.json",
+  "properties": {
+    "displayName": "medium_report_Dataflow",
+    "description": "Dataflow Gen2 generated from Tableau workbook: medium_report",
+    "type": "DataflowGen2",
+    "created": "2026-03-05T10:46:35.701758"
+  },
+  "mashupDocument": "\nsection Section1;\n\nshared Orders = let\n    // Source PostgreSQL\n    Source = PostgreSQL.Database(\"pg-analytics.contoso.com:5432\", \"ecommerce\"),\n    #\"Orders Table\" = Source{[Schema=\"public\", Item=\"Orders\"]}[Data],\n    Result = #\"Orders Table\"\n,\n    CalcCol_revenue_tier = Table.AddColumn(Result, \"Revenue Tier\", each if [Sales] > 500 then \"High\" ELSEIF [Sales] > 100 then \"Medium\" else \"Low\")\nin\n    CalcCol_revenue_tier;\n\nshared Customers = let\n    // Source PostgreSQL\n    Source = PostgreSQL.Database(\"pg-analytics.contoso.com:5432\", \"ecommerce\"),\n    #\"Customers Table\" = Source{[Schema=\"public\", Item=\"Customers\"]}[Data],\n    Result = #\"Customers Table\"\nin\n    Result;",
+  "queries": [
+    {
+      "name": "Orders",
+      "description": "Ingests data from Orders + 1 calculated column(s)",
+      "queryId": "orders",
+      "resultType": "Table",
+      "loadEnabled": true,
+      "destination": {
+        "type": "Lakehouse",
+        "tableName": "orders",
+        "updateMethod": "Replace",
+        "schemaMapping": "Auto"
+      }
+    },
+    {
+      "name": "Customers",
+      "description": "Ingests data from Customers",
+      "queryId": "customers",
+      "resultType": "Table",
+      "loadEnabled": true,
+      "destination": {
+        "type": "Lakehouse",
+        "tableName": "customers",
+        "updateMethod": "Replace",
+        "schemaMapping": "Auto"
+      }
+    }
+  ]
+}

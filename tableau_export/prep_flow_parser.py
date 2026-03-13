@@ -28,8 +28,11 @@ import re
 from collections import OrderedDict
 
 # Import M query generators
-from .m_query_builder import (
+import sys
+sys.path.insert(0, os.path.dirname(__file__))
+from m_query_builder import (
     generate_power_query_m,
+    generate_m_from_hyper,
     inject_m_steps,
     m_transform_rename,
     m_transform_remove_columns,
@@ -120,8 +123,8 @@ _PREP_AGG_MAP = {
     'MAX': 'max',
     'STDEV': 'stdev',
     'STDEVP': 'stdev',
-    'VAR': 'sum',       # approximation
-    'VARP': 'sum',      # approximation
+    'VAR': 'var',
+    'VARP': 'varp',
 }
 
 # Prep join type → m_transform_join join kind
@@ -132,7 +135,7 @@ _PREP_JOIN_MAP = {
     'full': 'full',
     'leftOnly': 'leftanti',
     'rightOnly': 'rightanti',
-    'notInner': 'full',  # full-anti approximated as full
+    'notInner': 'leftanti',  # exclusive left (Tableau "not inner")
 }
 
 
@@ -140,9 +143,32 @@ _PREP_JOIN_MAP = {
 #  FLOW FILE READER
 # ═══════════════════════════════════════════════════════════════════════════════
 
+def _read_tflx_zip(filepath):
+    """Extract and parse the flow JSON from inside a .tflx ZIP archive.
+
+    Tableau Prep saves flow data in ZIP archives. The flow JSON can be
+    stored as a file named ``*.tfl`` or simply ``flow`` (no extension).
+    """
+    with zipfile.ZipFile(filepath, 'r') as z:
+        names = z.namelist()
+        # Prefer a file ending in .tfl
+        for name in names:
+            if name.endswith('.tfl'):
+                with z.open(name) as f:
+                    return json.loads(f.read().decode('utf-8'))
+        # Fallback: look for a file named 'flow' (Prep 2020.3+ format)
+        if 'flow' in names:
+            with z.open('flow') as f:
+                return json.loads(f.read().decode('utf-8'))
+    raise ValueError(f"No .tfl or 'flow' entry found inside {filepath}")
+
+
 def read_prep_flow(filepath):
     """
     Read a Tableau Prep flow file (.tfl or .tflx) and return the parsed JSON.
+
+    Auto-detects ZIP archives even when the file has a .tfl extension
+    (some Prep exports save .tflx content with a .tfl extension).
 
     Args:
         filepath: Path to .tfl or .tflx file
@@ -152,20 +178,17 @@ def read_prep_flow(filepath):
     """
     ext = os.path.splitext(filepath)[1].lower()
 
+    if ext == '.tflx':
+        return _read_tflx_zip(filepath)
+
     if ext == '.tfl':
+        # Auto-detect ZIP archives saved with .tfl extension
+        if zipfile.is_zipfile(filepath):
+            return _read_tflx_zip(filepath)
         with open(filepath, 'r', encoding='utf-8') as f:
             return json.load(f)
 
-    elif ext == '.tflx':
-        with zipfile.ZipFile(filepath, 'r') as z:
-            for name in z.namelist():
-                if name.endswith('.tfl'):
-                    with z.open(name) as f:
-                        return json.loads(f.read().decode('utf-8'))
-        raise ValueError(f"No .tfl file found inside {filepath}")
-
-    else:
-        raise ValueError(f"Unsupported file extension: {ext} (expected .tfl or .tflx)")
+    raise ValueError(f"Unsupported file extension: {ext} (expected .tfl or .tflx)")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -297,6 +320,25 @@ def _parse_input_node(node, connections):
 #  CLEAN STEP (SuperTransform) → M STEPS
 # ═══════════════════════════════════════════════════════════════════════════════
 
+# Pre-compiled patterns for Prep expression → M conversion
+_RE_IF = re.compile(r'\bIF\b', re.IGNORECASE)
+_RE_THEN = re.compile(r'\bTHEN\b', re.IGNORECASE)
+_RE_ELSE = re.compile(r'\bELSE\b', re.IGNORECASE)
+_RE_ELSEIF = re.compile(r'\bELSEIF\b', re.IGNORECASE)
+_RE_END = re.compile(r'\bEND\b', re.IGNORECASE)
+_RE_AND = re.compile(r'\bAND\b', re.IGNORECASE)
+_RE_OR = re.compile(r'\bOR\b', re.IGNORECASE)
+_RE_NOT = re.compile(r'\bNOT\b', re.IGNORECASE)
+_RE_ISNULL = re.compile(r'\bISNULL\s*\(', re.IGNORECASE)
+_RE_CONTAINS = re.compile(r'\bCONTAINS\s*\(', re.IGNORECASE)
+_RE_LEN = re.compile(r'\bLEN\s*\(', re.IGNORECASE)
+_RE_UPPER = re.compile(r'\bUPPER\s*\(', re.IGNORECASE)
+_RE_LOWER = re.compile(r'\bLOWER\s*\(', re.IGNORECASE)
+_RE_TRIM = re.compile(r'\bTRIM\s*\(', re.IGNORECASE)
+_RE_LEFT = re.compile(r'\bLEFT\s*\(', re.IGNORECASE)
+_RE_RIGHT = re.compile(r'\bRIGHT\s*\(', re.IGNORECASE)
+
+
 def _convert_prep_expression_to_m(expression):
     """
     Convert a Tableau Prep calculation expression to a Power Query M expression.
@@ -309,31 +351,31 @@ def _convert_prep_expression_to_m(expression):
     expr = expression.strip()
 
     # Basic column references: [Column] → [Column] (same in M for row context)
-    # Tableau Prep IF/THEN/ELSE → M if/then/else
-    expr = re.sub(r'\bIF\b', 'if', expr, flags=re.IGNORECASE)
-    expr = re.sub(r'\bTHEN\b', 'then', expr, flags=re.IGNORECASE)
-    expr = re.sub(r'\bELSE\b', 'else', expr, flags=re.IGNORECASE)
-    expr = re.sub(r'\bELSEIF\b', 'else if', expr, flags=re.IGNORECASE)
-    expr = re.sub(r'\bEND\b', '', expr, flags=re.IGNORECASE)
-    expr = re.sub(r'\bAND\b', 'and', expr, flags=re.IGNORECASE)
-    expr = re.sub(r'\bOR\b', 'or', expr, flags=re.IGNORECASE)
-    expr = re.sub(r'\bNOT\b', 'not', expr, flags=re.IGNORECASE)
+    # Tableau Prep IF/THEN/ELSE → M if/then/else (pre-compiled patterns)
+    expr = _RE_ELSEIF.sub('else if', expr)  # ELSEIF before ELSE/IF
+    expr = _RE_IF.sub('if', expr)
+    expr = _RE_THEN.sub('then', expr)
+    expr = _RE_ELSE.sub('else', expr)
+    expr = _RE_END.sub('', expr)
+    expr = _RE_AND.sub('and', expr)
+    expr = _RE_OR.sub('or', expr)
+    expr = _RE_NOT.sub('not', expr)
 
     # Comparison operators
     expr = expr.replace('!=', '<>')
     expr = expr.replace('==', '=')
 
     # NULL handling
-    expr = re.sub(r'\bISNULL\s*\(', '(null = ', expr, flags=re.IGNORECASE)
+    expr = _RE_ISNULL.sub('(null = ', expr)
 
     # String functions
-    expr = re.sub(r'\bCONTAINS\s*\(', 'Text.Contains(', expr, flags=re.IGNORECASE)
-    expr = re.sub(r'\bLEN\s*\(', 'Text.Length(', expr, flags=re.IGNORECASE)
-    expr = re.sub(r'\bUPPER\s*\(', 'Text.Upper(', expr, flags=re.IGNORECASE)
-    expr = re.sub(r'\bLOWER\s*\(', 'Text.Lower(', expr, flags=re.IGNORECASE)
-    expr = re.sub(r'\bTRIM\s*\(', 'Text.Trim(', expr, flags=re.IGNORECASE)
-    expr = re.sub(r'\bLEFT\s*\(', 'Text.Start(', expr, flags=re.IGNORECASE)
-    expr = re.sub(r'\bRIGHT\s*\(', 'Text.End(', expr, flags=re.IGNORECASE)
+    expr = _RE_CONTAINS.sub('Text.Contains(', expr)
+    expr = _RE_LEN.sub('Text.Length(', expr)
+    expr = _RE_UPPER.sub('Text.Upper(', expr)
+    expr = _RE_LOWER.sub('Text.Lower(', expr)
+    expr = _RE_TRIM.sub('Text.Trim(', expr)
+    expr = _RE_LEFT.sub('Text.Start(', expr)
+    expr = _RE_RIGHT.sub('Text.End(', expr)
 
     return expr
 
@@ -718,231 +760,273 @@ def parse_prep_flow(filepath):
     secondary_branch_ids = set()
 
     for nid in sorted_ids:
-        node = nodes.get(nid, {})
-        base_type = node.get('baseType', '')
-        sem_type = _get_node_type(node)
-        node_name = node.get('name', nid[:8])
-
-        if base_type == 'input':
-            # Parse input node → base M query
-            connection, table = _parse_input_node(node, connections)
-            m_query = generate_power_query_m(connection, table)
-            node_results[nid] = {
-                'connection': connection,
-                'table': table,
-                'name': node_name,
-                'm_query': m_query,
-                'fields': node.get('fields', []),
-            }
-            print(f"    ✓ Input: {node_name} ({connection.get('type', '?')})")
-
-        elif base_type == 'transform':
-            # Find upstream node(s)
-            upstream_ids = _find_upstream_nodes(nodes, nid)
-
-            if sem_type in ('SuperTransform',):
-                # Clean step — chain onto upstream M query
-                if upstream_ids and upstream_ids[0] in node_results:
-                    upstream = node_results[upstream_ids[0]]
-                    steps = _parse_clean_actions(node)
-                    m_query = upstream['m_query']
-                    if steps:
-                        m_query = inject_m_steps(m_query, steps)
-                    node_results[nid] = {
-                        **upstream,
-                        'name': node_name,
-                        'm_query': m_query,
-                    }
-                    print(f"    ✓ Clean: {node_name} ({len(steps)} actions)")
-
-            elif sem_type == 'Aggregate':
-                if upstream_ids and upstream_ids[0] in node_results:
-                    upstream = node_results[upstream_ids[0]]
-                    step = _parse_aggregate_node(node)
-                    m_query = upstream['m_query']
-                    if step:
-                        m_query = inject_m_steps(m_query, [step])
-                    node_results[nid] = {
-                        **upstream,
-                        'name': node_name,
-                        'm_query': m_query,
-                    }
-                    print(f"    ✓ Aggregate: {node_name}")
-
-            elif sem_type == 'Join':
-                # Join needs two upstream sources
-                left_id = node.get('leftNodeId')
-                right_id = node.get('rightNodeId')
-
-                # Fallback: use upstream_ids order
-                if not left_id and len(upstream_ids) >= 2:
-                    left_id = upstream_ids[0]
-                    right_id = upstream_ids[1]
-                elif not left_id and len(upstream_ids) == 1:
-                    left_id = upstream_ids[0]
-
-                if left_id and left_id in node_results:
-                    left = node_results[left_id]
-                    right_name = 'RightTable'
-                    right_fields = []
-
-                    if right_id and right_id in node_results:
-                        right = node_results[right_id]
-                        right_name = right.get('name', 'RightTable')
-                        right_fields = right.get('fields', [])
-                        # Mark the right branch for emission as a separate query
-                        secondary_branch_ids.add(right_id)
-
-                    join_steps = _parse_join_node(node, right_name, right_fields)
-                    m_query = left['m_query']
-                    if join_steps:
-                        m_query = inject_m_steps(m_query, join_steps)
-
-                    node_results[nid] = {
-                        **left,
-                        'name': node_name,
-                        'm_query': m_query,
-                    }
-                    print(f"    ✓ Join: {node_name} ({node.get('joinType', 'inner')})")
-
-            elif sem_type == 'Union':
-                upstream_names = []
-                for uid in upstream_ids:
-                    if uid in node_results:
-                        raw_name = node_results[uid].get('name', uid[:8])
-                        upstream_names.append(_clean_m_table_ref(raw_name))
-                        # Mark all union inputs as secondary branches
-                        secondary_branch_ids.add(uid)
-
-                # For union, take first upstream as base
-                if upstream_ids and upstream_ids[0] in node_results:
-                    upstream = node_results[upstream_ids[0]]
-                    step = _parse_union_node(node, upstream_names)
-                    m_query = upstream['m_query']
-                    if step:
-                        m_query = inject_m_steps(m_query, [step])
-                    node_results[nid] = {
-                        **upstream,
-                        'name': node_name,
-                        'm_query': m_query,
-                    }
-                    print(f"    ✓ Union: {node_name} ({len(upstream_names)} inputs)")
-
-            elif sem_type == 'Pivot':
-                if upstream_ids and upstream_ids[0] in node_results:
-                    upstream = node_results[upstream_ids[0]]
-                    step = _parse_pivot_node(node)
-                    m_query = upstream['m_query']
-                    if step:
-                        m_query = inject_m_steps(m_query, [step])
-                    node_results[nid] = {
-                        **upstream,
-                        'name': node_name,
-                        'm_query': m_query,
-                    }
-                    print(f"    ✓ Pivot: {node_name} ({node.get('pivotType', '?')})")
-
-            elif sem_type in ('Script', 'RunScript', 'RunCommand'):
-                # Script step (Python/R) — not directly convertible; pass through with comment
-                if upstream_ids and upstream_ids[0] in node_results:
-                    upstream = node_results[upstream_ids[0]]
-                    script_lang = node.get('scriptLanguage', node.get('language', 'Python'))
-                    comment_step = (
-                        '#"Script Warning"',
-                        f'Table.AddColumn({{prev}}, "__script_warning", '
-                        f'each "/* {script_lang} script step not auto-converted — '
-                        f'manual migration required */", type text)'
-                    )
-                    m_query = inject_m_steps(upstream['m_query'], [comment_step])
-                    node_results[nid] = {
-                        **upstream,
-                        'name': node_name,
-                        'm_query': m_query,
-                    }
-                    print(f"    ⚠ Script step ({script_lang}): {node_name} — manual migration required")
-
-            elif sem_type in ('Prediction', 'TabPy', 'Einstein'):
-                # Prediction / ML step — not convertible; pass through with warning
-                if upstream_ids and upstream_ids[0] in node_results:
-                    upstream = node_results[upstream_ids[0]]
-                    comment_step = (
-                        '#"Prediction Warning"',
-                        f'Table.AddColumn({{prev}}, "__prediction_warning", '
-                        f'each "/* ML/prediction step not auto-converted — '
-                        f'use Power BI AutoML or Python visual */", type text)'
-                    )
-                    m_query = inject_m_steps(upstream['m_query'], [comment_step])
-                    node_results[nid] = {
-                        **upstream,
-                        'name': node_name,
-                        'm_query': m_query,
-                    }
-                    print(f"    ⚠ Prediction step: {node_name} — manual migration required")
-
-            elif sem_type == 'CrossJoin':
-                # Cross join (no key condition) → Table.Join with no key
-                if upstream_ids and len(upstream_ids) >= 2:
-                    left_id = upstream_ids[0]
-                    right_id = upstream_ids[1]
-                    if left_id in node_results and right_id in node_results:
-                        left = node_results[left_id]
-                        right = node_results[right_id]
-                        right_name = _clean_m_table_ref(right.get('name', 'RightTable'))
-                        secondary_branch_ids.add(right_id)
-                        cross_step = (
-                            '#"Cross Join"',
-                            f'Table.Join({{prev}}, {{}}, {right_name}, {{}}, JoinKind.FullOuter)'
-                        )
-                        m_query = inject_m_steps(left['m_query'], [cross_step])
-                        node_results[nid] = {
-                            **left,
-                            'name': node_name,
-                            'm_query': m_query,
-                        }
-                        print(f"    ✓ Cross Join: {node_name}")
-
-            elif sem_type in ('PublishedDataSource', 'LoadPublishedDataSource'):
-                # Published data source input — reference as external table
-                ds_name = node.get('publishedDatasourceName',
-                                   node.get('datasourceName', node_name))
-                table_ref = _clean_m_table_ref(ds_name)
-                m_query = (
-                    f'let\n'
-                    f'    // Published Data Source: {ds_name}\n'
-                    f'    // TODO: Replace with actual Fabric lakehouse/warehouse reference\n'
-                    f'    Source = #"{table_ref}"\n'
-                    f'in\n    Source'
-                )
-                node_results[nid] = {
-                    'connection': {'type': 'published', 'details': {}},
-                    'table': {'name': table_ref, 'columns': []},
-                    'name': node_name,
-                    'm_query': m_query,
-                    'fields': node.get('fields', []),
-                }
-                print(f"    ✓ Published DS Input: {node_name} → {ds_name}")
-
-            else:
-                # Unknown transform — pass through
-                if upstream_ids and upstream_ids[0] in node_results:
-                    node_results[nid] = {
-                        **node_results[upstream_ids[0]],
-                        'name': node_name,
-                    }
-                    print(f"    ⚠ Unsupported step: {sem_type} ({node_name}) — passed through")
-
-        elif base_type == 'output':
-            # Output node — collect the final M query
-            if upstream_ids := _find_upstream_nodes(nodes, nid):
-                if upstream_ids[0] in node_results:
-                    node_results[nid] = {
-                        **node_results[upstream_ids[0]],
-                        'name': node_name,
-                        'is_output': True,
-                    }
-                    print(f"    ✓ Output: {node_name}")
+        _process_prep_node(nid, nodes, connections, node_results, secondary_branch_ids)
 
     # Collect output nodes into datasources
+    return _collect_prep_datasources(sorted_ids, nodes, node_results, secondary_branch_ids)
+
+
+def _process_prep_node(nid, nodes, connections, node_results, secondary_branch_ids):
+    """Process a single Prep flow node (input/transform/output) and store result in node_results."""
+    node = nodes.get(nid, {})
+    base_type = node.get('baseType', '')
+    sem_type = _get_node_type(node)
+    node_name = node.get('name', nid[:8])
+
+    if base_type == 'input':
+        _process_input_node(nid, node, connections, node_results, node_name)
+
+    elif base_type == 'transform':
+        upstream_ids = _find_upstream_nodes(nodes, nid)
+        _process_transform_node(nid, node, nodes, upstream_ids, sem_type,
+                                node_results, secondary_branch_ids, node_name)
+
+    elif base_type == 'output':
+        if upstream_ids := _find_upstream_nodes(nodes, nid):
+            if upstream_ids[0] in node_results:
+                node_results[nid] = {
+                    **node_results[upstream_ids[0]],
+                    'name': node_name,
+                    'is_output': True,
+                }
+                print(f"    ✓ Output: {node_name}")
+
+
+def _process_input_node(nid, node, connections, node_results, node_name):
+    """Process an input node: parse connection and generate base M query.
+
+    For Hyper connections, attempts to read actual schema/data via
+    ``hyper_reader`` to produce a richer M expression.
+    """
+    connection, table = _parse_input_node(node, connections)
+    conn_type = connection.get('type', '')
+
+    m_query = None
+    # For hyper sources, try to read actual data first
+    if conn_type.lower() in ('hyper', 'extract'):
+        filename = connection.get('details', {}).get('filename', '')
+        if filename:
+            try:
+                from hyper_reader import read_hyper
+                result = read_hyper(filename, max_rows=20)
+                hyper_tables = result.get('tables', [])
+                if hyper_tables:
+                    m_query = generate_m_from_hyper(
+                        hyper_tables, table.get('name'))
+            except Exception:
+                pass  # Fall through to normal generation
+
+    if m_query is None:
+        m_query = generate_power_query_m(connection, table)
+
+    node_results[nid] = {
+        'connection': connection,
+        'table': table,
+        'name': node_name,
+        'm_query': m_query,
+        'fields': node.get('fields', []),
+    }
+    print(f"    ✓ Input: {node_name} ({connection.get('type', '?')})")
+
+
+def _process_transform_node(nid, node, nodes, upstream_ids, sem_type,
+                            node_results, secondary_branch_ids, node_name):
+    """Dispatch a transform node to its specific handler based on semantic type."""
+
+    if sem_type in ('SuperTransform',):
+        # Clean step — chain onto upstream M query
+        if upstream_ids and upstream_ids[0] in node_results:
+            upstream = node_results[upstream_ids[0]]
+            steps = _parse_clean_actions(node)
+            m_query = upstream['m_query']
+            if steps:
+                m_query = inject_m_steps(m_query, steps)
+            node_results[nid] = {
+                **upstream,
+                'name': node_name,
+                'm_query': m_query,
+            }
+            print(f"    ✓ Clean: {node_name} ({len(steps)} actions)")
+
+    elif sem_type == 'Aggregate':
+        if upstream_ids and upstream_ids[0] in node_results:
+            upstream = node_results[upstream_ids[0]]
+            step = _parse_aggregate_node(node)
+            m_query = upstream['m_query']
+            if step:
+                m_query = inject_m_steps(m_query, [step])
+            node_results[nid] = {
+                **upstream,
+                'name': node_name,
+                'm_query': m_query,
+            }
+            print(f"    ✓ Aggregate: {node_name}")
+
+    elif sem_type == 'Join':
+        # Join needs two upstream sources
+        left_id = node.get('leftNodeId')
+        right_id = node.get('rightNodeId')
+
+        # Fallback: use upstream_ids order
+        if not left_id and len(upstream_ids) >= 2:
+            left_id = upstream_ids[0]
+            right_id = upstream_ids[1]
+        elif not left_id and len(upstream_ids) == 1:
+            left_id = upstream_ids[0]
+
+        if left_id and left_id in node_results:
+            left = node_results[left_id]
+            right_name = 'RightTable'
+            right_fields = []
+
+            if right_id and right_id in node_results:
+                right = node_results[right_id]
+                right_name = right.get('name', 'RightTable')
+                right_fields = right.get('fields', [])
+                # Mark the right branch for emission as a separate query
+                secondary_branch_ids.add(right_id)
+
+            join_steps = _parse_join_node(node, right_name, right_fields)
+            m_query = left['m_query']
+            if join_steps:
+                m_query = inject_m_steps(m_query, join_steps)
+
+            node_results[nid] = {
+                **left,
+                'name': node_name,
+                'm_query': m_query,
+            }
+            print(f"    ✓ Join: {node_name} ({node.get('joinType', 'inner')})")
+
+    elif sem_type == 'Union':
+        upstream_names = []
+        for uid in upstream_ids:
+            if uid in node_results:
+                raw_name = node_results[uid].get('name', uid[:8])
+                upstream_names.append(_clean_m_table_ref(raw_name))
+                # Mark all union inputs as secondary branches
+                secondary_branch_ids.add(uid)
+
+        # For union, take first upstream as base
+        if upstream_ids and upstream_ids[0] in node_results:
+            upstream = node_results[upstream_ids[0]]
+            step = _parse_union_node(node, upstream_names)
+            m_query = upstream['m_query']
+            if step:
+                m_query = inject_m_steps(m_query, [step])
+            node_results[nid] = {
+                **upstream,
+                'name': node_name,
+                'm_query': m_query,
+            }
+            print(f"    ✓ Union: {node_name} ({len(upstream_names)} inputs)")
+
+    elif sem_type == 'Pivot':
+        if upstream_ids and upstream_ids[0] in node_results:
+            upstream = node_results[upstream_ids[0]]
+            step = _parse_pivot_node(node)
+            m_query = upstream['m_query']
+            if step:
+                m_query = inject_m_steps(m_query, [step])
+            node_results[nid] = {
+                **upstream,
+                'name': node_name,
+                'm_query': m_query,
+            }
+            print(f"    ✓ Pivot: {node_name} ({node.get('pivotType', '?')})")
+
+    elif sem_type in ('Script', 'RunScript', 'RunCommand'):
+        # Script step (Python/R) — not directly convertible; pass through with comment
+        if upstream_ids and upstream_ids[0] in node_results:
+            upstream = node_results[upstream_ids[0]]
+            script_lang = node.get('scriptLanguage', node.get('language', 'Python'))
+            comment_step = (
+                '#"Script Warning"',
+                f'Table.AddColumn({{prev}}, "__script_warning", '
+                f'each "/* {script_lang} script step not auto-converted — '
+                f'manual migration required */", type text)'
+            )
+            m_query = inject_m_steps(upstream['m_query'], [comment_step])
+            node_results[nid] = {
+                **upstream,
+                'name': node_name,
+                'm_query': m_query,
+            }
+            print(f"    ⚠ Script step ({script_lang}): {node_name} — manual migration required")
+
+    elif sem_type in ('Prediction', 'TabPy', 'Einstein'):
+        # Prediction / ML step — not convertible; pass through with warning
+        if upstream_ids and upstream_ids[0] in node_results:
+            upstream = node_results[upstream_ids[0]]
+            comment_step = (
+                '#"Prediction Warning"',
+                f'Table.AddColumn({{prev}}, "__prediction_warning", '
+                f'each "/* ML/prediction step not auto-converted — '
+                f'use Power BI AutoML or Python visual */", type text)'
+            )
+            m_query = inject_m_steps(upstream['m_query'], [comment_step])
+            node_results[nid] = {
+                **upstream,
+                'name': node_name,
+                'm_query': m_query,
+            }
+            print(f"    ⚠ Prediction step: {node_name} — manual migration required")
+
+    elif sem_type == 'CrossJoin':
+        # Cross join (no key condition) → Table.Join with no key
+        if upstream_ids and len(upstream_ids) >= 2:
+            left_id = upstream_ids[0]
+            right_id = upstream_ids[1]
+            if left_id in node_results and right_id in node_results:
+                left = node_results[left_id]
+                right = node_results[right_id]
+                right_name = _clean_m_table_ref(right.get('name', 'RightTable'))
+                secondary_branch_ids.add(right_id)
+                cross_step = (
+                    '#"Cross Join"',
+                    f'Table.Join({{prev}}, {{}}, {right_name}, {{}}, JoinKind.FullOuter)'
+                )
+                m_query = inject_m_steps(left['m_query'], [cross_step])
+                node_results[nid] = {
+                    **left,
+                    'name': node_name,
+                    'm_query': m_query,
+                }
+                print(f"    ✓ Cross Join: {node_name}")
+
+    elif sem_type in ('PublishedDataSource', 'LoadPublishedDataSource'):
+        # Published data source input — reference as external table
+        ds_name = node.get('publishedDatasourceName',
+                           node.get('datasourceName', node_name))
+        table_ref = _clean_m_table_ref(ds_name)
+        m_query = (
+            f'let\n'
+            f'    // Published Data Source: {ds_name}\n'
+            f'    // TODO: Replace with actual Power BI dataset reference\n'
+            f'    Source = #"{table_ref}"\n'
+            f'in\n    Source'
+        )
+        node_results[nid] = {
+            'connection': {'type': 'published', 'details': {}},
+            'table': {'name': table_ref, 'columns': []},
+            'name': node_name,
+            'm_query': m_query,
+            'fields': node.get('fields', []),
+        }
+        print(f"    ✓ Published DS Input: {node_name} → {ds_name}")
+
+    else:
+        # Unknown transform — pass through
+        if upstream_ids and upstream_ids[0] in node_results:
+            node_results[nid] = {
+                **node_results[upstream_ids[0]],
+                'name': node_name,
+            }
+            print(f"    ⚠ Unsupported step: {sem_type} ({node_name}) — passed through")
+
+
+def _collect_prep_datasources(sorted_ids, nodes, node_results, secondary_branch_ids):
+    """Collect processed node results into datasource definitions for the PBI pipeline."""
     datasources = []
 
     # First, emit secondary branch nodes (join right-tables, union extras)
@@ -959,7 +1043,6 @@ def parse_prep_flow(filepath):
                     'datatype': f.get('type', 'string'),
                 })
 
-            conn = result.get('connection', {})
             datasource = {
                 'name': f'prep.{table_name}',
                 'caption': raw_name,
@@ -967,9 +1050,9 @@ def parse_prep_flow(filepath):
                     'name': table_name,
                     'columns': columns,
                 }],
-                'connection': conn,
+                'connection': result.get('connection', {}),
                 'connection_map': {},
-                'connections': [conn],
+                'connections': [result.get('connection', {})],
                 'columns_metadata': [],
                 'calculations': [],
                 'relationships': [],
@@ -991,7 +1074,6 @@ def parse_prep_flow(filepath):
                     'datatype': f.get('type', 'string'),
                 })
 
-            conn = result.get('connection', {})
             datasource = {
                 'name': f'prep.{table_name}',
                 'caption': ds_name,
@@ -999,9 +1081,9 @@ def parse_prep_flow(filepath):
                     'name': table_name,
                     'columns': columns,
                 }],
-                'connection': conn,
+                'connection': result.get('connection', {}),
                 'connection_map': {},
-                'connections': [conn],
+                'connections': [result.get('connection', {})],
                 'columns_metadata': [],
                 'calculations': [],
                 'relationships': [],
@@ -1018,7 +1100,6 @@ def parse_prep_flow(filepath):
                 result = node_results[nid]
                 ds_name = result.get('name', 'PrepOutput')
                 table_name = ds_name.replace(' ', '_')
-                conn = result.get('connection', {})
                 datasource = {
                     'name': f'prep.{table_name}',
                     'caption': ds_name,
@@ -1027,9 +1108,9 @@ def parse_prep_flow(filepath):
                         'columns': [{'name': f.get('name', ''), 'datatype': f.get('type', 'string')}
                                     for f in result.get('fields', [])],
                     }],
-                    'connection': conn,
+                    'connection': result.get('connection', {}),
                     'connection_map': {},
-                    'connections': [conn],
+                    'connections': [result.get('connection', {})],
                     'columns_metadata': [],
                     'calculations': [],
                     'relationships': [],

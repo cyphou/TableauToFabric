@@ -1,0 +1,8 @@
+{
+  "displayName": "nba_player_stats",
+  "type": "Pipeline",
+  "generated_at": "2026-03-05T13:30:04.267808",
+  "activities": 4,
+  "stages": 3,
+  "lakehouse": "nba_player_stats"
+}

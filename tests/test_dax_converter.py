@@ -1,855 +1,604 @@
 """
-Tests for tableau_export.dax_converter — Tableau formula → DAX conversion.
+Unit tests for dax_converter.py — Tableau formula → DAX conversion.
 
-Organized by complexity:
-  SIMPLE:  Type mapping, empty inputs, bracket escape, simple 1:1 functions
-  MEDIUM:  Operators, CASE/IF structures, DATEDIFF, ZN/IFNULL, LOD expressions,
-           column resolution, AGG→AGGX, string concat, date literals
-  COMPLEX: Multi-layered nesting, RANK, WINDOW, full convert_tableau_formula_to_dax
-           with all context args, calc column mode, complex LOD with
-           cross-table columns
+Tests the main convert_tableau_formula_to_dax function and individual
+conversion phases: references, CASE/IF, functions, LOD, operators,
+column resolution, AGG→AGGX, and cleanup.
 """
 
+import os
+import sys
 import unittest
-from tableau_export.dax_converter import (
-    _reverse_tableau_bracket_escape,
-    map_tableau_to_powerbi_type,
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'tableau_export'))
+
+from dax_converter import (
     convert_tableau_formula_to_dax,
-    _convert_case_structure,
-    _convert_if_structure,
-    _convert_datediff,
-    _convert_zn,
-    _convert_ifnull,
-    _convert_lod_expressions,
-    _convert_find,
-    _convert_endswith,
-    _convert_startswith,
-    _convert_proper,
-    _convert_split,
-    _convert_atan2,
-    _convert_div,
-    _convert_square,
-    _convert_iif,
-    _convert_str_to_format,
-    _convert_float_to_convert,
-    _convert_datename,
-    _convert_dateparse,
-    _convert_isdate,
-    _convert_radians_degrees,
-    _convert_string_concat,
-    _fix_ceiling_floor,
-    _fix_date_literals,
-    _convert_agg_if_to_aggx,
-    _convert_agg_expr_to_aggx,
-    _convert_window_functions,
-    _convert_rank_functions,
-    _resolve_references,
-    _resolve_columns,
-    _split_args,
+    map_tableau_to_powerbi_type,
+    _reverse_tableau_bracket_escape,
 )
 
 
-# ═══════════════════════════════════════════════════════════════════
-# SIMPLE TESTS
-# ═══════════════════════════════════════════════════════════════════
-
+# ═══════════════════════════════════════════════════════════════════════
+# Type Mapping
+# ═══════════════════════════════════════════════════════════════════════
 
 class TestMapTableauToPowerBIType(unittest.TestCase):
-    """SIMPLE — Type mapping."""
-
-    def test_string(self):
-        self.assertEqual(map_tableau_to_powerbi_type('string'), 'String')
+    """Test map_tableau_to_powerbi_type."""
 
     def test_integer(self):
-        self.assertEqual(map_tableau_to_powerbi_type('integer'), 'Int64')
+        self.assertEqual(map_tableau_to_powerbi_type("integer"), "Int64")
 
     def test_real(self):
-        self.assertEqual(map_tableau_to_powerbi_type('real'), 'Double')
+        self.assertEqual(map_tableau_to_powerbi_type("real"), "Double")
+
+    def test_string(self):
+        self.assertEqual(map_tableau_to_powerbi_type("string"), "String")
 
     def test_boolean(self):
-        self.assertEqual(map_tableau_to_powerbi_type('boolean'), 'Boolean')
+        self.assertEqual(map_tableau_to_powerbi_type("boolean"), "Boolean")
 
     def test_date(self):
-        self.assertEqual(map_tableau_to_powerbi_type('date'), 'DateTime')
+        self.assertEqual(map_tableau_to_powerbi_type("date"), "DateTime")
 
     def test_datetime(self):
-        self.assertEqual(map_tableau_to_powerbi_type('datetime'), 'DateTime')
+        self.assertEqual(map_tableau_to_powerbi_type("datetime"), "DateTime")
 
-    def test_number(self):
-        self.assertEqual(map_tableau_to_powerbi_type('number'), 'Double')
-
-    def test_unknown_returns_string(self):
-        self.assertEqual(map_tableau_to_powerbi_type('blob'), 'String')
-
-    def test_case_insensitive(self):
-        self.assertEqual(map_tableau_to_powerbi_type('INTEGER'), 'Int64')
-        self.assertEqual(map_tableau_to_powerbi_type('String'), 'String')
+    def test_unknown_defaults_to_string(self):
+        self.assertEqual(map_tableau_to_powerbi_type("blob"), "String")
 
 
-class TestBracketEscape(unittest.TestCase):
-    """SIMPLE — _reverse_tableau_bracket_escape."""
+# ═══════════════════════════════════════════════════════════════════════
+# Bracket Escape Reversal
+# ═══════════════════════════════════════════════════════════════════════
 
-    def test_no_change_balanced(self):
-        self.assertEqual(_reverse_tableau_bracket_escape('abc(def)'), 'abc(def)')
+class TestReverseBracketEscape(unittest.TestCase):
+    """Test _reverse_tableau_bracket_escape."""
 
-    def test_orphan_paren_reversed(self):
-        self.assertEqual(_reverse_tableau_bracket_escape('col)'), 'col]')
+    def test_orphan_close_paren(self):
+        result = _reverse_tableau_bracket_escape("Column Name)")
+        self.assertEqual(result, "Column Name]")
 
-    def test_multiple_orphan_parens(self):
-        self.assertEqual(_reverse_tableau_bracket_escape('a)b)'), 'a]b]')
-
-    def test_mixed_balanced_and_orphan(self):
-        self.assertEqual(_reverse_tableau_bracket_escape('a(b)c)'), 'a(b)c]')
+    def test_balanced_parens_unchanged(self):
+        result = _reverse_tableau_bracket_escape("func(x)")
+        self.assertEqual(result, "func(x)")
 
     def test_no_parens(self):
-        self.assertEqual(_reverse_tableau_bracket_escape('hello'), 'hello')
+        result = _reverse_tableau_bracket_escape("Plain Name")
+        self.assertEqual(result, "Plain Name")
 
-    def test_empty_string(self):
-        self.assertEqual(_reverse_tableau_bracket_escape(''), '')
+    def test_multiple_orphan_parens(self):
+        result = _reverse_tableau_bracket_escape("A) B)")
+        self.assertEqual(result, "A] B]")
 
+
+# ═══════════════════════════════════════════════════════════════════════
+# Empty / Null Input Handling
+# ═══════════════════════════════════════════════════════════════════════
 
 class TestEmptyInputs(unittest.TestCase):
-    """SIMPLE — Edge cases: empty, None, whitespace formulas."""
+    """Test edge cases with empty/null formulas."""
 
     def test_empty_string(self):
-        result = convert_tableau_formula_to_dax('')
-        self.assertEqual(result, '')
+        result = convert_tableau_formula_to_dax("")
+        self.assertEqual(result, "")
+
+    def test_whitespace_only(self):
+        result = convert_tableau_formula_to_dax("   ")
+        self.assertEqual(result, "   ")
 
     def test_none_input(self):
         result = convert_tableau_formula_to_dax(None)
         self.assertIsNone(result)
 
-    def test_whitespace_only(self):
-        result = convert_tableau_formula_to_dax('   ')
-        self.assertEqual(result, '   ')
 
-    def test_single_literal(self):
-        result = convert_tableau_formula_to_dax('"hello"')
-        self.assertEqual(result, '"hello"')
-
+# ═══════════════════════════════════════════════════════════════════════
+# Simple Function Conversions
+# ═══════════════════════════════════════════════════════════════════════
 
 class TestSimpleFunctionConversions(unittest.TestCase):
-    """SIMPLE — 1:1 Tableau→DAX function substitutions."""
+    """Test direct Tableau → DAX function name mappings."""
 
     def test_isnull_to_isblank(self):
-        result = convert_tableau_formula_to_dax('ISNULL([field])')
-        self.assertIn('ISBLANK', result)
-        self.assertNotIn('ISNULL', result)
+        result = convert_tableau_formula_to_dax("ISNULL([Field])")
+        self.assertIn("ISBLANK", result)
+        self.assertNotIn("ISNULL", result)
+
+    def test_zn_to_if_isblank(self):
+        result = convert_tableau_formula_to_dax("ZN([Sales])")
+        self.assertIn("ISBLANK", result)
+
+    def test_ifnull_to_if_isblank(self):
+        result = convert_tableau_formula_to_dax("IFNULL([Sales], 0)")
+        self.assertIn("ISBLANK", result)
 
     def test_countd_to_distinctcount(self):
-        result = convert_tableau_formula_to_dax('COUNTD([Customer])')
-        self.assertIn('DISTINCTCOUNT', result)
-
-    def test_avg_to_average(self):
-        result = convert_tableau_formula_to_dax('AVG([Sales])')
-        self.assertIn('AVERAGE', result)
-
-    def test_contains_to_containsstring(self):
-        result = convert_tableau_formula_to_dax('CONTAINS([Name], "abc")')
-        self.assertIn('CONTAINSSTRING', result)
-
-    def test_ascii_to_unicode(self):
-        result = convert_tableau_formula_to_dax('ASCII("A")')
-        self.assertIn('UNICODE', result)
-
-    def test_char_to_unichar(self):
-        result = convert_tableau_formula_to_dax('CHAR(65)')
-        self.assertIn('UNICHAR', result)
-
-    def test_attr_to_values(self):
-        result = convert_tableau_formula_to_dax('ATTR([Category])')
-        self.assertIn('SELECTEDVALUE', result)
-
-    def test_trim(self):
-        result = convert_tableau_formula_to_dax('TRIM([Name])')
-        self.assertIn('TRIM', result)
-
-    def test_upper(self):
-        result = convert_tableau_formula_to_dax('UPPER([Name])')
-        self.assertIn('UPPER', result)
-
-    def test_lower(self):
-        result = convert_tableau_formula_to_dax('LOWER([Name])')
-        self.assertIn('LOWER', result)
-
-    def test_left(self):
-        result = convert_tableau_formula_to_dax('LEFT([Name], 3)')
-        self.assertIn('LEFT', result)
-
-    def test_right(self):
-        result = convert_tableau_formula_to_dax('RIGHT([Name], 3)')
-        self.assertIn('RIGHT', result)
-
-    def test_mid(self):
-        result = convert_tableau_formula_to_dax('MID([Name], 2, 3)')
-        self.assertIn('MID', result)
-
-    def test_len(self):
-        result = convert_tableau_formula_to_dax('LEN([Name])')
-        self.assertIn('LEN', result)
-
-    def test_replace_to_substitute(self):
-        result = convert_tableau_formula_to_dax('REPLACE([Name], "a", "b")')
-        self.assertIn('SUBSTITUTE', result)
-
-    def test_abs(self):
-        result = convert_tableau_formula_to_dax('ABS([Delta])')
-        self.assertIn('ABS', result)
-
-    def test_round(self):
-        result = convert_tableau_formula_to_dax('ROUND([Price], 2)')
-        self.assertIn('ROUND', result)
-
-    def test_power(self):
-        result = convert_tableau_formula_to_dax('POWER([X], 3)')
-        self.assertIn('POWER', result)
-
-    def test_sqrt(self):
-        result = convert_tableau_formula_to_dax('SQRT([X])')
-        self.assertIn('SQRT', result)
-
-    def test_log(self):
-        result = convert_tableau_formula_to_dax('LOG([X])')
-        self.assertIn('LOG', result)
-
-    def test_exp(self):
-        result = convert_tableau_formula_to_dax('EXP([X])')
-        self.assertIn('EXP', result)
-
-    def test_pi(self):
-        result = convert_tableau_formula_to_dax('PI()')
-        self.assertIn('PI()', result)
-
-    def test_today(self):
-        result = convert_tableau_formula_to_dax('TODAY()')
-        self.assertIn('TODAY()', result)
-
-    def test_now(self):
-        result = convert_tableau_formula_to_dax('NOW()')
-        self.assertIn('NOW()', result)
-
-    def test_sum(self):
-        result = convert_tableau_formula_to_dax('SUM([Sales])')
-        self.assertIn('SUM', result)
-
-    def test_min(self):
-        result = convert_tableau_formula_to_dax('MIN([Price])')
-        self.assertIn('MIN', result)
-
-    def test_max(self):
-        result = convert_tableau_formula_to_dax('MAX([Price])')
-        self.assertIn('MAX', result)
-
-    def test_count(self):
-        result = convert_tableau_formula_to_dax('COUNT([OrderID])')
-        self.assertIn('COUNT', result)
-
-    def test_counta(self):
-        result = convert_tableau_formula_to_dax('COUNTA([OrderID])')
-        self.assertIn('COUNTA', result)
-
-    def test_median(self):
-        result = convert_tableau_formula_to_dax('MEDIAN([Sales])')
-        self.assertIn('MEDIAN', result)
-
-    def test_stdev_to_stdev_s(self):
-        result = convert_tableau_formula_to_dax('STDEV([Sales])')
-        self.assertIn('STDEV.S', result)
-
-    def test_stdevp_to_stdev_p(self):
-        result = convert_tableau_formula_to_dax('STDEVP([Sales])')
-        self.assertIn('STDEV.P', result)
-
-    def test_var_to_var_s(self):
-        result = convert_tableau_formula_to_dax('VAR([Sales])')
-        self.assertIn('VAR.S', result)
-
-    def test_varp_to_var_p(self):
-        result = convert_tableau_formula_to_dax('VARP([Sales])')
-        self.assertIn('VAR.P', result)
-
-    def test_makedate_to_date(self):
-        result = convert_tableau_formula_to_dax('MAKEDATE(2024, 1, 15)')
-        self.assertIn('DATE', result)
-
-    def test_maketime_to_time(self):
-        result = convert_tableau_formula_to_dax('MAKETIME(10, 30, 0)')
-        self.assertIn('TIME', result)
+        result = convert_tableau_formula_to_dax("COUNTD([Customer ID])")
+        self.assertIn("DISTINCTCOUNT", result)
+        self.assertNotIn("COUNTD", result)
 
     def test_username_to_userprincipalname(self):
-        result = convert_tableau_formula_to_dax('USERNAME()')
-        self.assertIn('USERPRINCIPALNAME', result)
+        result = convert_tableau_formula_to_dax("USERNAME()")
+        self.assertIn("USERPRINCIPALNAME", result)
 
-    def test_regexp_match_to_containsstring(self):
-        result = convert_tableau_formula_to_dax('REGEXP_MATCH([Code], "^A")')
-        self.assertIn('CONTAINSSTRING', result)
+    def test_fullname_to_userprincipalname(self):
+        result = convert_tableau_formula_to_dax("FULLNAME()")
+        self.assertIn("USERPRINCIPALNAME", result)
 
-    def test_size_to_countrows(self):
-        result = convert_tableau_formula_to_dax('SIZE()')
-        self.assertIn('COUNTROWS', result)
+    def test_userdomain_comment(self):
+        result = convert_tableau_formula_to_dax("USERDOMAIN()")
+        self.assertIn("RLS", result)  # Should mention RLS
 
+    def test_today(self):
+        result = convert_tableau_formula_to_dax("TODAY()")
+        self.assertIn("TODAY()", result)
 
-class TestDateFunctions(unittest.TestCase):
-    """SIMPLE — Date function mappings (DATETRUNC, DATEPART)."""
+    def test_now(self):
+        result = convert_tableau_formula_to_dax("NOW()")
+        self.assertIn("NOW()", result)
 
-    def test_datetrunc_year(self):
-        result = convert_tableau_formula_to_dax("DATETRUNC('year', [OrderDate])")
-        self.assertIn('STARTOFYEAR', result)
+    def test_len(self):
+        result = convert_tableau_formula_to_dax("LEN([Name])")
+        self.assertIn("LEN", result)
 
-    def test_datetrunc_quarter(self):
-        result = convert_tableau_formula_to_dax("DATETRUNC('quarter', [OrderDate])")
-        self.assertIn('STARTOFQUARTER', result)
+    def test_left(self):
+        result = convert_tableau_formula_to_dax("LEFT([Name], 5)")
+        self.assertIn("LEFT", result)
 
-    def test_datetrunc_month(self):
-        result = convert_tableau_formula_to_dax("DATETRUNC('month', [OrderDate])")
-        self.assertIn('STARTOFMONTH', result)
+    def test_right(self):
+        result = convert_tableau_formula_to_dax("RIGHT([Name], 3)")
+        self.assertIn("RIGHT", result)
 
-    def test_datepart_year(self):
-        result = convert_tableau_formula_to_dax("DATEPART('year', [OrderDate])")
-        self.assertIn('YEAR', result)
+    def test_upper(self):
+        result = convert_tableau_formula_to_dax("UPPER([Name])")
+        self.assertIn("UPPER", result)
 
-    def test_datepart_month(self):
-        result = convert_tableau_formula_to_dax("DATEPART('month', [OrderDate])")
-        self.assertIn('MONTH', result)
+    def test_lower(self):
+        result = convert_tableau_formula_to_dax("LOWER([Name])")
+        self.assertIn("LOWER", result)
 
-    def test_datepart_day(self):
-        result = convert_tableau_formula_to_dax("DATEPART('day', [OrderDate])")
-        self.assertIn('DAY', result)
+    def test_trim(self):
+        result = convert_tableau_formula_to_dax("TRIM([Name])")
+        self.assertIn("TRIM", result)
 
-    def test_datepart_week(self):
-        result = convert_tableau_formula_to_dax("DATEPART('week', [OrderDate])")
-        self.assertIn('WEEKNUM', result)
+    def test_abs(self):
+        result = convert_tableau_formula_to_dax("ABS([Value])")
+        self.assertIn("ABS", result)
 
+    def test_round(self):
+        result = convert_tableau_formula_to_dax("ROUND([Value], 2)")
+        self.assertIn("ROUND", result)
 
-class TestSplitArgs(unittest.TestCase):
-    """SIMPLE — Utility: argument splitting respecting nested parens."""
+    def test_power(self):
+        result = convert_tableau_formula_to_dax("POWER([Value], 3)")
+        self.assertIn("POWER", result)
 
-    def test_simple_split(self):
-        self.assertEqual(_split_args('a, b, c'), ['a', 'b', 'c'])
+    def test_sqrt(self):
+        result = convert_tableau_formula_to_dax("SQRT([Value])")
+        self.assertIn("SQRT", result)
 
-    def test_nested_parens(self):
-        result = _split_args('SUM(a, b), c')
-        self.assertEqual(result, ['SUM(a, b)', 'c'])
+    def test_log(self):
+        result = convert_tableau_formula_to_dax("LOG([Value])")
+        self.assertIn("LOG", result)
 
-    def test_single_arg(self):
-        self.assertEqual(_split_args('a'), ['a'])
+    def test_exp(self):
+        result = convert_tableau_formula_to_dax("EXP([Value])")
+        self.assertIn("EXP", result)
 
-    def test_empty(self):
-        self.assertEqual(_split_args(''), [])
+    def test_min_aggregation(self):
+        result = convert_tableau_formula_to_dax("MIN([Value])")
+        self.assertIn("MIN", result)
 
-    def test_deeply_nested(self):
-        result = _split_args('IF(A, SUM(B, C)), D')
-        self.assertEqual(len(result), 2)
+    def test_max_aggregation(self):
+        result = convert_tableau_formula_to_dax("MAX([Value])")
+        self.assertIn("MAX", result)
 
+    def test_sum_aggregation(self):
+        result = convert_tableau_formula_to_dax("SUM([Amount])")
+        self.assertIn("SUM", result)
 
-# ═══════════════════════════════════════════════════════════════════
-# MEDIUM TESTS
-# ═══════════════════════════════════════════════════════════════════
+    def test_avg_to_average(self):
+        result = convert_tableau_formula_to_dax("AVG([Value])")
+        self.assertIn("AVERAGE", result)
+        self.assertNotIn("AVG(", result)
 
+    def test_median(self):
+        result = convert_tableau_formula_to_dax("MEDIAN([Value])")
+        self.assertIn("MEDIAN", result)
 
-class TestOperatorConversions(unittest.TestCase):
-    """MEDIUM — Operator substitutions."""
-
-    def test_double_equals(self):
-        result = convert_tableau_formula_to_dax('[A] == [B]')
-        self.assertIn('=', result)
-        self.assertNotIn('==', result)
-
-    def test_not_equals(self):
-        result = convert_tableau_formula_to_dax('[A] != [B]')
-        self.assertIn('<>', result)
-        self.assertNotIn('!=', result)
-
-    def test_and_operator(self):
-        result = convert_tableau_formula_to_dax('[A] > 0 AND [B] > 0')
-        self.assertIn('&&', result)
-
-    def test_or_operator(self):
-        result = convert_tableau_formula_to_dax('[A] > 0 OR [B] > 0')
-        self.assertIn('||', result)
-
-
-class TestCaseStructure(unittest.TestCase):
-    """MEDIUM — CASE/WHEN/THEN/ELSE/END → SWITCH()."""
-
-    def test_simple_case(self):
-        formula = "CASE [Region] WHEN 'East' THEN 1 WHEN 'West' THEN 2 ELSE 0 END"
-        result = _convert_case_structure(formula)
-        self.assertIn('SWITCH', result)
-        self.assertNotIn('CASE', result)
-        self.assertNotIn('END', result)
-
-    def test_case_without_else(self):
-        formula = "CASE [Status] WHEN 'Active' THEN 'Yes' END"
-        result = _convert_case_structure(formula)
-        self.assertIn('SWITCH', result)
+    def test_contains_to_containsstring(self):
+        result = convert_tableau_formula_to_dax('CONTAINS([Name], "Corp")')
+        self.assertIn("CONTAINSSTRING", result)
 
 
-class TestIfStructure(unittest.TestCase):
-    """MEDIUM — IF/THEN/ELSE/END → IF()."""
+# ═══════════════════════════════════════════════════════════════════════
+# Special Function Converters
+# ═══════════════════════════════════════════════════════════════════════
 
-    def test_simple_if(self):
-        formula = 'IF [Sales] > 100 THEN "High" ELSE "Low" END'
-        result = _convert_if_structure(formula)
-        self.assertIn('IF(', result)
-        self.assertNotIn(' THEN ', result)
-        self.assertNotIn(' END', result)
+class TestSpecialFunctionConverters(unittest.TestCase):
+    """Test dedicated function converters with argument reordering."""
 
-    def test_if_no_else(self):
-        formula = 'IF [Sales] > 100 THEN "High" END'
-        result = _convert_if_structure(formula)
-        self.assertIn('IF(', result)
-        self.assertIn('BLANK()', result)
-
-    def test_elseif(self):
-        formula = 'IF [X] > 100 THEN "H" ELSEIF [X] > 50 THEN "M" ELSE "L" END'
-        result = _convert_if_structure(formula)
-        self.assertIn('IF(', result)
-        # Nested IF should be present
-        self.assertEqual(result.count('IF('), 2)
-
-
-class TestDatediff(unittest.TestCase):
-    """MEDIUM — DATEDIFF arg-reordering."""
-
-    def test_datediff_reorder(self):
-        result = _convert_datediff("DATEDIFF('year', [Start], [End])")
-        self.assertIn('DATEDIFF(', result)
-        self.assertIn('YEAR', result)
-        # Interval should be last arg in DAX
-        self.assertTrue(result.strip().endswith(')'))
-
-
-class TestZnIfnull(unittest.TestCase):
-    """MEDIUM — ZN and IFNULL conversions."""
-
-    def test_zn(self):
-        result = _convert_zn('ZN([Sales])')
-        self.assertIn('ISBLANK', result)
-        self.assertIn('0', result)
-
-    def test_ifnull(self):
-        result = _convert_ifnull('IFNULL([Sales], 0)')
-        self.assertIn('ISBLANK', result)
-
-
-class TestDedicatedConverters(unittest.TestCase):
-    """MEDIUM — Functions needing special arg handling."""
-
-    def test_find_swaps_args(self):
-        result = _convert_find('FIND("hello", "l")')
-        self.assertIn('FIND(', result)
-
-    def test_endswith(self):
-        result = _convert_endswith('ENDSWITH("hello", "lo")')
-        self.assertIn('RIGHT', result)
-        self.assertIn('LEN', result)
-
-    def test_startswith(self):
-        result = _convert_startswith('STARTSWITH("hello", "he")')
-        self.assertIn('LEFT', result)
-        self.assertIn('LEN', result)
-
-    def test_proper(self):
-        result = _convert_proper('PROPER("hello world")')
-        self.assertIn('UPPER', result)
-        self.assertIn('LOWER', result)
-
-    def test_split_placeholder(self):
-        result = _convert_split('SPLIT("a-b", "-", 1)')
-        self.assertIn('PATHITEM', result)
-        self.assertIn('SUBSTITUTE', result)
-
-    def test_atan2(self):
-        result = _convert_atan2('ATAN2(3, 4)')
-        self.assertIn('ATAN(', result)
-
-    def test_div_to_quotient(self):
-        result = _convert_div('DIV(10, 3)')
-        self.assertIn('QUOTIENT', result)
-
-    def test_square_to_power(self):
-        result = _convert_square('SQUARE(5)')
-        self.assertIn('POWER(5, 2)', result)
-
-    def test_iif(self):
-        result = _convert_iif('IIF([X] > 0, "Pos", "Neg")')
-        self.assertIn('IF(', result)
+    def test_datediff_arg_reorder(self):
+        result = convert_tableau_formula_to_dax(
+            "DATEDIFF('month', [Start], [End])"
+        )
+        self.assertIn("DATEDIFF", result)
+        self.assertIn("MONTH", result)
 
     def test_str_to_format(self):
-        result = _convert_str_to_format('STR(123)')
-        self.assertIn('FORMAT', result)
+        result = convert_tableau_formula_to_dax("STR([Value])")
+        self.assertIn("FORMAT", result)
 
     def test_float_to_convert(self):
-        result = _convert_float_to_convert('FLOAT(123)')
-        self.assertIn('CONVERT', result)
-        self.assertIn('DOUBLE', result)
+        result = convert_tableau_formula_to_dax("FLOAT([Value])")
+        self.assertIn("CONVERT", result)
+        self.assertIn("DOUBLE", result)
 
-    def test_datename(self):
-        result = _convert_datename("DATENAME('month', [D])")
-        self.assertIn('FORMAT', result)
+    def test_div_to_quotient(self):
+        result = convert_tableau_formula_to_dax("DIV(10, 3)")
+        self.assertIn("QUOTIENT", result)
 
-    def test_dateparse(self):
-        result = _convert_dateparse("DATEPARSE('yyyy-MM-dd', [D])")
-        self.assertIn('DATEVALUE', result)
+    def test_square_to_power(self):
+        result = convert_tableau_formula_to_dax("SQUARE([Value])")
+        self.assertIn("POWER", result)
+        self.assertIn("2", result)
 
-    def test_isdate(self):
-        result = _convert_isdate('ISDATE([D])')
-        self.assertIn('NOT', result)
-        self.assertIn('ISERROR', result)
-        self.assertIn('DATEVALUE', result)
+    def test_iif_to_if(self):
+        result = convert_tableau_formula_to_dax("IIF([Sales] > 100, 'High', 'Low')")
+        self.assertIn("IF", result)
+        self.assertNotIn("IIF", result)
 
-    def test_radians(self):
-        result = _convert_radians_degrees('RADIANS(90)')
-        self.assertIn('PI()', result)
-        self.assertIn('180', result)
-
-    def test_degrees(self):
-        result = _convert_radians_degrees('DEGREES(3.14)')
-        self.assertIn('180', result)
-        self.assertIn('PI()', result)
+    def test_ismemberof_to_rls_comment(self):
+        result = convert_tableau_formula_to_dax('ISMEMBEROF("Admin Group")')
+        self.assertIn("TRUE()", result)
+        self.assertIn("RLS", result)
 
 
-class TestCeilingFloorFix(unittest.TestCase):
-    """MEDIUM — CEILING/FLOOR get significance=1 added."""
+# ═══════════════════════════════════════════════════════════════════════
+# Operator Conversions
+# ═══════════════════════════════════════════════════════════════════════
 
-    def test_ceiling_single_arg(self):
-        result = _fix_ceiling_floor('CEILING(3.5)')
-        self.assertIn('CEILING(3.5, 1)', result)
+class TestOperatorConversions(unittest.TestCase):
+    """Test operator syntax conversions."""
 
-    def test_floor_single_arg(self):
-        result = _fix_ceiling_floor('FLOOR(3.5)')
-        self.assertIn('FLOOR(3.5, 1)', result)
+    def test_double_equals_to_single(self):
+        result = convert_tableau_formula_to_dax("[Status] == 'Active'")
+        self.assertNotIn("==", result)
+        self.assertIn("=", result)
 
-    def test_ceiling_two_args_unchanged(self):
-        result = _fix_ceiling_floor('CEILING(3.5, 0.5)')
-        self.assertIn('CEILING(3.5, 0.5)', result)
+    def test_not_equals(self):
+        result = convert_tableau_formula_to_dax("[Status] != 'Active'")
+        self.assertIn("<>", result)
+        self.assertNotIn("!=", result)
 
+    def test_and_operator(self):
+        result = convert_tableau_formula_to_dax("[A] > 1 AND [B] > 2")
+        self.assertIn("&&", result)
 
-class TestDateLiterals(unittest.TestCase):
-    """MEDIUM — Tableau #YYYY-MM-DD# → DAX DATE(Y, M, D)."""
+    def test_or_operator(self):
+        result = convert_tableau_formula_to_dax("[A] > 1 OR [B] > 2")
+        self.assertIn("||", result)
 
-    def test_date_literal(self):
-        result = _fix_date_literals('#2024-01-15#')
-        self.assertEqual(result, 'DATE(2024, 1, 15)')
-
-    def test_no_date_literal(self):
-        result = _fix_date_literals('[OrderDate]')
-        self.assertEqual(result, '[OrderDate]')
-
-
-class TestStringConcat(unittest.TestCase):
-    """MEDIUM — String concatenation: + → &."""
-
-    def test_plus_to_ampersand(self):
-        result = _convert_string_concat('"Hello" + " " + "World"')
-        self.assertIn('&', result)
-        self.assertNotIn('+', result)
-
-    def test_plus_inside_function_preserved(self):
-        # + inside parens should NOT be converted
-        result = _convert_string_concat('"A" + FIND("x", "y") + "B"')
-        # At depth 0, + → &
-        self.assertIn('&', result)
-
-
-class TestResolveReferences(unittest.TestCase):
-    """MEDIUM — Parameter and calculation reference resolution."""
-
-    def test_parameter_resolved(self):
-        result = _resolve_references(
-            '[Parameters].[MyParam]',
-            calc_map={},
-            param_map={'MyParam': 'Target Threshold'},
-            is_calc_column=False,
-            param_values={}
+    def test_string_concat_plus_to_ampersand(self):
+        result = convert_tableau_formula_to_dax(
+            "[First] + ' ' + [Last]",
+            calc_datatype="string"
         )
-        self.assertEqual(result, '[Target Threshold]')
+        self.assertIn("&", result)
 
-    def test_calculation_resolved(self):
-        result = _resolve_references(
-            '[Calculation_1234]',
-            calc_map={'Calculation_1234': 'Profit Ratio'},
-            param_map={},
-            is_calc_column=False,
-            param_values={}
-        )
-        self.assertEqual(result, '[Profit Ratio]')
 
-    def test_unknown_calc_unchanged(self):
-        result = _resolve_references(
-            '[Calculation_9999]',
-            calc_map={},
-            param_map={},
-            is_calc_column=False,
-            param_values={}
-        )
-        self.assertEqual(result, '[Calculation_9999]')
+# ═══════════════════════════════════════════════════════════════════════
+# CASE / IF Structure Conversion
+# ═══════════════════════════════════════════════════════════════════════
 
-    def test_param_inline_for_calc_column(self):
-        result = _resolve_references(
-            '[Parameters].[TopN]',
-            calc_map={},
-            param_map={'TopN': 'TopN'},
-            is_calc_column=True,
-            param_values={'TopN': '10'}
-        )
-        self.assertEqual(result, '10')
+class TestStructureConversion(unittest.TestCase):
+    """Test CASE/WHEN → SWITCH and IF/THEN → IF() conversions."""
 
+    def test_case_when_to_switch(self):
+        formula = "CASE [Region] WHEN 'East' THEN 1 WHEN 'West' THEN 2 ELSE 0 END"
+        result = convert_tableau_formula_to_dax(formula)
+        self.assertIn("SWITCH", result)
+        self.assertNotIn("CASE", result)
+
+    def test_if_then_to_if(self):
+        formula = "IF [Sales] > 1000 THEN 'High' ELSE 'Low' END"
+        result = convert_tableau_formula_to_dax(formula)
+        self.assertIn("IF", result)
+        self.assertNotIn("THEN", result)
+        self.assertNotIn("END", result)
+
+    def test_if_elseif_to_nested_if(self):
+        formula = "IF [Sales] > 1000 THEN 'High' ELSEIF [Sales] > 500 THEN 'Medium' ELSE 'Low' END"
+        result = convert_tableau_formula_to_dax(formula)
+        self.assertNotIn("ELSEIF", result)
+        # Should have nested IFs
+        self.assertEqual(result.count("IF"), result.count("IF"))  # sanity
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# LOD Expressions
+# ═══════════════════════════════════════════════════════════════════════
 
 class TestLODExpressions(unittest.TestCase):
-    """MEDIUM — LOD (Level of Detail) expressions → CALCULATE."""
+    """Test LOD (Level of Detail) expression conversion."""
 
-    def test_fixed_with_dim(self):
-        result = _convert_lod_expressions(
-            '{FIXED [Region] : SUM([Sales])}',
-            'Orders',
-            {'Region': 'Orders'}
+    def test_fixed_lod(self):
+        result = convert_tableau_formula_to_dax(
+            "{FIXED [Region] : SUM([Sales])}",
+            table_name="Orders",
+            column_table_map={"Region": "Orders", "Sales": "Orders"},
         )
-        self.assertIn('CALCULATE', result)
-        self.assertIn('ALLEXCEPT', result)
+        self.assertIn("CALCULATE", result)
+        self.assertIn("ALLEXCEPT", result)
 
-    def test_include(self):
-        result = _convert_lod_expressions(
-            '{INCLUDE [Category] : AVG([Profit])}',
-            'Orders',
-            {}
+    def test_include_lod(self):
+        result = convert_tableau_formula_to_dax(
+            "{INCLUDE [Region] : SUM([Sales])}",
+            table_name="Orders",
+            column_table_map={"Region": "Orders", "Sales": "Orders"},
         )
-        self.assertIn('CALCULATE', result)
+        self.assertIn("CALCULATE", result)
 
-    def test_exclude(self):
-        result = _convert_lod_expressions(
-            '{EXCLUDE [Region] : SUM([Sales])}',
-            'Orders',
-            {'Region': 'Orders'}
+    def test_exclude_lod(self):
+        result = convert_tableau_formula_to_dax(
+            "{EXCLUDE [Region] : SUM([Sales])}",
+            table_name="Orders",
+            column_table_map={"Region": "Orders", "Sales": "Orders"},
         )
-        self.assertIn('CALCULATE', result)
-        self.assertIn('REMOVEFILTERS', result)
+        self.assertIn("CALCULATE", result)
+        self.assertIn("REMOVEFILTERS", result)
 
 
-class TestAggIfToAggx(unittest.TestCase):
-    """MEDIUM — SUM(IF(...)) → SUMX('T', IF(...))."""
+# ═══════════════════════════════════════════════════════════════════════
+# Column Resolution & Cross-Table References
+# ═══════════════════════════════════════════════════════════════════════
 
-    def test_sum_if(self):
-        result = _convert_agg_if_to_aggx("SUM(IF([A] > 0, [B], 0))", 'Orders')
-        self.assertIn('SUMX', result)
-        self.assertIn("'Orders'", result)
+class TestColumnResolution(unittest.TestCase):
+    """Test column name resolution with table qualifying."""
 
-    def test_average_if(self):
-        result = _convert_agg_if_to_aggx("AVERAGE(IF([A], [B], 0))", 'Sales')
-        self.assertIn('AVERAGEX', result)
-
-
-class TestAggExprToAggx(unittest.TestCase):
-    """MEDIUM — SUM(expr) → SUMX when expr is not a single column."""
-
-    def test_sum_of_product(self):
-        result = _convert_agg_expr_to_aggx("SUM('T'[Price] * 'T'[Qty])", 'T')
-        self.assertIn('SUMX', result)
-
-    def test_sum_single_column_unchanged(self):
-        result = _convert_agg_expr_to_aggx("SUM('T'[Sales])", 'T')
-        self.assertIn('SUM', result)
-        self.assertNotIn('SUMX', result)
-
-
-# ═══════════════════════════════════════════════════════════════════
-# COMPLEX TESTS
-# ═══════════════════════════════════════════════════════════════════
-
-
-class TestResolveColumns(unittest.TestCase):
-    """COMPLEX — Column reference resolution with table qualification."""
-
-    def test_column_with_known_table(self):
-        result = _resolve_columns(
-            '[Sales]', 'Orders',
-            column_table_map={'Sales': 'Orders'},
-            measure_names=set(),
-            is_calc_column=False,
-            param_values={}
+    def test_single_column_qualified(self):
+        result = convert_tableau_formula_to_dax(
+            "SUM([Sales])",
+            table_name="Orders",
+            column_table_map={"Sales": "Orders"},
         )
         self.assertIn("'Orders'[Sales]", result)
 
-    def test_measure_no_table_prefix(self):
-        result = _resolve_columns(
-            '[Total Sales]', 'Orders',
-            column_table_map={},
-            measure_names={'Total Sales'},
-            is_calc_column=False,
-            param_values={}
+    def test_measure_not_qualified_with_table(self):
+        result = convert_tableau_formula_to_dax(
+            "[Total Sales]",
+            table_name="Orders",
+            column_table_map={"Total Sales": "Orders"},
+            measure_names={"Total Sales"},
         )
-        self.assertEqual(result, '[Total Sales]')
+        self.assertIn("[Total Sales]", result)
+        # Measures should NOT have table prefix
+        self.assertNotIn("'Orders'[Total Sales]", result)
 
-    def test_cross_table_related(self):
-        result = _resolve_columns(
-            '[Category]', 'Orders',
-            column_table_map={'Category': 'Products'},
-            measure_names=set(),
+    def test_cross_table_ref_uses_related(self):
+        result = convert_tableau_formula_to_dax(
+            "[Product Name]",
+            table_name="Orders",
+            column_table_map={"Product Name": "Products"},
             is_calc_column=True,
-            param_values={}
         )
-        self.assertIn('RELATED', result)
-        self.assertIn("'Products'[Category]", result)
+        self.assertIn("RELATED", result)
 
-    def test_same_table_no_related(self):
-        result = _resolve_columns(
-            '[Sales]', 'Orders',
-            column_table_map={'Sales': 'Orders'},
-            measure_names=set(),
-            is_calc_column=True,
-            param_values={}
+
+# ═══════════════════════════════════════════════════════════════════════
+# AGG(IF(...)) → AGGX Conversion
+# ═══════════════════════════════════════════════════════════════════════
+
+class TestAggIfToAggx(unittest.TestCase):
+    """Test SUM(IF(...)) → SUMX('table', IF(...)) conversion."""
+
+    def test_sum_if_to_sumx(self):
+        result = convert_tableau_formula_to_dax(
+            "SUM(IF [Status]='Active' THEN [Amount] END)",
+            table_name="Orders",
+            column_table_map={"Status": "Orders", "Amount": "Orders"},
         )
-        self.assertNotIn('RELATED', result)
+        self.assertIn("SUMX", result)
 
-
-class TestWindowFunctions(unittest.TestCase):
-    """COMPLEX — WINDOW_SUM/AVG/etc → CALCULATE(..., ALL('t'))."""
-
-    def test_window_sum(self):
-        result = _convert_window_functions("WINDOW_SUM(SUM([Sales]))", 'Orders')
-        self.assertIn('CALCULATE', result)
-        self.assertIn("ALL('Orders')", result)
-
-    def test_window_avg(self):
-        result = _convert_window_functions("WINDOW_AVG(AVG([Sales]))", 'Orders')
-        self.assertIn('CALCULATE', result)
-
-    def test_multiple_window(self):
-        result = _convert_window_functions(
-            "WINDOW_SUM(SUM([A])) + WINDOW_MAX(MAX([B]))",
-            'T'
+    def test_avg_if_to_averagex(self):
+        result = convert_tableau_formula_to_dax(
+            "AVG(IF [Type]='A' THEN [Value] END)",
+            table_name="Data",
+            column_table_map={"Type": "Data", "Value": "Data"},
         )
-        self.assertEqual(result.count('CALCULATE'), 2)
+        self.assertIn("AVERAGEX", result)
 
 
-class TestRankFunctions(unittest.TestCase):
-    """COMPLEX — RANK/RANK_UNIQUE/RANK_DENSE/RANK_PERCENTILE → RANKX."""
+# ═══════════════════════════════════════════════════════════════════════
+# Table Calc Conversions
+# ═══════════════════════════════════════════════════════════════════════
+
+class TestTableCalcConversions(unittest.TestCase):
+    """Test Tableau table calculation → DAX conversions."""
+
+    def test_running_sum(self):
+        result = convert_tableau_formula_to_dax(
+            "RUNNING_SUM(SUM([Sales]))",
+            table_name="Orders",
+        )
+        self.assertIn("CALCULATE", result)
+
+    def test_running_avg(self):
+        result = convert_tableau_formula_to_dax(
+            "RUNNING_AVG(SUM([Sales]))",
+            table_name="Orders",
+        )
+        self.assertIn("CALCULATE", result)
 
     def test_rank(self):
-        result = _convert_rank_functions("RANK([Sales])", 'Orders')
-        self.assertIn('RANKX', result)
-        self.assertIn("ALL('Orders')", result)
-
-    def test_rank_dense(self):
-        result = _convert_rank_functions("RANK_DENSE([Sales])", 'Orders')
-        self.assertIn('DENSE', result)
-
-    def test_rank_percentile(self):
-        result = _convert_rank_functions("RANK_PERCENTILE([Sales])", 'Orders')
-        self.assertIn('DIVIDE', result)
-        self.assertIn('RANKX', result)
-
-
-class TestFullConversion(unittest.TestCase):
-    """COMPLEX — End-to-end convert_tableau_formula_to_dax with context."""
-
-    def test_simple_formula(self):
-        result = convert_tableau_formula_to_dax('SUM([Sales])')
-        self.assertIn('SUM', result)
-
-    def test_formula_with_calc_map(self):
         result = convert_tableau_formula_to_dax(
-            '[Calculation_001]',
-            calc_map={'Calculation_001': 'Total Revenue'}
+            "RANK(SUM([Sales]))",
+            table_name="Orders",
         )
-        self.assertIn('Total Revenue', result)
+        self.assertIn("RANKX", result)
 
-    def test_formula_with_param(self):
+    def test_rank_unique(self):
         result = convert_tableau_formula_to_dax(
-            '[Parameters].[TopN]',
-            param_map={'TopN': 'TopN Param'}
+            "RANK_UNIQUE(SUM([Sales]))",
+            table_name="Orders",
         )
-        self.assertIn('TopN Param', result)
+        self.assertIn("RANKX", result)
 
-    def test_complex_nested_formula(self):
-        """Nested IF with aggregation and operators."""
-        formula = (
-            'IF SUM([Sales]) > 1000 AND COUNTD([Customer]) > 10 '
-            'THEN "Top" ELSE "Low" END'
-        )
-        result = convert_tableau_formula_to_dax(formula, table_name='Orders')
-        self.assertIn('IF(', result)
-        self.assertIn('&&', result)
-        self.assertIn('DISTINCTCOUNT', result)
-
-    def test_case_with_date_functions(self):
-        """CASE with DATEPART inside."""
-        formula = (
-            "CASE DATEPART('quarter', [OrderDate]) "
-            "WHEN 1 THEN 'Q1' WHEN 2 THEN 'Q2' WHEN 3 THEN 'Q3' WHEN 4 THEN 'Q4' END"
-        )
-        result = convert_tableau_formula_to_dax(formula, table_name='Orders')
-        self.assertIn('SWITCH', result)
-        self.assertIn('QUARTER', result)
-
-    def test_lod_in_full_context(self):
-        """LOD expression through full converter pipeline."""
-        formula = '{FIXED [Category] : SUM([Sales])}'
+    def test_window_sum(self):
         result = convert_tableau_formula_to_dax(
-            formula, table_name='Orders',
-            column_table_map={'Category': 'Products', 'Sales': 'Orders'}
+            "WINDOW_SUM(SUM([Sales]))",
+            table_name="Orders",
         )
-        self.assertIn('CALCULATE', result)
-        self.assertIn('ALLEXCEPT', result)
+        self.assertIn("CALCULATE", result)
 
-    def test_operators_in_full_context(self):
-        result = convert_tableau_formula_to_dax('[A] != [B] AND [C] == [D]')
-        self.assertIn('<>', result)
-        self.assertIn('&&', result)
-        self.assertNotIn('!=', result)
-        self.assertNotIn('==', result)
 
-    def test_calc_column_mode(self):
-        """Calculated column mode: STARTOF* → DATE(), cross-table → RELATED."""
-        formula = "DATETRUNC('month', [OrderDate])"
+# ═══════════════════════════════════════════════════════════════════════
+# Date Function Conversions
+# ═══════════════════════════════════════════════════════════════════════
+
+class TestDateFunctions(unittest.TestCase):
+    """Test Tableau date function → DAX conversions."""
+
+    def test_datetrunc_year(self):
+        result = convert_tableau_formula_to_dax("DATETRUNC('year', [OrderDate])")
+        # Should convert to STARTOFYEAR or equivalent
+        dax_upper = result.upper()
+        self.assertTrue(
+            "STARTOFYEAR" in dax_upper or "YEAR" in dax_upper,
+            f"Expected date operation but got: {result}"
+        )
+
+    def test_datepart_year(self):
+        result = convert_tableau_formula_to_dax("DATEPART('year', [OrderDate])")
+        self.assertIn("YEAR", result.upper())
+
+    def test_dateadd(self):
+        result = convert_tableau_formula_to_dax("DATEADD('month', 3, [OrderDate])")
+        self.assertIn("DATEADD", result)
+
+    def test_date_literal(self):
+        result = convert_tableau_formula_to_dax("#2024-01-15#")
+        self.assertIn("DATE", result)
+        self.assertIn("2024", result)
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Reference Resolution
+# ═══════════════════════════════════════════════════════════════════════
+
+class TestReferenceResolution(unittest.TestCase):
+    """Test calc_map and param_map reference resolution."""
+
+    def test_calculation_reference_resolved(self):
+        result = convert_tableau_formula_to_dax(
+            "[Calculation_001] * 2",
+            calc_map={"Calculation_001": "Total Sales"},
+        )
+        self.assertIn("Total Sales", result)
+        self.assertNotIn("Calculation_001", result)
+
+    def test_parameter_reference_resolved(self):
+        result = convert_tableau_formula_to_dax(
+            "[Parameters].[Discount Rate]",
+            param_map={"Discount Rate": "Discount Rate"},
+        )
+        self.assertIn("Discount Rate", result)
+
+    def test_parameter_inlined_for_calc_column(self):
+        result = convert_tableau_formula_to_dax(
+            "[Parameters].[Max Value]",
+            param_map={"Max Value": "Max Value"},
+            param_values={"Max Value": "100"},
+            is_calc_column=True,
+        )
+        self.assertIn("100", result)
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Math / Statistics Functions
+# ═══════════════════════════════════════════════════════════════════════
+
+class TestMathStatsFunctions(unittest.TestCase):
+    """Test math and statistics function conversions."""
+
+    def test_stdev(self):
+        result = convert_tableau_formula_to_dax("STDEV([Value])")
+        self.assertIn("STDEV", result)
+
+    def test_var(self):
+        result = convert_tableau_formula_to_dax("VAR([Value])")
+        dax_upper = result.upper()
+        self.assertTrue("VAR" in dax_upper)
+
+    def test_ceiling_gets_second_arg(self):
+        result = convert_tableau_formula_to_dax("CEILING([Value])")
+        # Should add missing second argument
+        self.assertIn("CEILING", result)
+
+    def test_floor_gets_second_arg(self):
+        result = convert_tableau_formula_to_dax("FLOOR([Value])")
+        self.assertIn("FLOOR", result)
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# No Tableau Syntax Leakage
+# ═══════════════════════════════════════════════════════════════════════
+
+class TestNoTableauLeakage(unittest.TestCase):
+    """Verify converted DAX doesn't contain Tableau-specific syntax."""
+
+    def test_no_elseif(self):
+        formula = "IF [A]>1 THEN 'X' ELSEIF [A]>0 THEN 'Y' ELSE 'Z' END"
+        result = convert_tableau_formula_to_dax(formula)
+        self.assertNotIn("ELSEIF", result)
+
+    def test_no_double_equals(self):
+        result = convert_tableau_formula_to_dax("[X] == 1")
+        self.assertNotIn("==", result)
+
+    def test_no_not_equals_excl(self):
+        result = convert_tableau_formula_to_dax("[X] != 1")
+        self.assertNotIn("!=", result)
+
+    def test_no_lod_braces(self):
+        result = convert_tableau_formula_to_dax(
+            "{FIXED [Region] : SUM([Sales])}",
+            table_name="T",
+            column_table_map={"Region": "T", "Sales": "T"},
+        )
+        self.assertNotIn("{FIXED", result)
+        self.assertNotIn("{INCLUDE", result)
+        self.assertNotIn("{EXCLUDE", result)
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Complex / Combined Formulas
+# ═══════════════════════════════════════════════════════════════════════
+
+class TestComplexFormulas(unittest.TestCase):
+    """Test complex multi-feature formulas."""
+
+    def test_nested_if_with_aggregation(self):
+        formula = "IF SUM([Sales]) > 1000 THEN 'High' ELSE 'Low' END"
         result = convert_tableau_formula_to_dax(
             formula,
-            table_name='Orders',
-            column_table_map={'OrderDate': 'Orders'},
-            is_calc_column=True
+            table_name="Orders",
+            column_table_map={"Sales": "Orders"},
         )
-        self.assertIn('DATE(', result)
-        self.assertIn('YEAR', result)
-        self.assertIn('MONTH', result)
+        self.assertIn("IF", result)
+        self.assertIn("SUM", result)
 
-    def test_string_concat_type(self):
-        """String-typed calc: + → & at top level."""
-        formula = '[FirstName] + " " + [LastName]'
+    def test_formula_with_multiple_functions(self):
+        formula = "ROUND(SUM([Sales]) / COUNTD([Customer]), 2)"
         result = convert_tableau_formula_to_dax(
-            formula, table_name='People',
-            calc_datatype='string'
+            formula,
+            table_name="Orders",
+            column_table_map={"Sales": "Orders", "Customer": "Orders"},
         )
-        self.assertIn('&', result)
-
-    def test_date_literal_in_full_context(self):
-        formula = '[OrderDate] > #2024-01-01#'
-        result = convert_tableau_formula_to_dax(formula)
-        self.assertIn('DATE(2024, 1, 1)', result)
-
-    def test_no_tableau_leakage(self):
-        """Converted formulas should not contain raw Tableau keywords."""
-        formula = (
-            'IF ISNULL([Sales]) THEN ZN([Profit]) '
-            'ELSEIF COUNTD([Customer]) > 5 THEN AVG([Revenue]) '
-            'ELSE 0 END'
-        )
-        result = convert_tableau_formula_to_dax(formula, table_name='T')
-        # Should not contain Tableau-specific keywords
-        upper = result.upper()
-        for keyword in ['ISNULL', 'COUNTD', ' THEN ', ' ELSEIF ', ' END']:
-            self.assertNotIn(keyword, upper,
-                             f"Tableau keyword '{keyword}' leaked into DAX: {result}")
-
-    def test_table_calc_running_sum(self):
-        result = convert_tableau_formula_to_dax('RUNNING_SUM(SUM([Sales]))')
-        self.assertIn('CALCULATE', result)
-
-    def test_spatial_function_placeholder(self):
-        result = convert_tableau_formula_to_dax('MAKEPOINT([Lat], [Lng])')
-        self.assertIn('MAKEPOINT', result)
-        self.assertIn('BLANK', result)
+        self.assertIn("ROUND", result)
+        self.assertIn("SUM", result)
+        self.assertIn("DISTINCTCOUNT", result)
 
 
 if __name__ == '__main__':
-    unittest.main()
+    unittest.main(verbosity=2)

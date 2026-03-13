@@ -1,0 +1,14 @@
+{
+  "displayName": "sample-superstore",
+  "type": "SemanticModel",
+  "mode": "DirectLake",
+  "lakehouse": "sample-superstore",
+  "stats": {
+    "tables": 2,
+    "columns": 32,
+    "measures": 1,
+    "relationships": 1,
+    "hierarchies": 0,
+    "roles": 0
+  }
+}

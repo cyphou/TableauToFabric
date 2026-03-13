@@ -1,0 +1,305 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/lakehouse/definition/lakehouse/1.0.0/schema.json",
+  "properties": {
+    "displayName": "filtering_Lakehouse",
+    "description": "Lakehouse generated from Tableau workbook: filtering",
+    "created": "2026-03-05T10:47:04.664939",
+    "defaultSchema": "dbo"
+  },
+  "tables": [
+    {
+      "name": "testdata",
+      "original_name": "TestData",
+      "columns": [
+        {
+          "name": "Account_Account_Name",
+          "datatype": "STRING",
+          "nullable": true,
+          "original_name": "Account Account Name",
+          "original_type": "string"
+        },
+        {
+          "name": "Account_Number",
+          "datatype": "DOUBLE",
+          "nullable": true,
+          "original_name": "Account Number",
+          "original_type": "real"
+        },
+        {
+          "name": "Account_Number_Burst_Out_Account",
+          "datatype": "STRING",
+          "nullable": true,
+          "original_name": "Account Number Burst Out Account",
+          "original_type": "string"
+        },
+        {
+          "name": "Acct_Name",
+          "datatype": "STRING",
+          "nullable": true,
+          "original_name": "Acct Name",
+          "original_type": "string"
+        },
+        {
+          "name": "Burst_Out",
+          "datatype": "STRING",
+          "nullable": true,
+          "original_name": "Burst Out",
+          "original_type": "string"
+        },
+        {
+          "name": "Burst_Out_Join",
+          "datatype": "STRING",
+          "nullable": true,
+          "original_name": "Burst Out Join",
+          "original_type": "string"
+        },
+        {
+          "name": "Burst_Out_Set_list",
+          "datatype": "DOUBLE",
+          "nullable": true,
+          "original_name": "Burst Out Set list",
+          "original_type": "real"
+        },
+        {
+          "name": "Burst_Out_View",
+          "datatype": "DOUBLE",
+          "nullable": true,
+          "original_name": "Burst Out View",
+          "original_type": "real"
+        },
+        {
+          "name": "Count_JE_Number",
+          "datatype": "DOUBLE",
+          "nullable": true,
+          "original_name": "Count JE Number",
+          "original_type": "real"
+        },
+        {
+          "name": "Entity_ID",
+          "datatype": "STRING",
+          "nullable": true,
+          "original_name": "Entity ID",
+          "original_type": "string"
+        },
+        {
+          "name": "Filter",
+          "datatype": "DOUBLE",
+          "nullable": true,
+          "original_name": "Filter",
+          "original_type": "real"
+        },
+        {
+          "name": "Fiscal_Year",
+          "datatype": "STRING",
+          "nullable": true,
+          "original_name": "Fiscal Year",
+          "original_type": "string"
+        },
+        {
+          "name": "Flag",
+          "datatype": "BOOLEAN",
+          "nullable": false,
+          "original_name": "Flag",
+          "original_type": "boolean"
+        },
+        {
+          "name": "Flag_copy",
+          "datatype": "BOOLEAN",
+          "nullable": false,
+          "original_name": "Flag__copy_",
+          "original_type": "boolean"
+        },
+        {
+          "name": "FS_Line",
+          "datatype": "DOUBLE",
+          "nullable": true,
+          "original_name": "FS Line",
+          "original_type": "real"
+        },
+        {
+          "name": "FS_Line_Burst_Out_Account",
+          "datatype": "STRING",
+          "nullable": true,
+          "original_name": "FS Line Burst Out Account",
+          "original_type": "string"
+        },
+        {
+          "name": "Group_By",
+          "datatype": "DOUBLE",
+          "nullable": true,
+          "original_name": "Group By",
+          "original_type": "real"
+        },
+        {
+          "name": "Image",
+          "datatype": "STRING",
+          "nullable": true,
+          "original_name": "Image",
+          "original_type": "string"
+        },
+        {
+          "name": "Note_Line",
+          "datatype": "DOUBLE",
+          "nullable": true,
+          "original_name": "Note Line",
+          "original_type": "real"
+        },
+        {
+          "name": "Note_Line_Burst_Out_Account",
+          "datatype": "STRING",
+          "nullable": true,
+          "original_name": "Note Line Burst Out Account",
+          "original_type": "string"
+        },
+        {
+          "name": "Selection",
+          "datatype": "DOUBLE",
+          "nullable": true,
+          "original_name": "Selection",
+          "original_type": "real"
+        },
+        {
+          "name": "show",
+          "datatype": "STRING",
+          "nullable": true,
+          "original_name": "show",
+          "original_type": "string"
+        },
+        {
+          "name": "Show_Cycle_Based",
+          "datatype": "STRING",
+          "nullable": true,
+          "original_name": "Show Cycle Based",
+          "original_type": "string"
+        },
+        {
+          "name": "Sub_Class",
+          "datatype": "DOUBLE",
+          "nullable": true,
+          "original_name": "Sub Class",
+          "original_type": "real"
+        },
+        {
+          "name": "SubClass_Burst_Out_Account",
+          "datatype": "STRING",
+          "nullable": true,
+          "original_name": "SubClass Burst Out Account",
+          "original_type": "string"
+        },
+        {
+          "name": "Type",
+          "datatype": "STRING",
+          "nullable": true,
+          "original_name": "Type",
+          "original_type": "string"
+        },
+        {
+          "name": "Amount",
+          "datatype": "STRING",
+          "nullable": true,
+          "original_name": "Amount",
+          "original_type": "string"
+        },
+        {
+          "name": "Amount1",
+          "datatype": "STRING",
+          "nullable": true,
+          "original_name": "Amount1",
+          "original_type": "string"
+        },
+        {
+          "name": "Count_of_Amount_Calculation",
+          "datatype": "DOUBLE",
+          "nullable": true,
+          "original_name": "Count of Amount Calculation",
+          "original_type": "real"
+        },
+        {
+          "name": "Number_of_Records",
+          "datatype": "DOUBLE",
+          "nullable": true,
+          "original_name": "Number of Records",
+          "original_type": "real"
+        },
+        {
+          "name": "Number_of_Records1",
+          "datatype": "DOUBLE",
+          "nullable": true,
+          "original_name": "Number of Records1",
+          "original_type": "real"
+        },
+        {
+          "name": "Select_Burst_Out",
+          "datatype": "DOUBLE",
+          "nullable": true,
+          "original_name": "Select Burst Out",
+          "original_type": "real"
+        },
+        {
+          "name": "Select_Transaction_Analysis_view",
+          "datatype": "DOUBLE",
+          "nullable": true,
+          "original_name": "Select Transaction Analysis view",
+          "original_type": "real"
+        },
+        {
+          "name": "Sum_Cy",
+          "datatype": "DOUBLE",
+          "nullable": true,
+          "original_name": "Sum Cy",
+          "original_type": "real"
+        },
+        {
+          "name": "Sum_Py1",
+          "datatype": "DOUBLE",
+          "nullable": true,
+          "original_name": "Sum Py1",
+          "original_type": "real"
+        },
+        {
+          "name": "Sum_Py2",
+          "datatype": "DOUBLE",
+          "nullable": true,
+          "original_name": "Sum Py2",
+          "original_type": "real"
+        },
+        {
+          "name": "Sum_Py3",
+          "datatype": "DOUBLE",
+          "nullable": true,
+          "original_name": "Sum Py3",
+          "original_type": "real"
+        },
+        {
+          "name": "Sum_Py4",
+          "datatype": "DOUBLE",
+          "nullable": true,
+          "original_name": "Sum Py4",
+          "original_type": "real"
+        },
+        {
+          "name": "Total_Credits",
+          "datatype": "DOUBLE",
+          "nullable": true,
+          "original_name": "Total Credits",
+          "original_type": "real"
+        },
+        {
+          "name": "Total_Debits",
+          "datatype": "DOUBLE",
+          "nullable": true,
+          "original_name": "Total Debits",
+          "original_type": "real"
+        }
+      ],
+      "source_type": "SQL Server",
+      "source_connection": {
+        "server": "b5dpm3ihhu.database.windows.net",
+        "database": "EmptyDB",
+        "authentication": "sqlserver",
+        "username": "ctest"
+      },
+      "format": "delta"
+    }
+  ]
+}

@@ -1,0 +1,223 @@
+table Orders
+	lineageTag: 07ebcf42-19f3-4fd1-b196-592c7745a10c
+
+	measure '[Number of Records]' = 1
+		displayFolder: Measures
+		lineageTag: 2ef36573-e008-45ee-b902-d4c5064c78c0
+
+	column 'Row ID'
+		dataType: double
+		formatString: #,0.00
+		lineageTag: ed64c77f-c07f-4171-8234-e22ebdd7972d
+		summarizeBy: sum
+		sourceColumn: 'Row ID'
+
+		annotation SummarizationSetBy = Automatic
+
+	column 'Order ID'
+		dataType: string
+		lineageTag: 013dac59-07ae-480a-a4ac-060efed29300
+		summarizeBy: none
+		sourceColumn: 'Order ID'
+
+		annotation SummarizationSetBy = Automatic
+
+	column 'Order Date'
+		dataType: dateTime
+		formatString: General Date
+		lineageTag: 3c2ad0fb-c5e7-4593-a079-ad3a69a65d50
+		summarizeBy: none
+		sourceColumn: 'Order Date'
+		dataCategory: DateTime
+
+		annotation SummarizationSetBy = Automatic
+
+	column 'Ship Date'
+		dataType: dateTime
+		formatString: General Date
+		lineageTag: 2e8cbe1b-b2e7-4109-a9f0-fd763cf131e7
+		summarizeBy: none
+		sourceColumn: 'Ship Date'
+		dataCategory: DateTime
+
+		annotation SummarizationSetBy = Automatic
+
+	column 'Ship Mode'
+		dataType: string
+		lineageTag: 7646046d-47d3-4f03-833e-ecf0bc897384
+		summarizeBy: none
+		sourceColumn: 'Ship Mode'
+
+		annotation SummarizationSetBy = Automatic
+
+	column 'Customer ID'
+		dataType: string
+		lineageTag: 3f098d31-9588-472a-ae74-16434ac8aec2
+		summarizeBy: none
+		sourceColumn: 'Customer ID'
+
+		annotation SummarizationSetBy = Automatic
+
+	column 'Customer Name'
+		dataType: string
+		lineageTag: 058ffe6b-87fa-4683-bd07-13bd8bbf2961
+		summarizeBy: none
+		sourceColumn: 'Customer Name'
+
+		annotation SummarizationSetBy = Automatic
+
+	column Segment
+		dataType: string
+		lineageTag: c391c88e-805e-405a-bf41-85868ad0182b
+		summarizeBy: none
+		sourceColumn: Segment
+
+		annotation SummarizationSetBy = Automatic
+
+	column City
+		dataType: string
+		lineageTag: 80b203f4-2fc1-41aa-beb6-24bff29c3a50
+		summarizeBy: none
+		sourceColumn: City
+		dataCategory: City
+
+		annotation SummarizationSetBy = Automatic
+
+	column State
+		dataType: string
+		lineageTag: 33601c43-5612-4d36-9101-487f1a72a5ed
+		summarizeBy: none
+		sourceColumn: State
+		dataCategory: StateOrProvince
+
+		annotation SummarizationSetBy = Automatic
+
+	column Country
+		dataType: string
+		lineageTag: 78321681-368d-40b1-b49a-51d69726c786
+		summarizeBy: none
+		sourceColumn: Country
+		dataCategory: Country
+
+		annotation SummarizationSetBy = Automatic
+
+	column 'Postal Code'
+		dataType: double
+		formatString: #,0.00
+		lineageTag: 59a59c4f-ed43-4116-96f2-cd2af30c5fa8
+		summarizeBy: sum
+		sourceColumn: 'Postal Code'
+		dataCategory: PostalCode
+
+		annotation SummarizationSetBy = Automatic
+
+	column Market
+		dataType: string
+		lineageTag: caf776df-223f-4666-a97e-accff261ca22
+		summarizeBy: none
+		sourceColumn: Market
+
+		annotation SummarizationSetBy = Automatic
+
+	column Region
+		dataType: string
+		lineageTag: bfe1cdf7-30d1-414d-904f-5abe942ca3e1
+		summarizeBy: none
+		sourceColumn: Region
+		dataCategory: StateOrProvince
+
+		annotation SummarizationSetBy = Automatic
+
+	column 'Product ID'
+		dataType: string
+		lineageTag: f57caa53-c5d7-4a1c-820e-c54c27d62f0b
+		summarizeBy: none
+		sourceColumn: 'Product ID'
+
+		annotation SummarizationSetBy = Automatic
+
+	column Category
+		dataType: string
+		lineageTag: 76102321-2c63-44d9-9b75-095272f7a34b
+		summarizeBy: none
+		sourceColumn: Category
+
+		annotation SummarizationSetBy = Automatic
+
+	column 'Sub-Category'
+		dataType: string
+		lineageTag: 1cf36bec-2df7-43d7-89c7-5889af05cbee
+		summarizeBy: none
+		sourceColumn: 'Sub-Category'
+
+		annotation SummarizationSetBy = Automatic
+
+	column 'Product Name'
+		dataType: string
+		lineageTag: cd945035-ee15-4b3f-9c6f-01d41c58cf80
+		summarizeBy: none
+		sourceColumn: 'Product Name'
+
+		annotation SummarizationSetBy = Automatic
+
+	column Sales
+		dataType: double
+		formatString: #,0.00
+		lineageTag: 25d4aef7-724f-4bc0-bc88-825bfbaf2678
+		summarizeBy: sum
+		sourceColumn: Sales
+
+		annotation SummarizationSetBy = Automatic
+
+	column Quantity
+		dataType: double
+		formatString: #,0.00
+		lineageTag: c91ea56b-6700-49f7-b7b3-8eaa5348beca
+		summarizeBy: sum
+		sourceColumn: Quantity
+
+		annotation SummarizationSetBy = Automatic
+
+	column Discount
+		dataType: double
+		formatString: #,0.00
+		lineageTag: 0aa11ef1-43aa-41bc-ab5b-b1710eea1043
+		summarizeBy: sum
+		sourceColumn: Discount
+
+		annotation SummarizationSetBy = Automatic
+
+	column Profit
+		dataType: double
+		formatString: #,0.00
+		lineageTag: c516d9b7-134b-49c7-8789-318b219f8e8a
+		summarizeBy: sum
+		sourceColumn: Profit
+
+		annotation SummarizationSetBy = Automatic
+
+	column 'Shipping Cost'
+		dataType: double
+		formatString: #,0.00
+		lineageTag: eccee820-5cbd-491d-b1fb-60ecda427250
+		summarizeBy: sum
+		sourceColumn: 'Shipping Cost'
+
+		annotation SummarizationSetBy = Automatic
+
+	column 'Order Priority'
+		dataType: string
+		lineageTag: cc0b9ba0-2aa8-4c74-8b27-75f39d11259f
+		summarizeBy: none
+		sourceColumn: 'Order Priority'
+
+		annotation SummarizationSetBy = Automatic
+
+	partition 'Orders-a9ef4491-f9ac-4eec-8365-9a1e4f1ce5bc' = entity
+		mode: directLake
+		entityName: orders
+		schemaName: dbo
+		expressionSource: DatabaseQuery
+
+	annotation PBI_ResultType = Table
+

@@ -1,0 +1,202 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/lakehouse/definition/lakehouse/1.0.0/schema.json",
+  "properties": {
+    "displayName": "global_superstores_db_Lakehouse",
+    "description": "Lakehouse generated from Tableau workbook: global_superstores_db",
+    "created": "2026-03-06T12:16:08.349224",
+    "defaultSchema": "dbo"
+  },
+  "tables": [
+    {
+      "name": "orders",
+      "original_name": "Orders",
+      "columns": [
+        {
+          "name": "Row_ID",
+          "datatype": "INT",
+          "nullable": true,
+          "original_name": "Row ID",
+          "original_type": "integer"
+        },
+        {
+          "name": "Order_ID",
+          "datatype": "STRING",
+          "nullable": true,
+          "original_name": "Order ID",
+          "original_type": "string"
+        },
+        {
+          "name": "Order_Date",
+          "datatype": "DATE",
+          "nullable": true,
+          "original_name": "Order Date",
+          "original_type": "date"
+        },
+        {
+          "name": "Ship_Date",
+          "datatype": "DATE",
+          "nullable": true,
+          "original_name": "Ship Date",
+          "original_type": "date"
+        },
+        {
+          "name": "Ship_Mode",
+          "datatype": "STRING",
+          "nullable": true,
+          "original_name": "Ship Mode",
+          "original_type": "string"
+        },
+        {
+          "name": "Customer_ID",
+          "datatype": "STRING",
+          "nullable": true,
+          "original_name": "Customer ID",
+          "original_type": "string"
+        },
+        {
+          "name": "Customer_Name",
+          "datatype": "STRING",
+          "nullable": true,
+          "original_name": "Customer Name",
+          "original_type": "string"
+        },
+        {
+          "name": "Segment",
+          "datatype": "STRING",
+          "nullable": true,
+          "original_name": "Segment",
+          "original_type": "string"
+        },
+        {
+          "name": "City",
+          "datatype": "STRING",
+          "nullable": true,
+          "original_name": "City",
+          "original_type": "string"
+        },
+        {
+          "name": "State",
+          "datatype": "STRING",
+          "nullable": true,
+          "original_name": "State",
+          "original_type": "string"
+        },
+        {
+          "name": "Country",
+          "datatype": "STRING",
+          "nullable": true,
+          "original_name": "Country",
+          "original_type": "string"
+        },
+        {
+          "name": "Postal_Code",
+          "datatype": "STRING",
+          "nullable": true,
+          "original_name": "Postal Code",
+          "original_type": "string"
+        },
+        {
+          "name": "Market",
+          "datatype": "STRING",
+          "nullable": true,
+          "original_name": "Market",
+          "original_type": "string"
+        },
+        {
+          "name": "Region",
+          "datatype": "STRING",
+          "nullable": true,
+          "original_name": "Region",
+          "original_type": "string"
+        },
+        {
+          "name": "Product_ID",
+          "datatype": "STRING",
+          "nullable": true,
+          "original_name": "Product ID",
+          "original_type": "string"
+        },
+        {
+          "name": "Category",
+          "datatype": "STRING",
+          "nullable": true,
+          "original_name": "Category",
+          "original_type": "string"
+        },
+        {
+          "name": "Sub_Category",
+          "datatype": "STRING",
+          "nullable": true,
+          "original_name": "Sub-Category",
+          "original_type": "string"
+        },
+        {
+          "name": "Product_Name",
+          "datatype": "STRING",
+          "nullable": true,
+          "original_name": "Product Name",
+          "original_type": "string"
+        },
+        {
+          "name": "Sales",
+          "datatype": "DOUBLE",
+          "nullable": true,
+          "original_name": "Sales",
+          "original_type": "real"
+        },
+        {
+          "name": "Quantity",
+          "datatype": "INT",
+          "nullable": true,
+          "original_name": "Quantity",
+          "original_type": "integer"
+        },
+        {
+          "name": "Discount",
+          "datatype": "DOUBLE",
+          "nullable": true,
+          "original_name": "Discount",
+          "original_type": "real"
+        },
+        {
+          "name": "Profit",
+          "datatype": "DOUBLE",
+          "nullable": true,
+          "original_name": "Profit",
+          "original_type": "real"
+        },
+        {
+          "name": "Shipping_Cost",
+          "datatype": "DOUBLE",
+          "nullable": true,
+          "original_name": "Shipping Cost",
+          "original_type": "real"
+        },
+        {
+          "name": "Order_Priority",
+          "datatype": "STRING",
+          "nullable": true,
+          "original_name": "Order Priority",
+          "original_type": "string"
+        },
+        {
+          "name": "discount_bin",
+          "datatype": "INT",
+          "nullable": true,
+          "original_name": "[Discount (bin)]",
+          "original_type": "integer",
+          "is_calculated": true,
+          "formula": "[Discount]"
+        }
+      ],
+      "source_type": "Excel",
+      "source_connection": {
+        "filename": "/Users/bs/Mac Drive/MSBA/INFO584_01SP21/Datasets/Global Superstore.xlsx",
+        "caption": "Global Superstore",
+        "cleaning": "no",
+        "compat": "no"
+      },
+      "format": "delta"
+    }
+  ]
+}

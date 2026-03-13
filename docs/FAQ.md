@@ -1,328 +1,228 @@
-# Frequently Asked Questions
-
-## Migration Workflow
-
-```
-┌───────────────────────────────────────────────────────────────────────────────┐
-│                        MIGRATION WORKFLOW                                     │
-│                                                                               │
-│  ┌──────────┐     ┌───────────┐     ┌────────────┐     ┌──────────────────┐  │
-│  │  PREPARE  │────>│  MIGRATE  │────>│  VALIDATE  │────>│  DEPLOY          │  │
-│  └──────────┘     └───────────┘     └────────────┘     └──────────────────┘  │
-│                                                                               │
-│  1. Gather .twb/   2. Run           3. Check          4. Run deployment     │
-│     .twbx files       migrate.py       generated         scripts or         │
-│  2. Install           (CLI)            artifacts         Python deployer    │
-│     Python 3.9+    3. Review logs      (validator)    5. Wire data sources  │
-│  3. Clone repo     4. Optionally run                  6. Trigger pipeline   │
-│                       --assess first                                        │
-│                                        in PBI Desktop                       │
-└───────────────────────────────────────────────────────────────────────────────┘
-```
+# FAQ — Tableau to Fabric Migration
 
 ## General
 
-### What files does the tool accept?
-Tableau workbooks (`.twb` / `.twbx`) and, optionally, Tableau Prep flows (`.tfl` / `.tflx`).
+### Which Tableau files are supported?
 
-### What does the tool produce?
-Six Microsoft Fabric artifact types:
+`.twb` (XML workbooks) and `.twbx` (packaged workbooks with data). `.tds`/`.tdsx` (datasources) are also supported by the extractor.
 
-| Artifact | Description |
-|----------|-------------|
-| **Lakehouse** | Delta table DDL scripts + metadata |
-| **Dataflow Gen2** | Power Query M mashup definitions |
-| **Notebook** | PySpark ETL notebooks (`.ipynb`) |
-| **Semantic Model** | Standalone DirectLake TMDL model |
-| **Data Pipeline** | Orchestration: Dataflow → Notebook → Model refresh |
-| **Power BI Report** | `.pbip` project with DirectLake TMDL + PBIR visuals |
+### What is a `.pbip` file?
 
-### Do I need external Python packages?
-No. The core migration uses **only the Python standard library**.
-Optional packages for deployment:
-- `azure-identity` + `requests` — Fabric REST API deployment
-- `pydantic-settings` — `.env` configuration support
+It is a **Power BI Project** — a text-based file format (JSON + TMDL) that represents a complete Power BI report. It opens directly in Power BI Desktop by double-clicking.
 
-### Where does the output go?
-By default, inside `artifacts/fabric_projects/<ReportName>/`.
-Use `--output-dir` (or `-o`) to override.
+### Do I need to install Python dependencies?
 
----
+No. The core migration uses only the Python standard library (xml, json, os, uuid, re, etc.).
+
+Optional dependencies for advanced features:
+- `azure-identity` + `requests` — for Fabric workspace deployment
+- `pydantic-settings` — for typed configuration (falls back to env vars)
 
 ## Migration
 
-### How do I migrate a single workbook?
+### How do I run a migration?
 
 ```bash
 python migrate.py your_workbook.twbx
 ```
 
-### How do I run a pre-migration assessment?
+Or with additional options:
 
 ```bash
-python migrate.py your_workbook.twbx --assess
+# Custom output directory
+python migrate.py your_workbook.twbx --output-dir /tmp/output
+
+# Verbose logging
+python migrate.py your_workbook.twbx --verbose
+
+# Batch migrate all workbooks in a directory
+python migrate.py --batch examples/tableau_samples/ --output-dir /tmp/batch_output
+
+# With Tableau Prep flow
+python migrate.py your_workbook.twbx --prep flow.tfl
+
+# Log to file
+python migrate.py your_workbook.twbx --log-file migration.log
 ```
 
-This runs an **8-category readiness checklist** and produces a colour-coded console report + JSON file. No artifacts are generated — use this to evaluate migration complexity before committing.
-
-Categories checked: datasource compatibility, calculation readiness, visual coverage, filter/parameter complexity, data model complexity, interactivity, packaging, and migration scope (with effort estimate).
-
-Overall readiness: **GREEN** (ready), **YELLOW** (warnings to review), **RED** (blockers found).
-
-### How do I let the tool pick the best ETL strategy?
+Or step by step:
 
 ```bash
-python migrate.py your_workbook.twbx --auto
+python tableau_export/extract_tableau_data.py your_workbook.twbx
+python fabric_import/import_to_fabric.py
 ```
 
-The `--auto` flag analyses workbook complexity across 7 signals and auto-selects **Dataflow Gen2** (simple PQ transforms), **PySpark Notebook** (heavy transforms), or **both** with Pipeline orchestration.
+### Where is the output?
 
-### How do I choose which artifacts to generate?
+In `artifacts/fabric_projects/[ReportName]/[ReportName].pbip`. Double-click to open in Power BI Desktop.
 
-```bash
-# Only Lakehouse + Notebook + Pipeline
-python migrate.py workbook.twb --artifacts lakehouse notebook pipeline
+### Why do some formulas not work?
 
-# All artifacts (default)
-python migrate.py workbook.twb
+Some Tableau functions have no direct DAX equivalent:
+
+- `MAKEPOINT()` — no DAX equivalent; use lat/lon columns in a map visual
+- `PREVIOUS_VALUE()` — automatically converted to OFFSET-based DAX pattern (may need manual adjustment for complex seed logic)
+- `LOOKUP()` — automatically converted to OFFSET-based DAX pattern
+- Table functions (`SIZE()` → `COUNTROWS(ALLSELECTED())`, `INDEX()` → `RANKX()`) — approximated, may need adjustment
+
+Most complex patterns **are** handled automatically:
+- LOD expressions (`{ FIXED ... }`) → `CALCULATE` + `ALLEXCEPT` / `REMOVEFILTERS` / `ALL`
+- `SUM(IF ...)` → `SUMX('table', IF(...))` iterator conversion
+- Nested `IF/ELSEIF/ELSE/END` → nested `IF()` calls
+- Window functions (`WINDOW_AVG`, `WINDOW_SUM`) → `CALCULATE(..., ALL('table'))`
+- Table calculations (`RUNNING_SUM`, `RANK`) → `CALCULATE(SUM(...))`, `RANKX(ALL(...))`
+
+### How are LOD expressions converted?
+
+LOD (Level of Detail) expressions are one of the most complex Tableau features. The tool converts them automatically:
+
+```
+{FIXED [Region] : SUM([Sales])}
+→ CALCULATE(SUM('Table'[Sales]), ALLEXCEPT('Table', 'Table'[Region]))
+
+{FIXED [Region], [Category] : SUM([Sales])}
+→ CALCULATE(SUM(...), ALLEXCEPT('Table', 'Table'[Region], 'Table'[Category]))
+
+{EXCLUDE [Category] : SUM([Sales])}
+→ CALCULATE(SUM(...), REMOVEFILTERS('Table'[Category]))
+
+{FIXED : SUM(IF YEAR([Date]) = YEAR(TODAY()) THEN [Amount] ELSE 0 END)}
+→ CALCULATE(SUMX('Table', IF(YEAR(...) = YEAR(TODAY()), ...)), ALL('Table'))
 ```
 
-Available artifact names: `lakehouse`, `dataflow`, `notebook`, `semanticmodel`, `pipeline`, `pbi`.
+### How does the SUM(IF) → SUMX conversion work?
 
-### How do I batch-migrate a folder?
+In Tableau, `SUM(IF condition THEN value ELSE 0 END)` is common. DAX's `SUM()` only accepts a single column, so the tool converts to iterator functions:
 
-```bash
-python migrate.py "path/to/folder/" -o output/
+```
+Tableau: SUM(IF [type] = "Revenue" THEN [amount] ELSE 0 END)
+DAX:     SUMX('transactions', IF('transactions'[type] = "Revenue", 'transactions'[amount], 0))
 ```
 
-All `.twb` / `.twbx` files in the directory are migrated.
+This applies to all aggregate+condition patterns:
+- `SUM(IF ...)` → `SUMX`
+- `AVG(IF ...)` → `AVERAGEX`
+- `MIN(IF ...)` → `MINX`
+- `MAX(IF ...)` → `MAXX`
+- `COUNT(IF ...)` → `COUNTX`
 
-### What about Tableau formulas — are they converted?
-Yes. **~130 Tableau functions** are converted to DAX for use in the Semantic Model (measures and calculated columns).
-See the [DAX reference](TABLEAU_TO_DAX_REFERENCE.md) for the complete mapping.
+### How is Row-Level Security (RLS) migrated?
 
-### What DAX conversions are approximate or manual?
-| Status | Count | Examples |
-|--------|-------|---------|
-| ✅ Automatic | 133 | `IF`, `SUM`, `CONTAINS`, `DATEDIFF`, LOD expressions |
-| ⚠️ Approximate | 11 | `ATAN2`, `FINDNTH`, `PROPER`, `REGEXP_*` |
-| 🔧 Manual | 12 | `SPLIT`, `CORR`, `LOOKUP`, `SCRIPT_*` |
-| ❌ No equivalent | 15 | `HEXBINX`, `MAKEPOINT`, spatial functions |
+Tableau has multiple security mechanisms, all converted to Power BI RLS roles:
 
-### Are LOD expressions supported?
-Yes. All three types:
-- `{FIXED [dim] : AGG}` → `CALCULATE(AGG, ALLEXCEPT(...))`
-- `{INCLUDE [dim] : AGG}` → `CALCULATE(AGG)`
-- `{EXCLUDE [dim] : AGG}` → `CALCULATE(AGG, REMOVEFILTERS(...))`
+1. **User filters** (`<user-filter>` with user→value mappings):
+   ```tmdl
+   role 'Region Access'
+       tablePermission Orders
+           filterExpression = (USERPRINCIPALNAME() = "alice@co.com" && [Region] IN {"East", "West"}) || ...
+   ```
 
-### What about `SUM(IF ...)` patterns?
-Converted to iterator functions automatically:
-```
-SUM(IF [status] != "Cancelled" THEN [qty] * [price] ELSE 0 END)
-→ SUMX('Orders', IF('Orders'[status] != "Cancelled", 'Orders'[qty] * 'Orders'[price], 0))
-```
-This extends to `AVG(IF)→AVERAGEX`, `MIN(IF)→MINX`, `MAX(IF)→MAXX`, `COUNT(IF)→COUNTX`.
+2. **USERNAME() / FULLNAME() calculations**:
+   ```tmdl
+   role 'Is Current User'
+       tablePermission Orders
+           filterExpression = 'Orders'[Email] = USERPRINCIPALNAME()
+   ```
 
-### Are Row-Level Security (RLS) rules migrated?
-Yes. Tableau user filters and security functions are converted to TMDL RLS roles:
-- User filter mappings → `USERPRINCIPALNAME()` role filters
-- `USERNAME()` / `FULLNAME()` → `USERPRINCIPALNAME()`
-- `ISMEMBEROF("group")` → separate RLS role (assign Azure AD group)
+3. **ISMEMBEROF("group")** — creates a separate role per group:
+   ```tmdl
+   role Managers
+       tablePermission Orders
+           filterExpression = TRUE()  /* Assign Azure AD group members to this role */
+   ```
 
-### Are Tableau parameters migrated?
-Yes. Parameters become "What-If" tables:
+### What about parameters?
+
+Tableau parameters are converted to Power BI What-If parameter tables:
+
 - **Integer/real range** → `GENERATESERIES(min, max, step)` table + `SELECTEDVALUE` measure
-- **String list** → `DATATABLE("Value", STRING, {{"val1"}, ...})` table + `SELECTEDVALUE` measure
+- **String list** → `DATATABLE("Value", STRING, {{"val1"}, {"val2"}})` table + `SELECTEDVALUE` measure
+- **Date parameters** → static measure with default value
 
-### Do I need to reconfigure data sources?
-Yes. After migration, you must connect the Dataflow Gen2 queries (or Notebook cells) to real data sources in the Fabric workspace. Tableau connection strings cannot be transferred directly.
+When a calculated column references a parameter, the value is **inlined** (since calc columns can't reference measures in DAX).
 
----
+### How do I reconfigure the data sources?
+
+1. Open the `.pbip` in Power BI Desktop
+2. Go to Power Query Editor (Transform Data)
+3. Edit the source parameters in each query
+4. Close and Apply
 
 ## Technical
 
-### What is DirectLake mode?
-DirectLake is a Fabric-specific storage mode where the Semantic Model reads data directly from Delta tables in a Lakehouse, without importing data into the model. This gives near-Import performance with near-DirectQuery freshness.
+### What is the difference between a measure and a calculated column?
 
-### How are calculated columns handled?
-Calculated columns are **materialised in the Lakehouse** — they exist as physical Delta table columns rather than DAX expressions in the Semantic Model. This is required by DirectLake mode.
+- **Measure**: computed at aggregation time (e.g., `SUM`, `AVERAGE`). Adapts to the filter context.
+- **Calculated column**: computed row by row, stored in the model. Like an added column.
 
-The materialisation happens in four artifacts:
+The tool classifies automatically:
+- Tableau `role=measure` → DAX measure
+- Tableau `role=dimension` → calculated column
 
-```
-┌──────────────┐   ┌──────────────┐   ┌──────────────┐   ┌──────────────┐
-│ 1. LAKEHOUSE │──>│ 2. DATAFLOW  │──>│ 3. NOTEBOOK  │──>│ 4. SEMANTIC  │
-│              │   │    GEN2      │   │              │   │    MODEL     │
-│ DDL declares │   │ M query      │   │ PySpark      │   │ sourceColumn │
-│ physical col │   │ computes val │   │ computes val │   │ (NOT DAX)    │
-└──────────────┘   └──────────────┘   └──────────────┘   └──────────────┘
-```
+### Why does `RELATED()` appear in some formulas?
 
-See the [Calculated Columns Guide](CALCULATED_COLUMNS_GUIDE.md) for details.
+In calculated columns, to access a column from another related table, DAX requires `RELATED('OtherTable'[column])`. The tool adds `RELATED()` automatically when the column belongs to a different table.
 
-### What is the difference between measures and calculated columns?
-| | Measure | Calculated Column |
-|---|---------|------------------|
-| **Definition** | DAX expression evaluated at query time | Physical value stored in Lakehouse |
-| **TMDL** | `expression = DAX(...)` | `sourceColumn = ColumnName` |
-| **Where computed** | Semantic Model engine | Dataflow Gen2 / Notebook |
-| **DirectLake** | Fully supported | Requires physical column |
+### What is the TMDL format?
 
-### How does `RELATED()` work across tables?
-Cross-table references are detected automatically:
-- **manyToOne**: `RELATED('OtherTable'[column])`
-- **manyToMany**: `LOOKUPVALUE('OtherTable'[column], ...)`
+**Tabular Model Definition Language** — a text format for describing Power BI semantic models. It is the successor to the `model.bim` JSON, used in `.pbip` projects.
 
-### What is TMDL?
-**Tabular Model Definition Language** — a text-based, human-readable format for defining Semantic Models. It replaces `model.bim` (JSON) and is compatible with Fabric Git integration.
+### How do relationships work?
 
-Example:
-```
-table Orders
-    column OrderID
-        dataType: int64
-        sourceColumn: OrderID
-        summarizeBy: none
-
-    measure TotalRevenue = SUM('Orders'[Revenue])
-
-    partition Orders = entity
-        entityName: Orders
-        schemaName: dbo
-        expressionSource: DatabaseQuery
-```
-
-### How are relationships represented?
-In `relationships.tmdl`:
-```
-relationship rel_Orders_Customers
-    fromColumn: Orders.CustomerID
-    toColumn: Customers.CustomerID
-    crossFilteringBehavior: oneDirection
-```
-
----
-
-## Fabric Artifacts
-
-### What does the Lakehouse artifact contain?
-- `lakehouse_definition.json` — Lakehouse item metadata
-- `table_metadata.json` — table/column inventory for programmatic use
-- `ddl/*.sql` — one SQL DDL file per table with Delta-compatible types
-
-### What does the Dataflow Gen2 artifact contain?
-- `dataflow_definition.json` — Dataflow item metadata with Lakehouse destination config
-- `mashup.pq` — combined Power Query M document
-- `queries/*.m` — one M query file per table
-
-### What does the Notebook artifact contain?
-- `etl_pipeline.ipynb` — PySpark cells for data ingestion into Delta tables
-- `transformations.ipynb` — calculated column / transform logic
-- Fabric notebook metadata (Lakehouse attachment, Spark pool config)
-
-### What does the Pipeline artifact contain?
-A Fabric Data Pipeline with three stages:
-1. Dataflow Gen2 refresh (data ingestion)
-2. Notebook execution (PySpark ETL → Delta tables)
-3. Semantic Model refresh (DirectLake picks up fresh data)
-
-### What does the Semantic Model artifact contain?
-A standalone Fabric SemanticModel item with DirectLake mode:
-- `model.tmdl` — model-level config
-- `tables/*.tmdl` — table definitions with `partition = entity` (DirectLake)
-- `relationships.tmdl` — relationship definitions
-- `.platform` — Fabric Git integration manifest
-
-### What does the PBI Report artifact contain?
-A `.pbip` project compatible with Power BI Desktop:
-- DirectLake TMDL semantic model (same structure as standalone)
-- PBIR v4.0 visual definitions (60+ visual type mappings)
-- ~130 DAX conversion points from Tableau calculated fields
-
----
+Tableau relationships (joins) are converted to Power BI relationships:
+- `LEFT JOIN` → `toColumn` with `crossFilteringBehavior: oneDirection`
+- `FULL OUTER JOIN` → `crossFilteringBehavior: bothDirections`
+- Join columns become the relationship keys
 
 ## Validation & Deployment
 
-### How do I validate the generated artifacts?
+### How do I validate generated projects?
+
+Use the built-in `ArtifactValidator` to check project integrity before opening in Power BI Desktop:
 
 ```python
 from fabric_import.validator import ArtifactValidator
 
-result = ArtifactValidator.validate_project("output/MyReport")
-print(result)  # {"valid": True, "files_checked": N, "errors": []}
+result = ArtifactValidator.validate_project("artifacts/fabric_projects/MyReport")
+print(result)  # {"valid": True, "files_checked": 15, "errors": []}
+
+# Batch validate all projects
+results = ArtifactValidator.validate_directory("artifacts/fabric_projects/")
 ```
 
-The validator checks:
-- Lakehouse DDL files exist and are valid SQL
-- Dataflow mashup and query files exist
-- Notebook `.ipynb` are valid JSON
-- SemanticModel TMDL files are well-formed
-- Report `.pbir`, page and visual JSON files
+The validator checks: `.pbip` JSON, Report directory (report.json, pages, visuals), SemanticModel directory (model.tmdl starts with `model Model`, table TMDLs).
 
-### How do I deploy to a Fabric workspace?
+### How do I deploy to Microsoft Fabric?
+
+1. Install optional dependencies: `pip install azure-identity requests`
+2. Set environment variables:
+   ```bash
+   export FABRIC_WORKSPACE_ID="your-workspace-guid"
+   export FABRIC_TENANT_ID="your-tenant-guid"
+   export FABRIC_CLIENT_ID="your-app-client-id"
+   export FABRIC_CLIENT_SECRET="your-app-secret"
+   ```
+3. Deploy:
+   ```python
+   from fabric_import.deployer import FabricDeployer
+   deployer = FabricDeployer(workspace_id='your-workspace-guid')
+   deployer.deploy_artifacts_batch('artifacts/fabric_projects/')
+   ```
+
+Service Principal and Managed Identity authentication are both supported.
+
+### How do I batch-migrate multiple workbooks?
 
 ```bash
-# Set environment variables
-export FABRIC_WORKSPACE_ID="your-workspace-guid"
-export FABRIC_TENANT_ID="your-tenant-guid"
-export FABRIC_CLIENT_ID="your-app-client-id"
-export FABRIC_CLIENT_SECRET="your-app-secret"
-export FABRIC_LAKEHOUSE_NAME="MyLakehouse"
+python migrate.py --batch /path/to/tableau/files/ --output-dir /tmp/output
 ```
 
-```python
-from fabric_import.deployer import FabricDeployer
-
-deployer = FabricDeployer()
-deployer.deploy_lakehouse(workspace_id, 'MyLakehouse', config)
-deployer.deploy_dataflow(workspace_id, 'MyDataflow', config)
-deployer.deploy_notebook(workspace_id, 'MyNotebook', config)
-deployer.deploy_semantic_model(workspace_id, 'MyModel', config)
-deployer.deploy_pipeline(workspace_id, 'MyPipeline', config)
-deployer.deploy_report(workspace_id, 'MyReport', config)
-```
-
-### Can I batch-migrate and validate?
-
-```bash
-# Migrate entire folder
-python migrate.py "path/to/folder/" -o output/
-
-# Validate all generated artifacts
-python -c "
-from fabric_import.validator import ArtifactValidator
-results = ArtifactValidator.validate_directory('output/')
-for name, result in results.items():
-    print(f'{name}: {\"OK\" if result[\"valid\"] else \"FAIL\"}')"
-```
+This processes all `.twb` and `.twbx` files in the directory and generates separate .pbip projects for each.
 
 ### How do I run the tests?
 
 ```bash
-# All 961 tests
-python -m pytest tests/ -v
-
-# Specific module
-python -m pytest tests/test_lakehouse_generator.py -v
-python -m pytest tests/test_dataflow_generator.py -v
-python -m pytest tests/test_calc_column_utils.py -v
+python -m unittest discover tests/ -v
 ```
 
-| Test File | Coverage |
-|-----------|---------|
-| `test_lakehouse_generator.py` | Lakehouse DDL, table metadata, Delta types |
-| `test_dataflow_generator.py` | Dataflow M queries, mashup, connectors |
-| `test_notebook_generator.py` | PySpark notebook, ETL cells, transforms |
-| `test_semantic_model_generator.py` | TMDL model, tables, DirectLake partitions |
-| `test_pipeline_generator.py` | Pipeline stages, dependencies, retry |
-| `test_import_to_fabric.py` | Orchestrator, artifact routing |
-| `test_migrate.py` | CLI, batch, flags |
-| `test_validator.py` | Artifact validation |
-| `test_deployer.py` | Deployment orchestration |
-| `test_auth.py` | Azure AD authentication |
-| `test_client.py` | HTTP client, retry logic |
-| `test_config.py` | Settings, environments |
-| `test_utils.py` | Deployment report, cache |
-| `test_calc_column_utils.py` | Calc column classification & conversion |
-| `test_assessment.py` | Pre-migration assessment (8 categories, scoring) |
-| `test_strategy_advisor.py` | Auto ETL strategy advisor |
+The project includes 500 tests across 10 test files covering DAX conversion, Power Query M generation, TMDL model building, visual generation, project structure, artifact validation, deployment utilities, and end-to-end non-regression migration of all 8 sample workbooks.

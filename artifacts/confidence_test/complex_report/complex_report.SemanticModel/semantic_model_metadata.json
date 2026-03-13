@@ -1,0 +1,14 @@
+{
+  "displayName": "complex_report",
+  "type": "SemanticModel",
+  "mode": "DirectLake",
+  "lakehouse": "complex_report",
+  "stats": {
+    "tables": 7,
+    "columns": 45,
+    "measures": 8,
+    "relationships": 4,
+    "hierarchies": 2,
+    "roles": 1
+  }
+}

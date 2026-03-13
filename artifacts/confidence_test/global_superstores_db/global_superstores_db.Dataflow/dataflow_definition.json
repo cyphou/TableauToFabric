@@ -1,0 +1,25 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/dataflow/definition/dataflowGen2/1.0.0/schema.json",
+  "properties": {
+    "displayName": "global_superstores_db_Dataflow",
+    "description": "Dataflow Gen2 generated from Tableau workbook: global_superstores_db",
+    "type": "DataflowGen2",
+    "created": "2026-03-05T10:47:10.582805"
+  },
+  "mashupDocument": "\nsection Section1;\n\nshared Orders = let\n    // Source Excel: /Users/bs/Mac Drive/MSBA/INFO584_01SP21/Datasets/Global Superstore.xlsx\n    Source = Excel.Workbook(File.Contents(DataFolder & \"\\\\Users\\bs\\Mac Drive\\MSBA\\INFO584_01SP21\\Datasets\\Global Superstore.xlsx\"), null, true),\n    #\"Orders Sheet\" = Source{[Item=\"Orders\",Kind=\"Sheet\"]}[Data],\n    #\"Promoted Headers\" = Table.PromoteHeaders(#\"Orders Sheet\", [PromoteAllScalars=true]),\n    #\"Changed Types\" = Table.TransformColumnTypes(#\"Promoted Headers\", {\n        {\"Row ID\", Int64.Type},\n        {\"Order ID\", type text},\n        {\"Order Date\", type date},\n        {\"Ship Date\", type date},\n        {\"Ship Mode\", type text},\n        {\"Customer ID\", type text},\n        {\"Customer Name\", type text},\n        {\"Segment\", type text},\n        {\"City\", type text},\n        {\"State\", type text},\n        {\"Country\", type text},\n        {\"Postal Code\", type text},\n        {\"Market\", type text},\n        {\"Region\", type text},\n        {\"Product ID\", type text},\n        {\"Category\", type text},\n        {\"Sub-Category\", type text},\n        {\"Product Name\", type text},\n        {\"Sales\", type number},\n        {\"Quantity\", Int64.Type},\n        {\"Discount\", type number},\n        {\"Profit\", type number},\n        {\"Shipping Cost\", type number},\n        {\"Order Priority\", type text}\n    }),\n    Result = #\"Changed Types\"\n,\n    CalcCol_discount_bin = Table.AddColumn(Result, \"[Discount (bin)]\", each [Discount])\nin\n    CalcCol_discount_bin;",
+  "queries": [
+    {
+      "name": "Orders",
+      "description": "Ingests data from Orders + 1 calculated column(s)",
+      "queryId": "orders",
+      "resultType": "Table",
+      "loadEnabled": true,
+      "destination": {
+        "type": "Lakehouse",
+        "tableName": "orders",
+        "updateMethod": "Replace",
+        "schemaMapping": "Auto"
+      }
+    }
+  ]
+}

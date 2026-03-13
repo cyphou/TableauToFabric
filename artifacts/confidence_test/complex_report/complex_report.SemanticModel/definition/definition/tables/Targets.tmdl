@@ -1,0 +1,54 @@
+table Targets
+	lineageTag: bcb13f47-0f9a-4ab1-8c4a-988dc4b7bc0d
+
+	column Category
+		dataType: string
+		lineageTag: a7a69d9f-a463-4570-8ab7-9fbaa5998f7d
+		summarizeBy: none
+		sourceColumn: Category
+
+		annotation SummarizationSetBy = Automatic
+
+	column Region
+		dataType: string
+		lineageTag: 7d3c7728-abd9-4ade-b1c2-a85608bcb468
+		summarizeBy: none
+		sourceColumn: Region
+		dataCategory: StateOrProvince
+
+		annotation SummarizationSetBy = Automatic
+
+	column TargetRevenue
+		dataType: double
+		formatString: #,0.00
+		lineageTag: d9a41d6d-5641-4fe1-9954-27e29834923a
+		summarizeBy: sum
+		sourceColumn: TargetRevenue
+
+		annotation SummarizationSetBy = Automatic
+
+	column TargetProfit
+		dataType: double
+		formatString: #,0.00
+		lineageTag: 3af4e9ad-84eb-4886-aeb6-e48b66ca0f17
+		summarizeBy: sum
+		sourceColumn: TargetProfit
+
+		annotation SummarizationSetBy = Automatic
+
+	column FiscalYear
+		dataType: int64
+		lineageTag: f536fb8e-3495-4b9b-a104-a0ea758a564c
+		summarizeBy: sum
+		sourceColumn: FiscalYear
+
+		annotation SummarizationSetBy = Automatic
+
+	partition 'Targets-418f749c-d72f-4545-bdc0-523029e2efb6' = entity
+		mode: directLake
+		entityName: targets
+		schemaName: dbo
+		expressionSource: DatabaseQuery
+
+	annotation PBI_ResultType = Table
+

@@ -1,0 +1,237 @@
+{
+  "orders": {
+    "original_name": "Orders",
+    "source_type": "SQL Server",
+    "columns": {
+      "OrderID": {
+        "type": "INT",
+        "original_name": "OrderID",
+        "original_type": "integer"
+      },
+      "CustomerID": {
+        "type": "INT",
+        "original_name": "CustomerID",
+        "original_type": "integer"
+      },
+      "ProductID": {
+        "type": "INT",
+        "original_name": "ProductID",
+        "original_type": "integer"
+      },
+      "RegionID": {
+        "type": "INT",
+        "original_name": "RegionID",
+        "original_type": "integer"
+      },
+      "OrderDate": {
+        "type": "DATE",
+        "original_name": "OrderDate",
+        "original_type": "date"
+      },
+      "ShipDate": {
+        "type": "DATE",
+        "original_name": "ShipDate",
+        "original_type": "date"
+      },
+      "Revenue": {
+        "type": "DOUBLE",
+        "original_name": "Revenue",
+        "original_type": "real"
+      },
+      "Cost": {
+        "type": "DOUBLE",
+        "original_name": "Cost",
+        "original_type": "real"
+      },
+      "Quantity": {
+        "type": "INT",
+        "original_name": "Quantity",
+        "original_type": "integer"
+      },
+      "Discount": {
+        "type": "DOUBLE",
+        "original_name": "Discount",
+        "original_type": "real"
+      },
+      "OrderStatus": {
+        "type": "STRING",
+        "original_name": "OrderStatus",
+        "original_type": "string"
+      },
+      "ShipMode": {
+        "type": "STRING",
+        "original_name": "ShipMode",
+        "original_type": "string"
+      },
+      "Priority": {
+        "type": "STRING",
+        "original_name": "Priority",
+        "original_type": "string"
+      },
+      "profit": {
+        "type": "DOUBLE",
+        "original_name": "Profit",
+        "original_type": "real"
+      },
+      "priority_label": {
+        "type": "STRING",
+        "original_name": "Priority Label",
+        "original_type": "string"
+      },
+      "revenue_tier": {
+        "type": "STRING",
+        "original_name": "Revenue Tier",
+        "original_type": "string"
+      },
+      "days_to_ship": {
+        "type": "INT",
+        "original_name": "Days to Ship",
+        "original_type": "integer"
+      },
+      "has_discount": {
+        "type": "STRING",
+        "original_name": "Has Discount",
+        "original_type": "string"
+      }
+    }
+  },
+  "customers": {
+    "original_name": "Customers",
+    "source_type": "SQL Server",
+    "columns": {
+      "CustomerID": {
+        "type": "INT",
+        "original_name": "CustomerID",
+        "original_type": "integer"
+      },
+      "CustomerName": {
+        "type": "STRING",
+        "original_name": "CustomerName",
+        "original_type": "string"
+      },
+      "Segment": {
+        "type": "STRING",
+        "original_name": "Segment",
+        "original_type": "string"
+      },
+      "Email": {
+        "type": "STRING",
+        "original_name": "Email",
+        "original_type": "string"
+      },
+      "JoinDate": {
+        "type": "DATE",
+        "original_name": "JoinDate",
+        "original_type": "date"
+      }
+    }
+  },
+  "products": {
+    "original_name": "Products",
+    "source_type": "SQL Server",
+    "columns": {
+      "ProductID": {
+        "type": "INT",
+        "original_name": "ProductID",
+        "original_type": "integer"
+      },
+      "ProductName": {
+        "type": "STRING",
+        "original_name": "ProductName",
+        "original_type": "string"
+      },
+      "Category": {
+        "type": "STRING",
+        "original_name": "Category",
+        "original_type": "string"
+      },
+      "SubCategory": {
+        "type": "STRING",
+        "original_name": "SubCategory",
+        "original_type": "string"
+      },
+      "UnitPrice": {
+        "type": "DOUBLE",
+        "original_name": "UnitPrice",
+        "original_type": "real"
+      }
+    }
+  },
+  "regions": {
+    "original_name": "Regions",
+    "source_type": "SQL Server",
+    "columns": {
+      "RegionID": {
+        "type": "INT",
+        "original_name": "RegionID",
+        "original_type": "integer"
+      },
+      "RegionName": {
+        "type": "STRING",
+        "original_name": "RegionName",
+        "original_type": "string"
+      },
+      "Country": {
+        "type": "STRING",
+        "original_name": "Country",
+        "original_type": "string"
+      },
+      "State": {
+        "type": "STRING",
+        "original_name": "State",
+        "original_type": "string"
+      },
+      "City": {
+        "type": "STRING",
+        "original_name": "City",
+        "original_type": "string"
+      },
+      "Latitude": {
+        "type": "DOUBLE",
+        "original_name": "Latitude",
+        "original_type": "real"
+      },
+      "Longitude": {
+        "type": "DOUBLE",
+        "original_name": "Longitude",
+        "original_type": "real"
+      }
+    }
+  },
+  "targets": {
+    "original_name": "Targets",
+    "source_type": "Excel",
+    "columns": {
+      "Category": {
+        "type": "STRING",
+        "original_name": "Category",
+        "original_type": "string"
+      },
+      "Region": {
+        "type": "STRING",
+        "original_name": "Region",
+        "original_type": "string"
+      },
+      "TargetRevenue": {
+        "type": "DOUBLE",
+        "original_name": "TargetRevenue",
+        "original_type": "real"
+      },
+      "TargetProfit": {
+        "type": "DOUBLE",
+        "original_name": "TargetProfit",
+        "original_type": "real"
+      },
+      "FiscalYear": {
+        "type": "INT",
+        "original_name": "FiscalYear",
+        "original_type": "integer"
+      }
+    }
+  },
+  "monthlysummary": {
+    "original_name": "MonthlySummary",
+    "source_type": "Custom SQL",
+    "columns": {}
+  }
+}

@@ -1,0 +1,20 @@
+table 'Segment Filter'
+	lineageTag: da80ca07-317d-401c-bac0-f304595980d7
+
+	measure 'Segment Filter' = SELECTEDVALUE('Segment Filter'[Value], "All")
+		lineageTag: 12125b2a-23e7-4006-830e-ba95a5936a0a
+
+	column Value
+		dataType: string
+		lineageTag: 0cf46cd0-2213-4a1e-9098-5f268819939a
+		summarizeBy: none
+		sourceColumn: Value
+
+		annotation SummarizationSetBy = Automatic
+
+	partition 'Segment Filter-f92e330c-67f2-48b1-9118-1b846b98c14e' = calculated
+		mode: import
+		source = DATATABLE("Value", STRING, {{"All"}, {"Consumer"}, {"Corporate"}, {"Home Office"}})
+
+	annotation PBI_ResultType = Table
+

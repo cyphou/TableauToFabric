@@ -1,0 +1,20 @@
+table Rebounds
+	lineageTag: 7f8247d5-e177-4aa8-87b0-236088c79299
+
+	measure Rebounds = SELECTEDVALUE('Rebounds'[Value], 1.0)
+		lineageTag: 6c67eba8-f0ea-41f0-b544-067191fc8854
+
+	column Value
+		dataType: double
+		lineageTag: e14866be-17c1-4702-8626-9e922bcf4057
+		summarizeBy: none
+		sourceColumn: Value
+
+		annotation SummarizationSetBy = Automatic
+
+	partition 'Rebounds-daa90c0a-6f2d-4d78-b438-d1ccdd1e5861' = calculated
+		mode: import
+		source = DATATABLE("Value", DOUBLE, {{1.0}, {2.0}, {3.0}})
+
+	annotation PBI_ResultType = Table
+

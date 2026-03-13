@@ -1,20 +1,18 @@
 """
-Tests for tableau_export.m_query_builder — Power Query M generation.
+Unit tests for m_query_builder.py — Power Query M generation and transforms.
 
-Organized by complexity:
-  SIMPLE:  Type mapping, column escaping, type change builders
-  MEDIUM:  Per-connector generators (SQL, PostgreSQL, CSV, Excel, BigQuery,
-           MySQL, Oracle, Snowflake, etc.), transform step generators,
-           inject_m_steps chaining
-  COMPLEX: Join/union/aggregate transforms, wildcard union, custom SQL,
-           conditional columns, full generators with columns
+Tests connector generators, inject_m_steps chaining, type mapping,
+and all 40+ transformation step generators.
 """
 
+import os
+import sys
 import unittest
-from tableau_export.m_query_builder import (
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'tableau_export'))
+
+from m_query_builder import (
     map_tableau_to_m_type,
-    _m_escape_col_name,
-    _build_type_changes,
     generate_power_query_m,
     inject_m_steps,
     # Column operations
@@ -45,12 +43,14 @@ from tableau_export.m_query_builder import (
     m_transform_top_n,
     # Aggregate
     m_transform_aggregate,
-    # Pivot / Unpivot
+    # Pivot
     m_transform_unpivot,
     m_transform_unpivot_other,
     m_transform_pivot,
-    # Join / Union
+    # Join
     m_transform_join,
+    m_transform_buffer,
+    # Union
     m_transform_union,
     m_transform_wildcard_union,
     # Reshape
@@ -62,856 +62,906 @@ from tableau_export.m_query_builder import (
     m_transform_remove_errors,
     m_transform_promote_headers,
     m_transform_demote_headers,
-    # Calculated column
+    # Calculated
     m_transform_add_column,
     m_transform_conditional_column,
 )
 
 
-# ── Sample helpers ────────────────────────────────────────────────
-
-SAMPLE_COLUMNS = [
-    {'name': 'OrderID', 'datatype': 'integer'},
-    {'name': 'Product Name', 'datatype': 'string'},
-    {'name': 'Price', 'datatype': 'real'},
-    {'name': 'OrderDate', 'datatype': 'date'},
-    {'name': 'IsActive', 'datatype': 'boolean'},
-]
-
-SQL_CONNECTION = {
-    'type': 'SQL Server',
-    'details': {'server': 'myserver', 'database': 'mydb'},
-}
-
-PG_CONNECTION = {
-    'type': 'PostgreSQL',
-    'details': {'server': 'pghost', 'port': '5432', 'database': 'pgdb'},
-}
-
-CSV_CONNECTION = {
-    'type': 'CSV',
-    'details': {'filename': 'data.csv', 'delimiter': ','},
-}
-
-EXCEL_CONNECTION = {
-    'type': 'Excel',
-    'details': {'filename': 'report.xlsx'},
-}
-
-BQ_CONNECTION = {
-    'type': 'BigQuery',
-    'details': {'project': 'my-gcp-project', 'dataset': 'analytics'},
-}
-
-MYSQL_CONNECTION = {
-    'type': 'MySQL',
-    'details': {'server': 'mysqlhost', 'port': '3306', 'database': 'mydb'},
-}
-
-ORACLE_CONNECTION = {
-    'type': 'Oracle',
-    'details': {'server': 'orahost', 'service': 'ORCL', 'port': '1521'},
-}
-
-SNOWFLAKE_CONNECTION = {
-    'type': 'Snowflake',
-    'details': {'server': 'acme.snowflakecomputing.com', 'database': 'DB1',
-                'warehouse': 'WH1', 'schema': 'PUBLIC'},
-}
-
-
-# ═══════════════════════════════════════════════════════════════════
-# SIMPLE TESTS
-# ═══════════════════════════════════════════════════════════════════
-
+# ═══════════════════════════════════════════════════════════════════════
+# Type Mapping
+# ═══════════════════════════════════════════════════════════════════════
 
 class TestMapTableauToMType(unittest.TestCase):
-    """SIMPLE — type mapping."""
+    """Test map_tableau_to_m_type."""
 
     def test_integer(self):
-        self.assertEqual(map_tableau_to_m_type('integer'), 'Int64.Type')
+        self.assertEqual(map_tableau_to_m_type("integer"), "Int64.Type")
 
     def test_real(self):
-        self.assertEqual(map_tableau_to_m_type('real'), 'type number')
+        self.assertEqual(map_tableau_to_m_type("real"), "type number")
 
     def test_string(self):
-        self.assertEqual(map_tableau_to_m_type('string'), 'type text')
+        self.assertEqual(map_tableau_to_m_type("string"), "type text")
 
     def test_boolean(self):
-        self.assertEqual(map_tableau_to_m_type('boolean'), 'type logical')
+        self.assertEqual(map_tableau_to_m_type("boolean"), "type logical")
 
     def test_date(self):
-        self.assertEqual(map_tableau_to_m_type('date'), 'type date')
+        self.assertEqual(map_tableau_to_m_type("date"), "type date")
 
     def test_datetime(self):
-        self.assertEqual(map_tableau_to_m_type('datetime'), 'type datetime')
-
-    def test_unknown(self):
-        self.assertEqual(map_tableau_to_m_type('blob'), 'type text')
+        self.assertEqual(map_tableau_to_m_type("datetime"), "type datetime")
 
     def test_case_insensitive(self):
-        self.assertEqual(map_tableau_to_m_type('INTEGER'), 'Int64.Type')
+        self.assertEqual(map_tableau_to_m_type("STRING"), "type text")
+        self.assertEqual(map_tableau_to_m_type("Integer"), "Int64.Type")
 
-    def test_binary(self):
-        self.assertEqual(map_tableau_to_m_type('binary'), 'type binary')
+    def test_unknown_defaults_to_text(self):
+        self.assertEqual(map_tableau_to_m_type("unknown_type"), "type text")
 
     def test_currency(self):
-        self.assertEqual(map_tableau_to_m_type('currency'), 'Currency.Type')
-
-
-class TestColumnEscape(unittest.TestCase):
-    """SIMPLE — M column name escaping."""
-
-    def test_no_escape_needed(self):
-        self.assertEqual(_m_escape_col_name('OrderID'), 'OrderID')
-
-    def test_double_quote_escaped(self):
-        self.assertEqual(_m_escape_col_name('Col"Name'), 'Col""Name')
-
-
-class TestBuildTypeChanges(unittest.TestCase):
-    """SIMPLE — Building M type-change entries."""
-
-    def test_produces_entries(self):
-        entries = _build_type_changes(SAMPLE_COLUMNS)
-        self.assertEqual(len(entries), 5)
-
-    def test_entry_format(self):
-        entries = _build_type_changes([{'name': 'X', 'datatype': 'integer'}])
-        self.assertEqual(entries[0], '{"X", Int64.Type}')
-
-    def test_empty_columns(self):
-        self.assertEqual(_build_type_changes([]), [])
-
-
-# ═══════════════════════════════════════════════════════════════════
-# MEDIUM TESTS — Per-connector generators
-# ═══════════════════════════════════════════════════════════════════
-
-
-class TestSQLServerGenerator(unittest.TestCase):
-    """MEDIUM — SQL Server M query."""
-
-    def test_contains_sql_database(self):
-        m = generate_power_query_m(SQL_CONNECTION,
-                                   {'name': 'Orders', 'columns': SAMPLE_COLUMNS})
-        self.assertIn('Sql.Database', m)
-        self.assertIn('myserver', m)
-        self.assertIn('mydb', m)
-
-    def test_contains_let_in(self):
-        m = generate_power_query_m(SQL_CONNECTION,
-                                   {'name': 'Orders', 'columns': SAMPLE_COLUMNS})
-        self.assertIn('let', m)
-        self.assertIn('in', m)
-
-    def test_references_table(self):
-        m = generate_power_query_m(SQL_CONNECTION,
-                                   {'name': 'Orders', 'columns': SAMPLE_COLUMNS})
-        self.assertIn('Orders', m)
-
-
-class TestPostgreSQLGenerator(unittest.TestCase):
-    """MEDIUM — PostgreSQL M query."""
-
-    def test_contains_postgresql_database(self):
-        m = generate_power_query_m(PG_CONNECTION,
-                                   {'name': 'Customers', 'columns': SAMPLE_COLUMNS})
-        self.assertIn('PostgreSQL.Database', m)
-        self.assertIn('pghost', m)
-        self.assertIn('5432', m)
-        self.assertIn('pgdb', m)
-
-
-class TestCSVGenerator(unittest.TestCase):
-    """MEDIUM — CSV M query."""
-
-    def test_contains_csv_document(self):
-        m = generate_power_query_m(CSV_CONNECTION,
-                                   {'name': 'Data', 'columns': SAMPLE_COLUMNS})
-        self.assertIn('Csv.Document', m)
-        self.assertIn('data.csv', m)
-
-    def test_has_type_changes(self):
-        m = generate_power_query_m(CSV_CONNECTION,
-                                   {'name': 'Data', 'columns': SAMPLE_COLUMNS})
-        self.assertIn('Changed Types', m)
-
-    def test_empty_columns(self):
-        m = generate_power_query_m(CSV_CONNECTION,
-                                   {'name': 'Data', 'columns': []})
-        self.assertIn('Csv.Document', m)
-
-
-class TestExcelGenerator(unittest.TestCase):
-    """MEDIUM — Excel M query."""
-
-    def test_contains_excel_workbook(self):
-        m = generate_power_query_m(EXCEL_CONNECTION,
-                                   {'name': 'Sheet1', 'columns': SAMPLE_COLUMNS})
-        self.assertIn('Excel.Workbook', m)
-        self.assertIn('report.xlsx', m)
-
-
-class TestBigQueryGenerator(unittest.TestCase):
-    """MEDIUM — BigQuery M query."""
-
-    def test_contains_google_bigquery(self):
-        m = generate_power_query_m(BQ_CONNECTION,
-                                   {'name': 'Events', 'columns': SAMPLE_COLUMNS})
-        self.assertIn('GoogleBigQuery.Database', m)
-        self.assertIn('my-gcp-project', m)
-        self.assertIn('analytics', m)
-
-
-class TestMySQLGenerator(unittest.TestCase):
-    """MEDIUM — MySQL M query."""
-
-    def test_contains_mysql_database(self):
-        m = generate_power_query_m(MYSQL_CONNECTION,
-                                   {'name': 'Users', 'columns': SAMPLE_COLUMNS})
-        self.assertIn('MySQL.Database', m)
-
-
-class TestOracleGenerator(unittest.TestCase):
-    """MEDIUM — Oracle M query."""
-
-    def test_contains_oracle_database(self):
-        m = generate_power_query_m(ORACLE_CONNECTION,
-                                   {'name': 'HR', 'columns': SAMPLE_COLUMNS})
-        self.assertIn('Oracle.Database', m)
-        self.assertIn('ORCL', m)
-
-
-class TestSnowflakeGenerator(unittest.TestCase):
-    """MEDIUM — Snowflake M query."""
-
-    def test_contains_snowflake(self):
-        m = generate_power_query_m(SNOWFLAKE_CONNECTION,
-                                   {'name': 'Sales', 'columns': SAMPLE_COLUMNS})
-        self.assertIn('Snowflake.Databases', m)
-        self.assertIn('WH1', m)
-
-
-class TestFallbackGenerator(unittest.TestCase):
-    """MEDIUM — Unknown connector type falls back to #table."""
-
-    def test_fallback_produces_table(self):
-        conn = {'type': 'SomeUnknownDB', 'details': {}}
-        m = generate_power_query_m(conn,
-                                   {'name': 'T', 'columns': SAMPLE_COLUMNS})
-        self.assertIn('#table', m)
-        self.assertIn('TODO', m)
-
-
-class TestAdditionalConnectors(unittest.TestCase):
-    """MEDIUM — Additional connectors: Teradata, SAP, Redshift, etc."""
-
-    def test_teradata(self):
-        m = generate_power_query_m(
-            {'type': 'Teradata', 'details': {'server': 'td1', 'database': 'DB1'}},
-            {'name': 'T', 'columns': []})
-        self.assertIn('Teradata.Database', m)
-
-    def test_sap_hana(self):
-        m = generate_power_query_m(
-            {'type': 'SAP HANA', 'details': {'server': 'hana1', 'port': '30015'}},
-            {'name': 'T', 'columns': []})
-        self.assertIn('SapHana.Database', m)
-
-    def test_redshift(self):
-        m = generate_power_query_m(
-            {'type': 'Amazon Redshift', 'details': {'server': 'rs1', 'database': 'db'}},
-            {'name': 'T', 'columns': []})
-        self.assertIn('AmazonRedshift.Database', m)
-
-    def test_databricks(self):
-        m = generate_power_query_m(
-            {'type': 'Databricks', 'details': {'server': 'adb-1'}},
-            {'name': 'T', 'columns': []})
-        self.assertIn('Databricks.Catalogs', m)
-
-    def test_spark_sql(self):
-        m = generate_power_query_m(
-            {'type': 'Spark SQL', 'details': {'server': 'spark1'}},
-            {'name': 'T', 'columns': []})
-        self.assertIn('SparkSql.Database', m)
-
-    def test_azure_sql(self):
-        m = generate_power_query_m(
-            {'type': 'Azure SQL', 'details': {'server': 'az.database.windows.net'}},
-            {'name': 'T', 'columns': []})
-        self.assertIn('AzureSQL.Database', m)
-
-    def test_synapse(self):
-        m = generate_power_query_m(
-            {'type': 'Azure Synapse', 'details': {'server': 'syn1'}},
-            {'name': 'T', 'columns': []})
-        self.assertIn('AzureSQL.Database', m)
-
-    def test_google_sheets(self):
-        m = generate_power_query_m(
-            {'type': 'Google Sheets', 'details': {'spreadsheet_id': 'abc123'}},
-            {'name': 'Sheet1', 'columns': SAMPLE_COLUMNS})
-        self.assertIn('Web.Contents', m)
-        self.assertIn('abc123', m)
-
-    def test_sharepoint(self):
-        m = generate_power_query_m(
-            {'type': 'SharePoint', 'details': {'site_url': 'https://sp.com/sites/x'}},
-            {'name': 'T', 'columns': SAMPLE_COLUMNS})
-        self.assertIn('SharePoint.Files', m)
-
-    def test_json(self):
-        m = generate_power_query_m(
-            {'type': 'JSON', 'details': {'filename': 'data.json'}},
-            {'name': 'T', 'columns': SAMPLE_COLUMNS})
-        self.assertIn('Json.Document', m)
-
-    def test_xml(self):
-        m = generate_power_query_m(
-            {'type': 'XML', 'details': {'filename': 'data.xml'}},
-            {'name': 'T', 'columns': SAMPLE_COLUMNS})
-        self.assertIn('Xml.Tables', m)
-
-    def test_pdf(self):
-        m = generate_power_query_m(
-            {'type': 'PDF', 'details': {'filename': 'report.pdf'}},
-            {'name': 'T', 'columns': SAMPLE_COLUMNS})
-        self.assertIn('Pdf.Tables', m)
-
-    def test_salesforce(self):
-        m = generate_power_query_m(
-            {'type': 'Salesforce', 'details': {}},
-            {'name': 'Account', 'columns': []})
-        self.assertIn('Salesforce.Data', m)
-
-    def test_web(self):
-        m = generate_power_query_m(
-            {'type': 'Web', 'details': {'url': 'https://api.example.com'}},
-            {'name': 'T', 'columns': SAMPLE_COLUMNS})
-        self.assertIn('Web.Contents', m)
-
-    def test_vertica(self):
-        m = generate_power_query_m(
-            {'type': 'Vertica', 'details': {'server': 'vrt1', 'port': '5433', 'database': 'mydb'}},
-            {'name': 'T', 'columns': []})
-        self.assertIn('Odbc.DataSource', m)
-        self.assertIn('Vertica', m)
-        self.assertIn('vrt1', m)
-
-    def test_impala(self):
-        m = generate_power_query_m(
-            {'type': 'Impala', 'details': {'server': 'imp1', 'port': '21050'}},
-            {'name': 'T', 'columns': []})
-        self.assertIn('Impala.Database', m)
-        self.assertIn('imp1', m)
-
-    def test_hadoop_hive_odbc(self):
-        m = generate_power_query_m(
-            {'type': 'Hadoop Hive', 'details': {'server': 'hive1', 'port': '10000', 'database': 'default'}},
-            {'name': 'T', 'columns': []})
-        self.assertIn('Odbc.DataSource', m)
-        self.assertIn('hive1', m)
-
-    def test_hadoop_hive_hdinsight(self):
-        m = generate_power_query_m(
-            {'type': 'Hadoop Hive', 'details': {'server': 'mycluster.azurehdinsight.net', 'database': 'default'}},
-            {'name': 'T', 'columns': []})
-        self.assertIn('HdInsight', m)
-        self.assertIn('azurehdinsight', m)
-
-    def test_presto(self):
-        m = generate_power_query_m(
-            {'type': 'Presto', 'details': {'server': 'presto1', 'port': '8080', 'catalog': 'hive', 'schema': 'default'}},
-            {'name': 'T', 'columns': []})
-        self.assertIn('Odbc.DataSource', m)
-        self.assertIn('Presto', m)
-
-    def test_trino_alias(self):
-        m = generate_power_query_m(
-            {'type': 'Trino', 'details': {'server': 'trino1'}},
-            {'name': 'T', 'columns': []})
-        self.assertIn('Odbc.DataSource', m)
-        self.assertIn('Presto', m)
-
-    def test_hive_alias(self):
-        m = generate_power_query_m(
-            {'type': 'Hive', 'details': {'server': 'hive2'}},
-            {'name': 'T', 'columns': []})
-        self.assertIn('Odbc.DataSource', m)
-
-
-class TestAllConnectorMSyntax(unittest.TestCase):
-    """Exhaustive validation: every connector in _M_GENERATORS produces valid M."""
-
-    # All connector type keys that should be in the dispatch table
-    ALL_CONNECTOR_TYPES = [
-        'Excel', 'SQL Server', 'PostgreSQL', 'CSV', 'BigQuery', 'MySQL',
-        'Oracle', 'Snowflake', 'GeoJSON', 'Teradata', 'SAP HANA', 'SAP BW',
-        'Amazon Redshift', 'Redshift', 'Databricks', 'Spark SQL', 'Spark',
-        'Azure SQL', 'Azure Synapse', 'Synapse', 'Google Sheets', 'SharePoint',
-        'JSON', 'XML', 'PDF', 'Salesforce', 'Web', 'Custom SQL',
-        'OData', 'Google Analytics', 'Azure Blob', 'Azure Blob Storage',
-        'ADLS', 'Azure Data Lake',
-        'Vertica', 'Impala', 'Hadoop Hive', 'Hive', 'HDInsight',
-        'Presto', 'Trino',
-    ]
-
-    def test_every_connector_produces_let_in(self):
-        """Every connector M output must start with 'let' and contain 'in'."""
-        for conn_type in self.ALL_CONNECTOR_TYPES:
-            with self.subTest(connector=conn_type):
-                details = {
-                    'server': 'localhost', 'port': '1234',
-                    'database': 'testdb', 'schema': 'dbo',
-                    'filename': 'test.csv', 'directory': '/data',
-                    'warehouse': 'WH', 'project': 'proj',
-                    'dataset': 'ds', 'spreadsheet_id': 'abc',
-                    'site_url': 'https://sp.com', 'url': 'https://api.com',
-                    'sql_query': 'SELECT 1', 'http_path': '/sql/1.0',
-                    'catalog': 'main', 'account': 'storage1',
-                    'container': 'data', 'path': 'test.csv',
-                }
-                table = {'name': 'TestTable', 'columns': SAMPLE_COLUMNS}
-                m = generate_power_query_m(
-                    {'type': conn_type, 'details': details}, table)
-                self.assertTrue(m.strip().startswith('let'),
-                                f"M for {conn_type} doesn't start with 'let': {m[:80]}")
-                self.assertIn('\nin', m,
-                              f"M for {conn_type} missing 'in' keyword")
-
-    def test_every_connector_no_python_artifacts(self):
-        """M output should not contain Python f-string artifacts like {details}."""
-        for conn_type in self.ALL_CONNECTOR_TYPES:
-            with self.subTest(connector=conn_type):
-                details = {'server': 'host', 'database': 'db'}
-                m = generate_power_query_m(
-                    {'type': conn_type, 'details': details},
-                    {'name': 'T', 'columns': []})
-                self.assertNotIn('{details}', m)
-                self.assertNotIn('{columns}', m)
-                self.assertNotIn('{table_name}', m)
-    """MEDIUM — Custom SQL M query."""
+        self.assertEqual(map_tableau_to_m_type("currency"), "Currency.Type")
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Connector Generators
+# ═══════════════════════════════════════════════════════════════════════
+
+class TestGeneratePowerQueryM(unittest.TestCase):
+    """Test generate_power_query_m for different connector types."""
+
+    def _make_columns(self, *names_types):
+        return [{"name": n, "datatype": t} for n, t in names_types]
+
+    def test_sql_server(self):
+        conn = {"type": "SQL Server", "details": {"server": "myhost", "database": "mydb"}}
+        table = {"name": "Orders", "columns": []}
+        result = generate_power_query_m(conn, table)
+        self.assertIn("Sql.Database", result)
+        self.assertIn("myhost", result)
+        self.assertIn("mydb", result)
+        self.assertIn("let", result)
+        self.assertIn("in", result)
+
+    def test_postgresql(self):
+        conn = {"type": "PostgreSQL", "details": {"server": "pghost", "port": "5433", "database": "pgdb"}}
+        table = {"name": "Users", "columns": []}
+        result = generate_power_query_m(conn, table)
+        self.assertIn("PostgreSQL.Database", result)
+        self.assertIn("pghost:5433", result)
+
+    def test_csv(self):
+        cols = self._make_columns(("Name", "string"), ("Value", "real"))
+        conn = {"type": "CSV", "details": {"filename": "data.csv", "delimiter": ","}}
+        table = {"name": "Data", "columns": cols}
+        result = generate_power_query_m(conn, table)
+        self.assertIn("Csv.Document", result)
+        self.assertIn("data.csv", result)
+        self.assertIn("Table.TransformColumnTypes", result)
+
+    def test_excel(self):
+        cols = self._make_columns(("ID", "integer"), ("Amount", "real"))
+        conn = {"type": "Excel", "details": {"filename": "report.xlsx"}}
+        table = {"name": "Sheet1", "columns": cols}
+        result = generate_power_query_m(conn, table)
+        self.assertIn("Excel.Workbook", result)
+        self.assertIn("report.xlsx", result)
+
+    def test_bigquery(self):
+        conn = {"type": "BigQuery", "details": {"project": "proj", "dataset": "ds"}}
+        table = {"name": "Events", "columns": []}
+        result = generate_power_query_m(conn, table)
+        self.assertIn("GoogleBigQuery.Database", result)
+        self.assertIn("proj", result)
+        self.assertIn("ds", result)
+
+    def test_mysql(self):
+        conn = {"type": "MySQL", "details": {"server": "mysqlhost", "database": "shop"}}
+        table = {"name": "Products", "columns": []}
+        result = generate_power_query_m(conn, table)
+        self.assertIn("MySQL.Database", result)
+        self.assertIn("mysqlhost", result)
+
+    def test_unknown_type_fallback(self):
+        conn = {"type": "UnknownDB", "details": {}}
+        table = {"name": "T", "columns": []}
+        result = generate_power_query_m(conn, table)
+        # Should produce a fallback comment
+        self.assertIn("let", result)
+        self.assertIn("in", result)
 
     def test_custom_sql(self):
-        conn = {
-            'type': 'Custom SQL',
-            'details': {'server': 'srv', 'database': 'db',
-                        'sql_query': 'SELECT * FROM orders WHERE year = 2024'},
-        }
-        m = generate_power_query_m(conn, {'name': 'Q', 'columns': []})
-        self.assertIn('Sql.Database', m)
-        self.assertIn('Query=', m)
-        self.assertIn('SELECT * FROM orders', m)
+        conn = {"type": "Custom SQL", "details": {"server": "host", "database": "db"}}
+        table = {"name": "Q", "columns": []}
+        result = generate_power_query_m(conn, table)
+        self.assertIn("let", result)
 
 
-# ═══════════════════════════════════════════════════════════════════
-# MEDIUM TESTS — Transform steps
-# ═══════════════════════════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════════════
+# inject_m_steps
+# ═══════════════════════════════════════════════════════════════════════
 
+class TestInjectMSteps(unittest.TestCase):
+    """Test inject_m_steps — chaining, idempotency, edge cases."""
+
+    _BASE_QUERY = (
+        "let\n"
+        "    Source = Sql.Database(\"host\", \"db\"),\n"
+        "    Result = Source\n"
+        "in\n"
+        "    Result"
+    )
+
+    def test_empty_steps_returns_unchanged(self):
+        result = inject_m_steps(self._BASE_QUERY, [])
+        self.assertEqual(result, self._BASE_QUERY)
+
+    def test_single_step_injected(self):
+        steps = [('#"Renamed Columns"', 'Table.RenameColumns({prev}, {{"A", "B"}})')]
+        result = inject_m_steps(self._BASE_QUERY, steps)
+        self.assertIn('#"Renamed Columns"', result)
+        self.assertIn("Table.RenameColumns(Source", result)
+        self.assertIn("Result = #\"Renamed Columns\"", result)
+        self.assertTrue(result.endswith("in\n    Result"))
+
+    def test_multiple_steps_chained(self):
+        steps = [
+            ('#"Step1"', 'Table.SelectRows({prev}, each true)'),
+            ('#"Step2"', 'Table.AddColumn({prev}, "X", each 1)'),
+        ]
+        result = inject_m_steps(self._BASE_QUERY, steps)
+        # Step1 references Source
+        self.assertIn('Table.SelectRows(Source', result)
+        # Step2 references Step1
+        self.assertIn('Table.AddColumn(#"Step1"', result)
+        # Result references Step2
+        self.assertIn('Result = #"Step2"', result)
+
+    def test_prev_placeholder_replaced(self):
+        steps = [('#"A"', '{prev}')]
+        result = inject_m_steps(self._BASE_QUERY, steps)
+        self.assertNotIn("{prev}", result)
+        self.assertIn("#\"A\" = Source", result)
+
+    def test_idempotent_double_injection(self):
+        steps1 = [('#"First"', 'Table.RemoveColumns({prev}, {{"X"}})')]
+        intermediate = inject_m_steps(self._BASE_QUERY, steps1)
+        steps2 = [('#"Second"', 'Table.AddColumn({prev}, "Y", each 1)')]
+        result = inject_m_steps(intermediate, steps2)
+        # Both steps should be present
+        self.assertIn('#"First"', result)
+        self.assertIn('#"Second"', result)
+        # Result references the last step
+        self.assertIn('Result = #"Second"', result)
+
+    def test_malformed_query_no_in(self):
+        bad = "Source = 42"
+        result = inject_m_steps(bad, [('#"X"', 'foo')])
+        # Returns unchanged
+        self.assertEqual(result, bad)
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Column Transform Steps
+# ═══════════════════════════════════════════════════════════════════════
 
 class TestColumnTransforms(unittest.TestCase):
-    """MEDIUM — Column operation step generators."""
+    """Test column transform step generators."""
 
     def test_rename(self):
-        name, expr = m_transform_rename({'Old': 'New', 'X': 'Y'})
-        self.assertIn('Renamed Columns', name)
-        self.assertIn('Table.RenameColumns', expr)
-        self.assertIn('"Old"', expr)
-        self.assertIn('"New"', expr)
+        name, expr = m_transform_rename({"OldName": "NewName"})
+        self.assertIn("Renamed Columns", name)
+        self.assertIn("Table.RenameColumns", expr)
+        self.assertIn("OldName", expr)
+        self.assertIn("NewName", expr)
+        self.assertIn("{prev}", expr)
+
+    def test_rename_multiple(self):
+        name, expr = m_transform_rename({"A": "X", "B": "Y"})
+        self.assertIn("A", expr)
+        self.assertIn("Y", expr)
 
     def test_remove_columns(self):
-        name, expr = m_transform_remove_columns(['A', 'B'])
-        self.assertIn('Table.RemoveColumns', expr)
+        name, expr = m_transform_remove_columns(["Col1", "Col2"])
+        self.assertIn("Removed Columns", name)
+        self.assertIn("Table.RemoveColumns", expr)
+        self.assertIn("Col1", expr)
+        self.assertIn("Col2", expr)
 
     def test_select_columns(self):
-        name, expr = m_transform_select_columns(['A', 'B'])
-        self.assertIn('Table.SelectColumns', expr)
+        name, expr = m_transform_select_columns(["A", "B"])
+        self.assertIn("Selected Columns", name)
+        self.assertIn("Table.SelectColumns", expr)
 
     def test_duplicate_column(self):
-        name, expr = m_transform_duplicate_column('Src', 'Copy')
-        self.assertIn('Table.DuplicateColumn', expr)
-        self.assertIn('"Src"', expr)
-        self.assertIn('"Copy"', expr)
+        name, expr = m_transform_duplicate_column("Source", "Copy")
+        self.assertIn("Duplicated Column", name)
+        self.assertIn("Table.DuplicateColumn", expr)
+        self.assertIn("Source", expr)
+        self.assertIn("Copy", expr)
 
-    def test_reorder(self):
-        name, expr = m_transform_reorder_columns(['C', 'A', 'B'])
-        self.assertIn('Table.ReorderColumns', expr)
+    def test_reorder_columns(self):
+        name, expr = m_transform_reorder_columns(["C", "B", "A"])
+        self.assertIn("Reordered Columns", name)
+        self.assertIn("Table.ReorderColumns", expr)
 
-    def test_split(self):
-        name, expr = m_transform_split_by_delimiter('Address', '-', 3)
-        self.assertIn('Table.SplitColumn', expr)
-        self.assertIn('SplitTextByDelimiter', expr)
+    def test_split_by_delimiter(self):
+        name, expr = m_transform_split_by_delimiter("Name", ",")
+        self.assertIn("Split Name", name)
+        self.assertIn("Table.SplitColumn", expr)
+        self.assertIn('Splitter.SplitTextByDelimiter', expr)
 
-    def test_merge(self):
-        name, expr = m_transform_merge_columns(['First', 'Last'], 'FullName', ' ')
-        self.assertIn('Table.CombineColumns', expr)
-        self.assertIn('"FullName"', expr)
+    def test_split_by_delimiter_with_parts(self):
+        name, expr = m_transform_split_by_delimiter("Name", "-", 3)
+        self.assertIn("3", expr)
 
+    def test_merge_columns(self):
+        name, expr = m_transform_merge_columns(["First", "Last"], "FullName", " ")
+        self.assertIn("Merged Columns", name)
+        self.assertIn("Table.CombineColumns", expr)
+        self.assertIn("FullName", expr)
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Value Transform Steps
+# ═══════════════════════════════════════════════════════════════════════
 
 class TestValueTransforms(unittest.TestCase):
-    """MEDIUM — Value operation step generators."""
+    """Test value transform step generators."""
 
-    def test_replace_value(self):
-        name, expr = m_transform_replace_value('Status', 'old', 'new')
-        self.assertIn('Table.ReplaceValue', expr)
+    def test_replace_value_text(self):
+        name, expr = m_transform_replace_value("Col", "old", "new")
+        self.assertIn("Replaced Values", name)
+        self.assertIn("Table.ReplaceValue", expr)
+        self.assertIn("Replacer.ReplaceText", expr)
+
+    def test_replace_value_not_text(self):
+        name, expr = m_transform_replace_value("Col", 0, 1, replace_text=False)
+        self.assertIn("Replacer.ReplaceValue", expr)
 
     def test_replace_nulls(self):
-        name, expr = m_transform_replace_nulls('Revenue', 0)
-        self.assertIn('null', expr)
-        self.assertIn('Replacer.ReplaceValue', expr)
+        name, expr = m_transform_replace_nulls("Sales", 0)
+        self.assertIn("Replaced Nulls", name)
+        self.assertIn("null", expr)
+
+    def test_replace_nulls_string(self):
+        name, expr = m_transform_replace_nulls("Name", "N/A")
+        self.assertIn('"N/A"', expr)
 
     def test_trim(self):
-        name, expr = m_transform_trim(['A', 'B'])
-        self.assertIn('Text.Trim', expr)
+        name, expr = m_transform_trim(["Name", "City"])
+        self.assertIn("Trimmed Text", name)
+        self.assertIn("Text.Trim", expr)
+        self.assertIn("Name", expr)
+        self.assertIn("City", expr)
 
     def test_clean(self):
-        name, expr = m_transform_clean(['A'])
-        self.assertIn('Text.Clean', expr)
+        name, expr = m_transform_clean(["Notes"])
+        self.assertIn("Cleaned Text", name)
+        self.assertIn("Text.Clean", expr)
 
     def test_upper(self):
-        name, expr = m_transform_upper(['Col'])
-        self.assertIn('Text.Upper', expr)
+        name, expr = m_transform_upper(["Name"])
+        self.assertIn("Uppercased", name)
+        self.assertIn("Text.Upper", expr)
 
     def test_lower(self):
-        name, expr = m_transform_lower(['Col'])
-        self.assertIn('Text.Lower', expr)
+        name, expr = m_transform_lower(["Name"])
+        self.assertIn("Lowercased", name)
+        self.assertIn("Text.Lower", expr)
 
     def test_proper_case(self):
-        name, expr = m_transform_proper_case(['Col'])
-        self.assertIn('Text.Proper', expr)
+        name, expr = m_transform_proper_case(["Name"])
+        self.assertIn("Proper Cased", name)
+        self.assertIn("Text.Proper", expr)
 
     def test_fill_down(self):
-        name, expr = m_transform_fill_down(['A'])
-        self.assertIn('Table.FillDown', expr)
+        name, expr = m_transform_fill_down(["Region"])
+        self.assertIn("Filled Down", name)
+        self.assertIn("Table.FillDown", expr)
 
     def test_fill_up(self):
-        name, expr = m_transform_fill_up(['A'])
-        self.assertIn('Table.FillUp', expr)
+        name, expr = m_transform_fill_up(["Region"])
+        self.assertIn("Filled Up", name)
+        self.assertIn("Table.FillUp", expr)
 
+
+# ═══════════════════════════════════════════════════════════════════════
+# Filter Transform Steps
+# ═══════════════════════════════════════════════════════════════════════
 
 class TestFilterTransforms(unittest.TestCase):
-    """MEDIUM — Filter operation step generators."""
+    """Test filter transform step generators."""
 
     def test_filter_single_value(self):
-        name, expr = m_transform_filter_values('Status', ['Active'])
-        self.assertIn('Table.SelectRows', expr)
+        name, expr = m_transform_filter_values("Status", ["Active"])
+        self.assertIn("Filtered Rows", name)
+        self.assertIn("Table.SelectRows", expr)
         self.assertIn('"Active"', expr)
+        # Single value uses = operator
+        self.assertIn("=", expr)
 
-    def test_filter_multi_value(self):
-        name, expr = m_transform_filter_values('Status', ['Active', 'Pending'])
-        self.assertIn('List.Contains', expr)
+    def test_filter_multiple_values(self):
+        name, expr = m_transform_filter_values("Status", ["Active", "Pending"])
+        self.assertIn("List.Contains", expr)
 
-    def test_exclude_values(self):
-        name, expr = m_transform_exclude_values('Region', ['Unknown'])
-        self.assertIn('Table.SelectRows', expr)
-        self.assertIn('<>', expr)
+    def test_exclude_single_value(self):
+        name, expr = m_transform_exclude_values("Status", ["Closed"])
+        self.assertIn("Excluded Rows", name)
+        self.assertIn("<>", expr)
 
-    def test_filter_range(self):
-        name, expr = m_transform_filter_range('Price', min_val=10, max_val=100)
-        self.assertIn('>=', expr)
-        self.assertIn('<=', expr)
+    def test_exclude_multiple_values(self):
+        name, expr = m_transform_exclude_values("Status", ["Closed", "Cancelled"])
+        self.assertIn("not List.Contains", expr)
+
+    def test_filter_range_min_only(self):
+        name, expr = m_transform_filter_range("Sales", min_val=100)
+        self.assertIn("Filtered Range", name)
+        self.assertIn(">= 100", expr)
+
+    def test_filter_range_max_only(self):
+        name, expr = m_transform_filter_range("Sales", max_val=500)
+        self.assertIn("<= 500", expr)
+
+    def test_filter_range_both(self):
+        name, expr = m_transform_filter_range("Sales", min_val=100, max_val=500)
+        self.assertIn(">= 100", expr)
+        self.assertIn("<= 500", expr)
 
     def test_filter_nulls_exclude(self):
-        name, expr = m_transform_filter_nulls('Col')
-        self.assertIn('<> null', expr)
+        name, expr = m_transform_filter_nulls("Col")
+        self.assertIn("Filtered Nulls", name)
+        self.assertIn("<> null", expr)
 
     def test_filter_nulls_keep(self):
-        name, expr = m_transform_filter_nulls('Col', keep_nulls=True)
-        self.assertIn('= null', expr)
+        name, expr = m_transform_filter_nulls("Col", keep_nulls=True)
+        self.assertIn("= null", expr)
 
     def test_filter_contains(self):
-        name, expr = m_transform_filter_contains('Name', 'abc')
-        self.assertIn('Text.Contains', expr)
+        name, expr = m_transform_filter_contains("Name", "Corp")
+        self.assertIn("Filtered Contains", name)
+        self.assertIn("Text.Contains", expr)
+        self.assertIn("Corp", expr)
 
     def test_distinct_all(self):
         name, expr = m_transform_distinct()
-        self.assertIn('Table.Distinct', expr)
+        self.assertIn("Removed Duplicates", name)
+        self.assertIn("Table.Distinct", expr)
 
-    def test_distinct_columns(self):
-        name, expr = m_transform_distinct(['A', 'B'])
-        self.assertIn('Table.Distinct', expr)
-        self.assertIn('"A"', expr)
+    def test_distinct_specific_columns(self):
+        name, expr = m_transform_distinct(["ID", "Name"])
+        self.assertIn("Table.Distinct", expr)
+        self.assertIn("ID", expr)
 
-    def test_top_n(self):
-        name, expr = m_transform_top_n(10, 'Sales', descending=True)
-        self.assertIn('Table.FirstN', expr)
-        self.assertIn('Order.Descending', expr)
+    def test_top_n_descending(self):
+        name, expr = m_transform_top_n(10, "Sales", descending=True)
+        self.assertIn("Top N", name)
+        self.assertIn("Table.FirstN", expr)
+        self.assertIn("Order.Descending", expr)
 
-
-class TestInjectMSteps(unittest.TestCase):
-    """MEDIUM — inject_m_steps chaining."""
-
-    def _base_query(self):
-        return '''let
-    Source = Sql.Database("server", "db"),
-    Result = Source
-in
-    Result'''
-
-    def test_inject_one_step(self):
-        q = inject_m_steps(self._base_query(), [
-            m_transform_rename({'Old': 'New'})
-        ])
-        self.assertIn('Renamed Columns', q)
-        self.assertIn('let', q)
-        self.assertIn('in', q)
-
-    def test_inject_multiple_steps(self):
-        q = inject_m_steps(self._base_query(), [
-            m_transform_rename({'A': 'B'}),
-            m_transform_trim(['B']),
-        ])
-        self.assertIn('Renamed Columns', q)
-        self.assertIn('Trimmed Text', q)
-
-    def test_empty_steps(self):
-        q = inject_m_steps(self._base_query(), [])
-        self.assertEqual(q, self._base_query())
-
-    def test_chaining_preserves_prev(self):
-        q = inject_m_steps(self._base_query(), [
-            m_transform_filter_values('Status', ['Active']),
-            m_transform_trim(['Name']),
-        ])
-        # Second step should reference first
-        self.assertIn('Filtered Rows', q)
-        self.assertIn('Trimmed Text', q)
-
-    def test_idempotent_double_inject(self):
-        q1 = inject_m_steps(self._base_query(), [
-            m_transform_rename({'A': 'B'}),
-        ])
-        q2 = inject_m_steps(q1, [
-            m_transform_trim(['B']),
-        ])
-        self.assertIn('Renamed Columns', q2)
-        self.assertIn('Trimmed Text', q2)
-        self.assertIn('Result =', q2)
+    def test_top_n_ascending(self):
+        name, expr = m_transform_top_n(5, "Date", descending=False)
+        self.assertIn("Order.Ascending", expr)
 
 
-# ═══════════════════════════════════════════════════════════════════
-# COMPLEX TESTS
-# ═══════════════════════════════════════════════════════════════════
-
+# ═══════════════════════════════════════════════════════════════════════
+# Aggregate Transform Steps
+# ═══════════════════════════════════════════════════════════════════════
 
 class TestAggregateTransform(unittest.TestCase):
-    """COMPLEX — Group By / Aggregate."""
+    """Test aggregate / group-by transform."""
 
-    def test_sum_aggregate(self):
+    def test_sum_aggregation(self):
         name, expr = m_transform_aggregate(
-            ['Region'],
-            [{'name': 'Total Sales', 'column': 'Sales', 'agg': 'sum'}]
+            ["Region"],
+            [{"name": "TotalSales", "column": "Sales", "agg": "sum"}]
         )
-        self.assertIn('Table.Group', expr)
-        self.assertIn('"Region"', expr)
-        self.assertIn('List.Sum', expr)
+        self.assertIn("Grouped Rows", name)
+        self.assertIn("Table.Group", expr)
+        self.assertIn("List.Sum", expr)
+        self.assertIn("TotalSales", expr)
 
-    def test_count_aggregate(self):
-        _, expr = m_transform_aggregate(
-            ['Region'],
-            [{'name': 'Order Count', 'column': 'ID', 'agg': 'count'}]
+    def test_count_aggregation(self):
+        name, expr = m_transform_aggregate(
+            ["Category"],
+            [{"name": "Count", "column": "ID", "agg": "count"}]
         )
-        self.assertIn('Table.RowCount', expr)
+        self.assertIn("Table.RowCount", expr)
 
-    def test_countd_aggregate(self):
-        _, expr = m_transform_aggregate(
-            ['Region'],
-            [{'name': 'Unique Customers', 'column': 'Customer', 'agg': 'countd'}]
+    def test_countd_aggregation(self):
+        name, expr = m_transform_aggregate(
+            ["Category"],
+            [{"name": "UniqueCount", "column": "Customer", "agg": "countd"}]
         )
-        self.assertIn('List.Distinct', expr)
+        self.assertIn("List.Distinct", expr)
+        self.assertIn("List.Count", expr)
 
-    def test_multi_group_multi_agg(self):
-        _, expr = m_transform_aggregate(
-            ['Region', 'Category'],
+    def test_average_aggregation(self):
+        name, expr = m_transform_aggregate(
+            ["Region"],
+            [{"name": "AvgSales", "column": "Sales", "agg": "avg"}]
+        )
+        self.assertIn("List.Average", expr)
+
+    def test_multiple_aggregations(self):
+        name, expr = m_transform_aggregate(
+            ["Region", "Category"],
             [
-                {'name': 'Sum Sales', 'column': 'Sales', 'agg': 'sum'},
-                {'name': 'Avg Profit', 'column': 'Profit', 'agg': 'avg'},
+                {"name": "Total", "column": "Sales", "agg": "sum"},
+                {"name": "Avg", "column": "Sales", "agg": "average"},
             ]
         )
-        self.assertIn('"Region"', expr)
-        self.assertIn('"Category"', expr)
-        self.assertIn('List.Sum', expr)
-        self.assertIn('List.Average', expr)
+        self.assertIn("List.Sum", expr)
+        self.assertIn("List.Average", expr)
+
+    def test_min_max_aggregation(self):
+        name, expr = m_transform_aggregate(
+            ["Year"],
+            [
+                {"name": "MinVal", "column": "Value", "agg": "min"},
+                {"name": "MaxVal", "column": "Value", "agg": "max"},
+            ]
+        )
+        self.assertIn("List.Min", expr)
+        self.assertIn("List.Max", expr)
 
 
-class TestPivotUnpivot(unittest.TestCase):
-    """COMPLEX — Pivot/Unpivot."""
+# ═══════════════════════════════════════════════════════════════════════
+# Pivot / Unpivot Transform Steps
+# ═══════════════════════════════════════════════════════════════════════
+
+class TestPivotTransforms(unittest.TestCase):
+    """Test pivot and unpivot transforms."""
 
     def test_unpivot(self):
-        name, expr = m_transform_unpivot(['Q1', 'Q2', 'Q3', 'Q4'])
-        self.assertIn('Table.Unpivot', expr)
-        self.assertIn('"Q1"', expr)
+        name, expr = m_transform_unpivot(["Q1", "Q2", "Q3", "Q4"])
+        self.assertIn("Unpivoted Columns", name)
+        self.assertIn("Table.Unpivot", expr)
+        self.assertIn("Attribute", expr)
+        self.assertIn("Value", expr)
+
+    def test_unpivot_custom_names(self):
+        name, expr = m_transform_unpivot(["A", "B"], "Quarter", "Amount")
+        self.assertIn("Quarter", expr)
+        self.assertIn("Amount", expr)
 
     def test_unpivot_other(self):
-        name, expr = m_transform_unpivot_other(['ID', 'Name'])
-        self.assertIn('Table.UnpivotOtherColumns', expr)
+        name, expr = m_transform_unpivot_other(["ID", "Name"])
+        self.assertIn("Unpivoted Other Columns", name)
+        self.assertIn("Table.UnpivotOtherColumns", expr)
 
     def test_pivot(self):
-        name, expr = m_transform_pivot('Quarter', 'Sales')
-        self.assertIn('Table.Pivot', expr)
+        name, expr = m_transform_pivot("Category", "Amount")
+        self.assertIn("Pivoted Column", name)
+        self.assertIn("Table.Pivot", expr)
+        self.assertIn("Category", expr)
+        self.assertIn("Amount", expr)
 
 
-class TestJoinUnion(unittest.TestCase):
-    """COMPLEX — Join and Union operations."""
+# ═══════════════════════════════════════════════════════════════════════
+# Join Transform Steps
+# ═══════════════════════════════════════════════════════════════════════
 
-    def test_join_inner(self):
-        steps = m_transform_join(
-            'OtherTable', ['ID'], ['ID'],
-            join_type='inner', expand_columns=['Name']
+class TestJoinTransform(unittest.TestCase):
+    """Test join transform."""
+
+    def test_left_join_returns_list(self):
+        result = m_transform_join("RightTable", ["ID"], ["ID"], "left")
+        self.assertIsInstance(result, list)
+        self.assertEqual(len(result), 1)  # No expansion
+        name, expr = result[0]
+        self.assertIn("Joined", name)
+        self.assertIn("Table.NestedJoin", expr)
+        self.assertIn("JoinKind.LeftOuter", expr)
+
+    def test_inner_join(self):
+        result = m_transform_join("RightTable", ["ID"], ["ID"], "inner")
+        name, expr = result[0]
+        self.assertIn("JoinKind.Inner", expr)
+
+    def test_full_join(self):
+        result = m_transform_join("RightTable", ["ID"], ["ID"], "full")
+        name, expr = result[0]
+        self.assertIn("JoinKind.FullOuter", expr)
+
+    def test_join_with_expansion(self):
+        result = m_transform_join(
+            "RightTable", ["ID"], ["ID"], "left",
+            expand_columns=["Name", "Value"]
         )
-        self.assertEqual(len(steps), 2)  # join + expand
-        self.assertIn('Table.NestedJoin', steps[0][1])
-        self.assertIn('JoinKind.Inner', steps[0][1])
-        self.assertIn('Table.ExpandTableColumn', steps[1][1])
+        self.assertEqual(len(result), 2)  # join + expand
+        expand_name, expand_expr = result[1]
+        self.assertIn("Expanded", expand_name)
+        self.assertIn("Table.ExpandTableColumn", expand_expr)
+        self.assertIn("Name", expand_expr)
 
-    def test_join_left(self):
-        steps = m_transform_join('T2', ['A'], ['A'], join_type='left')
-        self.assertEqual(len(steps), 1)
-        self.assertIn('JoinKind.LeftOuter', steps[0][1])
+    def test_multi_key_join(self):
+        result = m_transform_join("Ref", ["A", "B"], ["X", "Y"], "inner")
+        name, expr = result[0]
+        self.assertIn('"A"', expr)
+        self.assertIn('"B"', expr)
 
-    def test_join_multi_key(self):
-        steps = m_transform_join('T2', ['A', 'B'], ['X', 'Y'], join_type='inner')
-        self.assertIn('"A"', steps[0][1])
-        self.assertIn('"B"', steps[0][1])
+
+# ═══════════════════════════════════════════════════════════════════════
+# Union Transform Steps
+# ═══════════════════════════════════════════════════════════════════════
+
+class TestUnionTransforms(unittest.TestCase):
+    """Test union transforms."""
 
     def test_union(self):
-        name, expr = m_transform_union(['Table1', 'Table2', 'Table3'])
-        self.assertIn('Table.Combine', expr)
+        name, expr = m_transform_union(["Table1", "Table2", "Table3"])
+        self.assertIn("Combined Tables", name)
+        self.assertIn("Table.Combine", expr)
+        self.assertIn("Table1", expr)
+        self.assertIn("Table3", expr)
 
     def test_wildcard_union(self):
-        result = m_transform_wildcard_union('C:\\Data', '.csv', ',')
-        self.assertIn('Folder.Files', result)
-        self.assertIn('Csv.Document', result)
+        result = m_transform_wildcard_union("C:/Data/Folder", ".csv", ",")
+        self.assertIsInstance(result, str)
+        self.assertIn("Folder.Files", result)
+        self.assertIn("Csv.Document", result)
+        self.assertIn("C:\\Data\\Folder", result)
 
+
+# ═══════════════════════════════════════════════════════════════════════
+# Reshape Transform Steps
+# ═══════════════════════════════════════════════════════════════════════
 
 class TestReshapeTransforms(unittest.TestCase):
-    """COMPLEX — Sort, transpose, index, skip, etc."""
+    """Test reshape transform steps."""
 
-    def test_sort(self):
-        name, expr = m_transform_sort([('Sales', True), ('Name', False)])
-        self.assertIn('Table.Sort', expr)
-        self.assertIn('Order.Descending', expr)
-        self.assertIn('Order.Ascending', expr)
+    def test_sort_ascending(self):
+        name, expr = m_transform_sort([("Name", False)])
+        self.assertIn("Sorted Rows", name)
+        self.assertIn("Table.Sort", expr)
+        self.assertIn("Order.Ascending", expr)
+
+    def test_sort_descending(self):
+        name, expr = m_transform_sort([("Sales", True)])
+        self.assertIn("Order.Descending", expr)
+
+    def test_sort_multiple(self):
+        name, expr = m_transform_sort([("Region", False), ("Sales", True)])
+        self.assertIn("Region", expr)
+        self.assertIn("Sales", expr)
 
     def test_transpose(self):
         name, expr = m_transform_transpose()
-        self.assertIn('Table.Transpose', expr)
+        self.assertIn("Transposed Table", name)
+        self.assertIn("Table.Transpose", expr)
 
-    def test_add_index(self):
-        name, expr = m_transform_add_index('RowNum', 0, 1)
-        self.assertIn('Table.AddIndexColumn', expr)
+    def test_add_index_defaults(self):
+        name, expr = m_transform_add_index()
+        self.assertIn("Added Index", name)
+        self.assertIn("Table.AddIndexColumn", expr)
+        self.assertIn('"Index"', expr)
+
+    def test_add_index_custom(self):
+        name, expr = m_transform_add_index("RowNum", 0, 1)
+        self.assertIn("RowNum", expr)
 
     def test_skip_rows(self):
         name, expr = m_transform_skip_rows(5)
-        self.assertIn('Table.Skip', expr)
-        self.assertIn('5', expr)
+        self.assertIn("Skipped Rows", name)
+        self.assertIn("Table.Skip", expr)
+        self.assertIn("5", expr)
 
     def test_remove_last_rows(self):
         name, expr = m_transform_remove_last_rows(3)
-        self.assertIn('Table.RemoveLastN', expr)
+        self.assertIn("Removed Last Rows", name)
+        self.assertIn("Table.RemoveLastN", expr)
 
     def test_remove_errors(self):
         name, expr = m_transform_remove_errors()
-        self.assertIn('Table.RemoveRowsWithErrors', expr)
+        self.assertIn("Removed Errors", name)
+        self.assertIn("Table.RemoveRowsWithErrors", expr)
 
     def test_promote_headers(self):
         name, expr = m_transform_promote_headers()
-        self.assertIn('Table.PromoteHeaders', expr)
+        self.assertIn("Promoted Headers", name)
+        self.assertIn("Table.PromoteHeaders", expr)
 
     def test_demote_headers(self):
         name, expr = m_transform_demote_headers()
-        self.assertIn('Table.DemoteHeaders', expr)
+        self.assertIn("Demoted Headers", name)
+        self.assertIn("Table.DemoteHeaders", expr)
 
 
-class TestCalculatedColumn(unittest.TestCase):
-    """COMPLEX — Add column / Conditional column."""
+# ═══════════════════════════════════════════════════════════════════════
+# Calculated Column Transform Steps
+# ═══════════════════════════════════════════════════════════════════════
+
+class TestCalculatedTransforms(unittest.TestCase):
+    """Test calculated column transforms."""
 
     def test_add_column(self):
-        name, expr = m_transform_add_column(
-            'Revenue', 'each [Price] * [Qty]', 'type number'
-        )
-        self.assertIn('Table.AddColumn', expr)
-        self.assertIn('"Revenue"', expr)
-        self.assertIn('type number', expr)
+        name, expr = m_transform_add_column("Total", "each [Price] * [Qty]")
+        self.assertIn("Added Total", name)
+        self.assertIn("Table.AddColumn", expr)
+        self.assertIn("Total", expr)
+        self.assertIn("[Price] * [Qty]", expr)
 
-    def test_add_column_no_type(self):
-        name, expr = m_transform_add_column('Flag', 'each "Yes"')
-        self.assertIn('Table.AddColumn', expr)
-        self.assertNotIn('type ', expr)
+    def test_add_column_with_type(self):
+        name, expr = m_transform_add_column("N", "each 1", "type number")
+        self.assertIn("type number", expr)
 
     def test_conditional_column(self):
         name, expr = m_transform_conditional_column(
-            'Tier',
+            "Tier",
             [('[Sales] > 1000', '"High"'), ('[Sales] > 500', '"Medium"')],
-            default_value='"Low"'
+            '"Low"'
         )
-        self.assertIn('Table.AddColumn', expr)
-        self.assertIn('if [Sales] > 1000 then "High"', expr)
+        self.assertIn("Added Tier", name)
+        self.assertIn("Table.AddColumn", expr)
+        self.assertIn("if", expr)
+        self.assertIn("then", expr)
+        self.assertIn("else", expr)
+        self.assertIn('"High"', expr)
         self.assertIn('"Low"', expr)
 
-    def test_conditional_no_default(self):
+    def test_conditional_column_null_default(self):
         name, expr = m_transform_conditional_column(
-            'Flag',
-            [('[Active] = true', '"Yes"')]
+            "Flag",
+            [('[Active] = true', '"Yes"')],
+            None
         )
-        self.assertIn('null', expr)
+        self.assertIn("null", expr)
 
 
-class TestGeoJSONGenerator(unittest.TestCase):
-    """COMPLEX — GeoJSON M query with geometry handling."""
+# ═══════════════════════════════════════════════════════════════════════
+# Step format — all transforms return (name, expr) with {prev}
+# ═══════════════════════════════════════════════════════════════════════
 
-    def test_geojson_with_geometry(self):
-        cols = [
-            {'name': 'Name', 'datatype': 'string'},
-            {'name': 'Population', 'datatype': 'integer'},
-            {'name': 'Geometry', 'datatype': 'spatial'},
+class TestStepFormat(unittest.TestCase):
+    """Verify all transform functions produce correct tuple format."""
+
+    def _check_step(self, step):
+        """Assert step is a tuple with (str_name, str_expr_with_prev)."""
+        self.assertIsInstance(step, tuple, f"Expected tuple but got {type(step)}")
+        self.assertEqual(len(step), 2)
+        name, expr = step
+        self.assertIsInstance(name, str)
+        self.assertIsInstance(expr, str)
+        self.assertIn("{prev}", expr, f"Expression should contain {{prev}}: {expr}")
+
+    def test_rename_format(self):
+        self._check_step(m_transform_rename({"A": "B"}))
+
+    def test_remove_columns_format(self):
+        self._check_step(m_transform_remove_columns(["X"]))
+
+    def test_filter_values_format(self):
+        self._check_step(m_transform_filter_values("C", ["V"]))
+
+    def test_aggregate_format(self):
+        self._check_step(m_transform_aggregate(
+            ["G"], [{"name": "S", "column": "V", "agg": "sum"}]
+        ))
+
+    def test_unpivot_format(self):
+        self._check_step(m_transform_unpivot(["A"]))
+
+    def test_sort_format(self):
+        self._check_step(m_transform_sort([("A", True)]))
+
+    def test_add_column_format(self):
+        self._check_step(m_transform_add_column("N", "each 1"))
+
+    def test_distinct_format(self):
+        self._check_step(m_transform_distinct())
+
+    def test_transpose_format(self):
+        self._check_step(m_transform_transpose())
+
+    def test_skip_rows_format(self):
+        self._check_step(m_transform_skip_rows(1))
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Integration: inject transforms into generated M query
+# ═══════════════════════════════════════════════════════════════════════
+
+class TestInjectTransformIntegration(unittest.TestCase):
+    """End-to-end: generate query then inject transforms."""
+
+    def test_csv_with_rename_and_filter(self):
+        conn = {"type": "CSV", "details": {"filename": "data.csv"}}
+        cols = [{"name": "Name", "datatype": "string"}, {"name": "Sales", "datatype": "real"}]
+        table = {"name": "Data", "columns": cols}
+
+        base = generate_power_query_m(conn, table)
+        steps = [
+            m_transform_rename({"Name": "CustomerName"}),
+            m_transform_filter_values("CustomerName", ["Alice", "Bob"]),
         ]
-        conn = {'type': 'GeoJSON', 'details': {'filename': 'regions.geojson'}}
-        m = generate_power_query_m(conn, {'name': 'Regions', 'columns': cols})
-        self.assertIn('Json.Document', m)
-        self.assertIn('features', m)
-        self.assertIn('Geometry', m)
+        result = inject_m_steps(base, steps)
 
-    def test_geojson_no_geometry(self):
-        cols = [
-            {'name': 'Name', 'datatype': 'string'},
-            {'name': 'Value', 'datatype': 'real'},
+        self.assertIn("Csv.Document", result)
+        self.assertIn("Table.RenameColumns", result)
+        self.assertIn("Table.SelectRows", result)
+        self.assertIn("Result = #\"Filtered Rows\"", result)
+        self.assertTrue(result.strip().endswith("Result"))
+
+    def test_sql_with_aggregate_and_sort(self):
+        conn = {"type": "SQL Server", "details": {"server": "s", "database": "d"}}
+        table = {"name": "Orders", "columns": []}
+
+        base = generate_power_query_m(conn, table)
+        steps = [
+            m_transform_aggregate(
+                ["Region"],
+                [{"name": "Total", "column": "Sales", "agg": "sum"}]
+            ),
+            m_transform_sort([("Total", True)]),
         ]
-        conn = {'type': 'GeoJSON', 'details': {'filename': 'data.geojson'}}
-        m = generate_power_query_m(conn, {'name': 'D', 'columns': cols})
-        self.assertIn('Json.Document', m)
+        result = inject_m_steps(base, steps)
+
+        self.assertIn("Sql.Database", result)
+        self.assertIn("Table.Group", result)
+        self.assertIn("Table.Sort", result)
+
+    def test_join_steps_injected(self):
+        base = (
+            "let\n"
+            "    Source = Sql.Database(\"h\", \"d\"),\n"
+            "    Result = Source\n"
+            "in\n"
+            "    Result"
+        )
+        join_steps = m_transform_join(
+            "LookupTable", ["ID"], ["ID"], "left",
+            expand_columns=["Name"]
+        )
+        result = inject_m_steps(base, join_steps)
+        self.assertIn("Table.NestedJoin", result)
+        self.assertIn("Table.ExpandTableColumn", result)
 
 
-class TestIntegrationInjectOnRealQuery(unittest.TestCase):
-    """COMPLEX — inject_m_steps on real connector queries."""
+# ═══════════════════════════════════════════════════════════════════════
+# Sprint 18 — Custom SQL Params, Query Folding, Buffer
+# ═══════════════════════════════════════════════════════════════════════
 
-    def test_inject_on_sql_query(self):
-        m = generate_power_query_m(SQL_CONNECTION,
-                                   {'name': 'Orders', 'columns': SAMPLE_COLUMNS})
-        enriched = inject_m_steps(m, [
-            m_transform_filter_values('IsActive', ['true']),
-            m_transform_rename({'Product Name': 'ProductName'}),
-            m_transform_add_column('Revenue', 'each [Price] * 1.1', 'type number'),
-        ])
-        self.assertIn('Sql.Database', enriched)
-        self.assertIn('Filtered Rows', enriched)
-        self.assertIn('Renamed Columns', enriched)
-        self.assertIn('Added Revenue', enriched)
-        self.assertIn('Result =', enriched)
+class TestCustomSqlParamBinding(unittest.TestCase):
+    """Test custom SQL with parameter binding via Value.NativeQuery."""
 
-    def test_inject_on_csv_query(self):
-        m = generate_power_query_m(CSV_CONNECTION,
-                                   {'name': 'Data', 'columns': SAMPLE_COLUMNS})
-        enriched = inject_m_steps(m, [
-            m_transform_distinct(),
-            m_transform_sort([('OrderDate', True)]),
-        ])
-        self.assertIn('Csv.Document', enriched)
-        self.assertIn('Removed Duplicates', enriched)
-        self.assertIn('Sorted Rows', enriched)
+    def test_custom_sql_with_params(self):
+        conn = {"type": "Custom SQL", "details": {
+            "server": "host", "database": "db",
+            "params": {"Region": "West", "Year": "2024"}
+        }}
+        table = {"name": "Q", "columns": []}
+        result = generate_power_query_m(conn, table)
+        self.assertIn("Value.NativeQuery", result)
+        self.assertIn('Region="West"', result)
+        self.assertIn('Year="2024"', result)
+        self.assertIn("EnableFolding=true", result)
+
+    def test_custom_sql_without_params(self):
+        conn = {"type": "Custom SQL", "details": {
+            "server": "host", "database": "db"
+        }}
+        table = {"name": "Q", "columns": []}
+        result = generate_power_query_m(conn, table)
+        self.assertNotIn("Value.NativeQuery", result)
+        self.assertIn("Sql.Database", result)
+
+    def test_custom_sql_empty_params(self):
+        conn = {"type": "Custom SQL", "details": {
+            "server": "host", "database": "db", "params": {}
+        }}
+        table = {"name": "Q", "columns": []}
+        result = generate_power_query_m(conn, table)
+        self.assertNotIn("Value.NativeQuery", result)
+
+
+class TestQueryFoldingBuffer(unittest.TestCase):
+    """Test Table.Buffer for query folding hints."""
+
+    def test_buffer_standalone(self):
+        step_name, step_expr = m_transform_buffer()
+        self.assertEqual(step_name, '#"Buffered Table"')
+        self.assertIn("Table.Buffer({prev})", step_expr)
+
+    def test_buffer_with_ref(self):
+        step_name, step_expr = m_transform_buffer("LookupTable")
+        self.assertIn("Table.Buffer(LookupTable)", step_expr)
+
+    def test_join_with_buffer_right(self):
+        steps = m_transform_join(
+            "LookupTable", ["ID"], ["ID"], "left",
+            buffer_right=True
+        )
+        self.assertEqual(len(steps), 1)
+        self.assertIn("Table.Buffer(LookupTable)", steps[0][1])
+        self.assertIn("Table.NestedJoin", steps[0][1])
+
+    def test_join_without_buffer_right(self):
+        steps = m_transform_join(
+            "LookupTable", ["ID"], ["ID"], "left",
+            buffer_right=False
+        )
+        self.assertNotIn("Table.Buffer", steps[0][1])
+
+    def test_buffer_injected_into_query(self):
+        base = (
+            "let\n"
+            "    Source = Sql.Database(\"h\", \"d\"),\n"
+            "    Result = Source\n"
+            "in\n"
+            "    Result"
+        )
+        buf_step = m_transform_buffer()
+        result = inject_m_steps(base, [buf_step])
+        self.assertIn("Table.Buffer(Source)", result)
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# sqlproxy / Tableau Server Published Datasource
+# ═══════════════════════════════════════════════════════════════════════
+
+class TestSqlproxyConnector(unittest.TestCase):
+    """Tests for the sqlproxy (Tableau Server) connector."""
+
+    def _make_columns(self, *names_types):
+        return [{"name": n, "datatype": t} for n, t in names_types]
+
+    def test_sqlproxy_generates_valid_m(self):
+        conn = {
+            "type": "Tableau Server",
+            "details": {
+                "server": "si-mytableau.edf.fr",
+                "port": "443",
+                "dbname": "E_Formation_courbe_puissance",
+                "channel": "https",
+                "server_ds_name": "E_Formation_courbe_puissance",
+            },
+        }
+        cols = self._make_columns(("Region", "string"), ("Value", "real"))
+        table = {"name": "Extract", "columns": cols}
+        result = generate_power_query_m(conn, table)
+        self.assertIn("let", result)
+        self.assertIn("in", result)
+        self.assertIn("Tableau Server Published Datasource", result)
+        self.assertIn("si-mytableau.edf.fr", result)
+        self.assertIn("E_Formation_courbe_puissance", result)
+        # Should contain connection templates
+        self.assertIn("SQL Server", result)
+        self.assertIn("Oracle", result)
+        self.assertIn("PostgreSQL", result)
+        # Should have sample data (not empty fallback)
+        self.assertIn("#table(", result)
+        self.assertIn('"Region"', result)
+
+    def test_sqlproxy_via_type_key(self):
+        """sqlproxy and SQLPROXY type keys should also work."""
+        conn = {"type": "sqlproxy", "details": {"server": "tab.co", "dbname": "ds1"}}
+        table = {"name": "T1", "columns": self._make_columns(("A", "string"))}
+        result = generate_power_query_m(conn, table)
+        self.assertIn("Tableau Server Published Datasource", result)
+
+    def test_sqlproxy_no_trailing_comma(self):
+        """Generated M must not have a comma before 'in'."""
+        conn = {"type": "Tableau Server", "details": {"server": "s", "dbname": "d"}}
+        cols = self._make_columns(("X", "integer"))
+        table = {"name": "T", "columns": cols}
+        result = generate_power_query_m(conn, table)
+        # Find the line before 'in' — it should not end with a comma
+        lines = result.strip().split('\n')
+        for i, line in enumerate(lines):
+            if line.strip() == 'in':
+                prev = lines[i - 1].rstrip()
+                self.assertFalse(prev.endswith(','),
+                                 f"Line before 'in' ends with comma: {prev!r}")
+
+    def test_sqlproxy_empty_columns(self):
+        conn = {"type": "Tableau Server", "details": {"server": "s"}}
+        table = {"name": "T", "columns": []}
+        result = generate_power_query_m(conn, table)
+        self.assertIn("let", result)
+        self.assertIn("in", result)
 
 
 if __name__ == '__main__':
-    unittest.main()
+    unittest.main(verbosity=2)

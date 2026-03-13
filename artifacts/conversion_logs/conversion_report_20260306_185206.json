@@ -1,0 +1,30 @@
+{
+  "metadata": {
+    "conversion_date": "2026-03-06T18:52:06.504759",
+    "duration": "0:00:00.000884"
+  },
+  "summary": {
+    "total_objects": 0,
+    "objects_by_type": {
+      "worksheets": 0,
+      "dashboards": 0,
+      "datasources": 0,
+      "calculations": 0,
+      "parameters": 0,
+      "filters": 0,
+      "stories": 0
+    },
+    "error_count": 0,
+    "warning_count": 7
+  },
+  "errors": [],
+  "warnings": [
+    "Fichier non trouvé : C:\\Users\\pidoudet\\AppData\\Local\\Temp\\ttf_main_3twr3koa\\e\\worksheets.json",
+    "Fichier non trouvé : C:\\Users\\pidoudet\\AppData\\Local\\Temp\\ttf_main_3twr3koa\\e\\dashboards.json",
+    "Fichier non trouvé : C:\\Users\\pidoudet\\AppData\\Local\\Temp\\ttf_main_3twr3koa\\e\\datasources.json",
+    "Fichier non trouvé : C:\\Users\\pidoudet\\AppData\\Local\\Temp\\ttf_main_3twr3koa\\e\\calculations.json",
+    "Fichier non trouvé : C:\\Users\\pidoudet\\AppData\\Local\\Temp\\ttf_main_3twr3koa\\e\\parameters.json",
+    "Fichier non trouvé : C:\\Users\\pidoudet\\AppData\\Local\\Temp\\ttf_main_3twr3koa\\e\\filters.json",
+    "Fichier non trouvé : C:\\Users\\pidoudet\\AppData\\Local\\Temp\\ttf_main_3twr3koa\\e\\stories.json"
+  ]
+}

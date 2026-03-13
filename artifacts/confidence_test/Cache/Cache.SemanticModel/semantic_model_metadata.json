@@ -1,0 +1,14 @@
+{
+  "displayName": "Cache",
+  "type": "SemanticModel",
+  "mode": "DirectLake",
+  "lakehouse": "Cache",
+  "stats": {
+    "tables": 8,
+    "columns": 12,
+    "measures": 7,
+    "relationships": 0,
+    "hierarchies": 0,
+    "roles": 0
+  }
+}

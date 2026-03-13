@@ -1,574 +1,530 @@
-# Tableau → Microsoft Fabric Mapping Reference
+# Tableau → Power BI Mapping Reference
 
-Complete mapping of Tableau objects to their Microsoft Fabric equivalents.
-The migration tool generates **six artifact types** (Lakehouse, Dataflow Gen2, Notebook, Semantic Model, Pipeline, Power BI Report).
+This document details all mappings between Tableau and Power BI objects to facilitate migration.
 
-## Mapping Overview
+> **See also:**  
+> - [TABLEAU_TO_DAX_REFERENCE.md](TABLEAU_TO_DAX_REFERENCE.md) — Complete 172-function Tableau→DAX mapping  
+> - [TABLEAU_TO_POWERQUERY_REFERENCE.md](TABLEAU_TO_POWERQUERY_REFERENCE.md) — Complete 108-property Tableau→Power Query M mapping
 
-```
-┌──────────────────────────────────────────────────────────────────────────────────────┐
-│                            TABLEAU → FABRIC MAPPING                                  │
-│                                                                                      │
-│   TABLEAU OBJECTS                    FABRIC ARTIFACTS                                │
-│   ───────────────                    ────────────────                                 │
-│                                                                                      │
-│   Data Sources ──────────────────>   Lakehouse (DDL) + Dataflow Gen2 (M queries)     │
-│   Custom SQL ────────────────────>   Dataflow Gen2 (native query) + Notebook cells   │
-│   Calculated columns (dim) ──────>   Lakehouse DDL + Dataflow M + Notebook PySpark   │
-│   Calculated fields (measure) ───>   Semantic Model DAX measures                     │
-│   LOD expressions ───────────────>   Semantic Model DAX CALCULATE(...)               │
-│   Parameters ────────────────────>   Semantic Model What-If tables                   │
-│   Worksheets ────────────────────>   Power BI Report visuals (60+ types)             │
-│   Dashboards ────────────────────>   Power BI Report pages                           │
-│   Stories ───────────────────────>   Power BI Report pages + bookmarks               │
-│   Filters ───────────────────────>   Slicers + visual / report filters               │
-│   User filters (RLS) ───────────>   Semantic Model RLS roles (USERPRINCIPALNAME)     │
-│   Actions ───────────────────────>   Cross-filtering / buttons (approximate)         │
-│   Relationships ─────────────────>   Semantic Model TMDL relationships               │
-│   Sort orders ───────────────────>   Semantic Model sortByColumn                     │
-│   Hierarchies ───────────────────>   Semantic Model display folders                  │
-│   Sets ──────────────────────────>   Semantic Model calculated tables / filters      │
-│   Groups ────────────────────────>   Semantic Model calculated columns               │
-│   Bins ──────────────────────────>   Semantic Model calculated columns (bucket)      │
-│   Aliases ───────────────────────>   Semantic Model column descriptions              │
-│                                                                                      │
-└──────────────────────────────────────────────────────────────────────────────────────┘
-```
-
-> **Legend**  
-> ✅ Automatic — fully converted by the migration tool  
-> ⚠️ Approximate — converted with best-effort approximation  
-> 🔧 Manual — placeholder generated, manual review needed  
-> ❌ No equivalent — no Fabric counterpart exists
-
----
-
-## 1. Visual Type Mappings (60+)
-
-Tableau mark types → Power BI visual types in the generated `.pbip` report.
+## 📊 Visual Types (60+ mappings)
 
 ### Bar & Column Charts
 
-| Tableau | Fabric (Power BI) | Status |
-|---------|-------------------|--------|
-| Bar chart (horizontal) | `clusteredBarChart` | ✅ |
-| Side-by-side bar | `clusteredBarChart` | ✅ |
-| Stacked bar | `100% Stacked Bar Chart` | ✅ |
-| Bar chart (vertical / Column) | `clusteredColumnChart` | ✅ |
-| Side-by-side column | `clusteredColumnChart` | ✅ |
-| Stacked column | `stackedColumnChart` | ✅ |
-| Histogram | `clusteredColumnChart` (binned) | ✅ |
+| Tableau Mark/Type | Power BI visualType | Notes |
+|-------------------|-------------------|-------|
+| Bar | clusteredBarChart | Standard horizontal bar |
+| Stacked Bar | stackedBarChart | |
+| 100% Stacked Bar | hundredPercentStackedBarChart | Percentages |
+| Bar (Vertical) / Column | clusteredColumnChart | Vertical orientation |
+| Stacked Column | stackedColumnChart | |
+| 100% Stacked Column | hundredPercentStackedColumnChart | |
+| Histogram | clusteredColumnChart | Binned data |
+| Gantt Bar / Lollipop | clusteredBarChart | Approximation |
+| Butterfly Chart / Waffle | hundredPercentStackedBarChart | |
 
 ### Line & Area Charts
 
-| Tableau | Fabric (Power BI) | Status |
-|---------|-------------------|--------|
-| Line chart | `lineChart` | ✅ |
-| Dual-axis line | `lineChart` (multi-measure) | ✅ |
-| Area chart | `areaChart` | ✅ |
-| Stacked area | `stackedAreaChart` | ✅ |
-| Sparkline | `lineChart` (small multiple) | ⚠️ |
+| Tableau Mark/Type | Power BI visualType | Notes |
+|-------------------|-------------------|-------|
+| Line | lineChart | With markers |
+| Area | areaChart | |
+| Stacked Area | stackedAreaChart | |
+| Bump Chart / Slope Chart | lineChart | |
+| Timeline / Sparkline | lineChart | |
+| Ribbon | ribbonChart | |
 
-### Pie & Donut
+### Pie, Donut & Funnel
 
-| Tableau | Fabric (Power BI) | Status |
-|---------|-------------------|--------|
-| Pie chart | `pieChart` | ✅ |
-| Donut chart | `donutChart` | ✅ |
+| Tableau Mark/Type | Power BI visualType | Notes |
+|-------------------|-------------------|-------|
+| Pie | pieChart | |
+| Donut / Ring / Rose / SemiCircle | donutChart | Empty center |
+| Funnel | funnel | |
+
+### Combo & Dual Axis
+
+| Tableau Mark/Type | Power BI visualType | Notes |
+|-------------------|-------------------|-------|
+| Dual Axis | lineClusteredColumnComboChart | Two Y axes |
+| Combo / Pareto | lineClusteredColumnComboChart | |
+| Line + Stacked Column | lineStackedColumnComboChart | |
 
 ### Scatter & Bubble
 
-| Tableau | Fabric (Power BI) | Status |
-|---------|-------------------|--------|
-| Scatter plot | `scatterChart` | ✅ |
-| Bubble chart | `scatterChart` (size encoding) | ✅ |
+| Tableau Mark/Type | Power BI visualType | Notes |
+|-------------------|-------------------|-------|
+| Circle / Shape / Dot Plot | scatterChart | |
+| Packed Bubble / Strip Plot | scatterChart | Bubble variant |
+
+### Maps & Geography
+
+| Tableau Mark/Type | Power BI visualType | Notes |
+|-------------------|-------------------|-------|
+| Map / Symbol Map / Density | map | Points on map |
+| Filled Map / Polygon / Multipolygon / Choropleth | filledMap | Colored areas |
 
 ### Tables & Matrices
 
-| Tableau | Fabric (Power BI) | Status |
-|---------|-------------------|--------|
-| Text table (crosstab) | `tableEx` | ✅ |
-| Highlight table | `tableEx` (conditional format) | ⚠️ |
-| Pivot table | `pivotTable` | ✅ |
-| Matrix | `pivotTable` | ✅ |
+| Tableau Mark/Type | Power BI visualType | Notes |
+|-------------------|-------------------|-------|
+| Text Table | tableEx | Table with text |
+| Automatic | table | Default table |
+| Crosstab | matrix | Rows and columns |
+| Heat Map / Highlight Table / Calendar | matrix | With conditional formatting |
 
-### Maps
+### Tree, Hierarchy & Flow
 
-| Tableau | Fabric (Power BI) | Status |
-|---------|-------------------|--------|
-| Symbol map | `map` | ✅ |
-| Filled map | `filledMap` | ✅ |
-| Density map (heatmap) | `map` | ⚠️ |
-| Dual-axis map | `map` (layered) | ⚠️ |
-| Flow map | `map` | ⚠️ |
+| Tableau Mark/Type | Power BI visualType | Notes |
+|-------------------|-------------------|-------|
+| Square / Hex / Treemap | treemap | |
+| Sankey / Chord / Network | sankeyDiagram / chordChart / networkNavigator | Custom visual GUIDs (AppSource) |
 
-### Specialised
+### Specialized Charts
 
-| Tableau | Fabric (Power BI) | Status |
-|---------|-------------------|--------|
-| Treemap | `treemap` | ✅ |
-| Heat map | `tableEx` (conditional format) | ⚠️ |
-| Box-and-whisker | Custom visual | 🔧 |
-| Bullet graph | Custom visual | 🔧 |
-| Gantt chart | Custom visual | 🔧 |
-| Waterfall chart | `waterfallChart` | ✅ |
-| Funnel chart | `funnel` | ✅ |
-| Word cloud | Custom visual | 🔧 |
-| Gauge / Speedometer | `gauge` | ✅ |
-| KPI | `card` / `multiRowCard` | ✅ |
-| Reference line (on chart) | Visual analytics pane | ⚠️ |
-| Combo chart (bar + line) | `lineClusteredColumnComboChart` | ✅ |
-| Packed bubble | `scatterChart` (size) | ⚠️ |
-| Radial chart | Custom visual | 🔧 |
-| Lollipop chart | Custom visual | 🔧 |
-| Sankey diagram | Custom visual | 🔧 |
-| Chord diagram | Custom visual | 🔧 |
+| Tableau Mark/Type | Power BI visualType | Notes |
+|-------------------|-------------------|-------|
+| Waterfall | waterfallChart | |
+| Box Plot / Box and Whisker | boxAndWhisker | Native PBI visual |
+| Bullet / Radial / Gauge / Speedometer | gauge | |
+| Word Cloud | wordCloud | |
+| KPI | card | Single-value display |
+| Multi-row KPI | multiRowCard | Multiple values |
+| Image | image | |
 
-### Data Entry & Interaction
+## 🔢 Calculation Functions
 
-| Tableau | Fabric (Power BI) | Status |
-|---------|-------------------|--------|
-| Dropdown filter | `slicer` (dropdown) | ✅ |
-| Single-value slider | `slicer` (between) | ✅ |
-| Range slider | `slicer` (between) | ✅ |
-| Multi-select list | `slicer` (list) | ✅ |
-| Relative date filter | `slicer` (relative date) | ✅ |
-| Hierarchy filter (drill) | `slicer` with hierarchy | ✅ |
-| Parameter control | `slicer` on What-If table | ✅ |
+### Basic Aggregations
 
----
+| Tableau | DAX | Example |
+|---------|-----|---------|
+| `SUM([Sales])` | `SUM([Sales])` | Total sales |
+| `AVG([Price])` | `AVERAGE([Price])` | Average price |
+| `MIN([Date])` | `MIN([Date])` | Minimum date |
+| `MAX([Quantity])` | `MAX([Quantity])` | Maximum quantity |
+| `COUNT([Orders])` | `COUNT([Orders])` | Number of orders |
+| `COUNTD([Customer ID])` | `DISTINCTCOUNT([Customer ID])` | Unique customers |
+| `MEDIAN([Value])` | `MEDIAN([Value])` | Median |
+| `STDEV([Amount])` | `STDEV.S([Amount])` | Standard deviation |
+| `VAR([Sales])` | `VAR.S([Sales])` | Variance |
 
-## 2. Calculation Functions
+### Logical Functions
 
-Tableau formulas → DAX (measures and calculated columns in the Semantic Model).
+| Tableau | DAX | Notes |
+|---------|-----|-------|
+| `IF condition THEN value1 ELSE value2 END` | `IF(condition, value1, value2)` | |
+| `IIF(condition, value1, value2)` | `IF(condition, value1, value2)` | |
+| `CASE WHEN ... THEN ... END` | `SWITCH(TRUE(), ...)` | Nested |
+| `AND` | `&&` | Operator |
+| `OR` | `\|\|` | Operator |
+| `NOT` | `NOT()` | Function |
+| `ISNULL([Field])` | `ISBLANK([Field])` | NULL test |
+| `IFNULL([Field], 0)` | `IF(ISBLANK([Field]), 0, [Field])` | Replace NULL |
+| `ZN([Field])` | `IF(ISBLANK([Field]), 0, [Field])` | Zero if Null |
 
-> Full reference (~130 conversion points covering 172 Tableau functions): [TABLEAU_TO_DAX_REFERENCE.md](TABLEAU_TO_DAX_REFERENCE.md)
+### Text Functions
 
-### Aggregation
+| Tableau | DAX | Notes |
+|---------|-----|-------|
+| `LEFT([Text], 5)` | `LEFT([Text], 5)` | |
+| `RIGHT([Text], 3)` | `RIGHT([Text], 3)` | |
+| `MID([Text], 2, 4)` | `MID([Text], 2, 4)` | |
+| `UPPER([Text])` | `UPPER([Text])` | |
+| `LOWER([Text])` | `LOWER([Text])` | |
+| `LEN([Text])` | `LEN([Text])` | |
+| `TRIM([Text])` | `TRIM([Text])` | |
+| `REPLACE([Text], 'old', 'new')` | `SUBSTITUTE([Text], 'old', 'new')` | |
+| `CONTAINS([Text], 'sub')` | `CONTAINSSTRING([Text], 'sub')` | Boolean |
+| `[Text1] + [Text2]` | `[Text1] & [Text2]` | Concatenation |
 
-| Tableau | DAX | Status |
-|---------|-----|--------|
-| `SUM(expr)` | `SUM(col)` / `SUMX('T', expr)` | ✅ |
-| `AVG(expr)` | `AVERAGE(col)` / `AVERAGEX('T', expr)` | ✅ |
-| `COUNT(expr)` | `COUNT(col)` / `COUNTX('T', expr)` | ✅ |
-| `COUNTD(expr)` | `DISTINCTCOUNT(col)` | ✅ |
-| `MIN(expr)` | `MIN(col)` / `MINX('T', expr)` | ✅ |
-| `MAX(expr)` | `MAX(col)` / `MAXX('T', expr)` | ✅ |
-| `MEDIAN(expr)` | `MEDIAN(col)` / `MEDIANX('T', expr)` | ✅ |
+### Date Functions
 
-### Logical
+| Tableau | DAX | Notes |
+|---------|-----|-------|
+| `YEAR([Date])` | `YEAR([Date])` | |
+| `MONTH([Date])` | `MONTH([Date])` | |
+| `DAY([Date])` | `DAY([Date])` | |
+| `QUARTER([Date])` | `QUARTER([Date])` | |
+| `WEEK([Date])` | `WEEKNUM([Date])` | |
+| `DATEADD('month', -1, [Date])` | `DATEADD([Date], -1, MONTH)` | Different syntax |
+| `DATEDIFF('day', [Start], [End])` | `DATEDIFF([Start], [End], DAY)` | Different syntax |
+| `TODAY()` | `TODAY()` | |
+| `NOW()` | `NOW()` | |
+| `MAKEDATE(2024, 1, 15)` | `DATE(2024, 1, 15)` | |
 
-| Tableau | DAX | Status |
-|---------|-----|--------|
-| `IF ... THEN ... ELSE ... END` | `IF(cond, then, else)` | ✅ |
-| `CASE ... WHEN ... END` | `SWITCH(field, val, result, ...)` | ✅ |
-| `ISNULL(expr)` | `ISBLANK(expr)` | ✅ |
-| `IFNULL(expr, alt)` | `IF(ISBLANK(expr), alt, expr)` | ✅ |
-| `ZN(expr)` | `IF(ISBLANK(expr), 0, expr)` | ✅ |
+### Math Functions
 
-### Text
+| Tableau | DAX | Notes |
+|---------|-----|-------|
+| `ABS([Value])` | `ABS([Value])` | |
+| `ROUND([Value], 2)` | `ROUND([Value], 2)` | |
+| `CEILING([Value])` | `ROUNDUP([Value], 0)` | |
+| `FLOOR([Value])` | `ROUNDDOWN([Value], 0)` | |
+| `SQRT([Value])` | `SQRT([Value])` | |
+| `POWER([Base], [Exp])` | `POWER([Base], [Exp])` | |
+| `EXP([Value])` | `EXP([Value])` | |
+| `LOG([Value])` | `LOG([Value])` | |
 
-| Tableau | DAX | Status |
-|---------|-----|--------|
-| `CONTAINS(str, sub)` | `CONTAINSSTRING(str, sub)` | ✅ |
-| `REPLACE(str, old, new)` | `SUBSTITUTE(str, old, new)` | ✅ |
-| `LEFT / RIGHT / MID` | `LEFT / RIGHT / MID` | ✅ |
-| `UPPER / LOWER / TRIM` | `UPPER / LOWER / TRIM` | ✅ |
+## 📐 Level of Detail (LOD) Expressions
 
-### Date
+### FIXED
 
-| Tableau | DAX | Status |
-|---------|-----|--------|
-| `DATEPART('year', date)` | `YEAR(date)` | ✅ |
-| `DATEDIFF(part, start, end)` | `DATEDIFF(start, end, INTERVAL)` | ✅ |
-| `DATETRUNC('month', date)` | `STARTOFMONTH(date)` | ✅ |
-| `NOW()` / `TODAY()` | `NOW()` / `TODAY()` | ✅ |
+| Tableau | DAX | Usage |
+|---------|-----|-------|
+| `{ FIXED : SUM([Sales]) }` | `CALCULATE(SUM([Sales]), ALL(Table))` | Grand total |
+| `{ FIXED [Region] : SUM([Sales]) }` | `CALCULATE(SUM([Sales]), ALLEXCEPT('Table', 'Table'[Region]))` | By region only |
+| `{ FIXED [Region], [Category] : SUM([Sales]) }` | `CALCULATE(SUM([Sales]), ALLEXCEPT('Table', 'Table'[Region], 'Table'[Category]))` | Multi-dimension |
 
----
+### INCLUDE
 
-## 3. LOD Expressions
+| Tableau | DAX | Usage |
+|---------|-----|-------|
+| `{ INCLUDE [Region] : SUM([Sales]) }` | `CALCULATE(SUM([Sales]))` | Add dimension |
 
-| Tableau LOD | DAX | Status |
-|-------------|-----|--------|
-| `{FIXED [dim] : AGG(expr)}` | `CALCULATE(AGG(expr), ALLEXCEPT('T', 'T'[dim]))` | ✅ |
-| `{INCLUDE [dim] : AGG(expr)}` | `CALCULATE(AGG(expr))` | ✅ |
-| `{EXCLUDE [dim] : AGG(expr)}` | `CALCULATE(AGG(expr), REMOVEFILTERS('T'[dim]))` | ✅ |
-| `{AGG(expr)}` (no dims) | `CALCULATE(AGG(expr))` | ✅ |
+### EXCLUDE
 
----
+| Tableau | DAX | Usage |
+|---------|-----|-------|
+| `{ EXCLUDE [Category] : SUM([Sales]) }` | `CALCULATE(SUM([Sales]), ALLEXCEPT(Table, [Region]))` | Exclude dimension |
 
-## 4. Parameters
+## 🎛️ Parameters
 
-| Tableau Parameter | Fabric Semantic Model | Status |
-|-------------------|----------------------|--------|
-| Integer range (min, max, step) | `GENERATESERIES(min, max, step)` table + `SELECTEDVALUE` measure | ✅ |
-| Real range (min, max, step) | `GENERATESERIES(min, max, step)` table + `SELECTEDVALUE` measure | ✅ |
-| String list | `DATATABLE("Value", STRING, {{"v1"}, ...})` table + `SELECTEDVALUE` measure | ✅ |
-| Date range | `GENERATESERIES(...)` table | ⚠️ |
-| Any domain (type-in) | `DATATABLE` with current value | ⚠️ |
+### Parameter Types
 
----
+| Tableau | Power BI | Usage |
+|---------|----------|-------|
+| Numeric Range Parameter | What-If Parameter | Numeric slider |
+| List Parameter | Query Parameter | List selection |
+| Date Parameter | Query Parameter | Date selection |
+| String Parameter | Query Parameter | Free text |
 
-## 5. Filters
+### Usage in Calculations
 
-| Tableau Filter Type | Fabric Equivalent | Status |
-|--------------------|-------------------|--------|
-| Dimension filter (include/exclude) | Slicer visual | ✅ |
-| Measure filter | Visual-level filter | ✅ |
-| Relative date filter | Relative date slicer | ✅ |
-| Top N filter | Visual-level TopN filter | ✅ |
-| Context filter | Report-level filter | ⚠️ |
-| Data source filter | M `Table.SelectRows()` in Dataflow / notebook filter | ⚠️ |
-| Extract filter | M filter / notebook filter | ⚠️ |
+| Tableau | DAX |
+|---------|-----|
+| `[ParameterName]` | `SELECTEDVALUE('Parameter Table'[Parameter Value], DefaultValue)` |
 
----
+## 🔍 Filters
 
-## 6. Actions & Interactions
+### Filter Types
 
-| Tableau Action | Fabric (Power BI) | Status |
-|---------------|-------------------|--------|
-| Filter action | Cross-filtering (visual interactions) | ⚠️ |
-| Highlight action | Cross-highlighting (visual interactions) | ⚠️ |
-| URL action | Button / hyperlink | ⚠️ |
-| Sheet navigation | Bookmark / page navigation button | ⚠️ |
-| Parameter action | Slicer interaction | ⚠️ |
-| Set action | Slicer / filter reset | 🔧 |
+| Tableau | Power BI | Notes |
+|---------|----------|-------|
+| Categorical Filter | Basic Filter | List of values |
+| Quantitative Filter | Advanced Filter | Numeric ranges |
+| Date Filter (Relative) | Relative Date Filter | Last month, etc. |
+| Date Filter (Range) | Date Filter | Between two dates |
+| Top N Filter | Top N Filter | Top 10 |
+| Wildcard Filter | Search Filter | Contains... |
+| Context Filter | Report-Level Filter | Applied globally |
 
----
+### Filter Scope
 
-## 7. Stories & Bookmarks
+| Tableau | Power BI |
+|---------|----------|
+| Worksheet Filter | Visual-Level Filter |
+| Dashboard Filter | Page-Level Filter |
+| Context Filter | Report-Level Filter |
+| Data Source Filter | Dataset Filter |
 
-| Tableau | Fabric (Power BI) | Status |
-|---------|-------------------|--------|
-| Story | Multiple report pages | ✅ |
-| Story point | Bookmark | ✅ |
-| Story caption | Bookmark display name | ✅ |
-| Story description | Bookmark description | ⚠️ |
+## 🎬 Actions and Interactions
 
----
+### Action Types
 
-## 8. Data Sources → Fabric Artifacts
+| Tableau | Power BI | Notes |
+|---------|----------|-------|
+| Filter Action | Cross-Filtering | Click filters other visuals |
+| Highlight Action | Cross-Highlighting | Click highlights |
+| URL Action | URL Action | Opens URL |
+| Go to Sheet | Page Navigation | Navigation buttons |
 
-### Connector Mapping (25 types)
+## 📖 Stories
 
-| Tableau Connector | Fabric Dataflow Gen2 (Power Query M) | Status |
-|-------------------|--------------------------------------|--------|
-| Excel (.xlsx/.xls) | `Excel.Workbook(File.Contents())` | ✅ |
-| CSV / Text | `Csv.Document(File.Contents())` | ✅ |
-| SQL Server | `Sql.Database(server, database)` | ✅ |
-| PostgreSQL | `PostgreSQL.Database(server:port, db)` | ✅ |
-| MySQL | `MySQL.Database(server:port, db)` | ✅ |
-| Oracle | `Oracle.Database(server:port/service)` | ✅ |
-| Google BigQuery | `GoogleBigQuery.Database()` | ✅ |
-| Snowflake | `Snowflake.Databases(server, warehouse)` | ✅ |
-| Teradata | `Teradata.Database(server)` | ✅ |
-| SAP HANA | `SapHana.Database(server:port)` | ✅ |
-| SAP BW | `SapBusinessWarehouse.Cubes(server, sysNr, clientId)` | ✅ |
-| Amazon Redshift | `AmazonRedshift.Database(server:port, db)` | ✅ |
-| Databricks | `Databricks.Catalogs(server, http_path)` | ✅ |
-| Spark SQL | `SparkSql.Database(server, port)` | ✅ |
-| Azure SQL Database | `AzureSQL.Database(server, database)` | ✅ |
-| Azure Synapse | `AzureSQL.Database(server, database)` | ✅ |
-| Google Sheets | `Web.Contents() + Csv.Document()` | ✅ |
-| SharePoint | `SharePoint.Files(site_url)` | ✅ |
-| JSON | `Json.Document(File.Contents())` | ✅ |
-| XML | `Xml.Tables(File.Contents())` | ✅ |
-| PDF | `Pdf.Tables(File.Contents())` | ✅ |
-| GeoJSON | `Json.Document(File.Contents())` | ✅ |
-| Salesforce | `Salesforce.Data()` | ✅ |
-| Web API | `Web.Contents(url) + Json.Document()` | ✅ |
-| Custom SQL | `Sql.Database(server, db, [Query=...])` | ✅ |
+### Components
 
-### Data Flow: Tableau → Lakehouse
+| Tableau | Power BI | Notes |
+|---------|----------|-------|
+| Story | Bookmark Collection | Narrative sequence |
+| Story Point | Bookmark | Captured state |
+| Story Navigation | Navigation Buttons | Previous/Next |
+| Caption | Bookmark Title | Descriptive text |
 
-```
-               ┌────────────────────────┐
-               │   Tableau Data Source   │
-               │   (31 connector types)  │
-               └───────────┬────────────┘
-                           │
-                           ▼
-          ┌────────────────────────────────┐
-          │   Dataflow Gen2                │
-          │   Power Query M                │
-          │   ┌────────────────────────┐   │
-          │   │ Source connector       │   │
-          │   │ Type changes           │   │
-          │   │ Table.AddColumn(calc)  │   │
-          │   └────────────────────────┘   │
-          └───────────────┬────────────────┘
-                          │  writes Delta
-                          ▼
-          ┌────────────────────────────────┐
-          │   Lakehouse                    │
-          │   ┌──────┐ ┌──────┐ ┌──────┐  │
-          │   │Orders│ │Cust. │ │Cal.  │  │
-          │   │Delta │ │Delta │ │Delta │  │
-          │   └──────┘ └──────┘ └──────┘  │
-          └───────────────┬────────────────┘
-                          │  PySpark ETL
-                          ▼
-          ┌────────────────────────────────┐
-          │   Notebook                     │
-          │   .withColumn(calc columns)    │
-          │   .write.saveAsTable(Delta)    │
-          └───────────────┬────────────────┘
-                          │  DirectLake read
-                          ▼
-          ┌────────────────────────────────┐
-          │   Semantic Model (TMDL)        │
-          │   DirectLake entity partitions │
-          │   DAX measures + RLS roles     │
-          └───────────────┬────────────────┘
-                          │  live connection
-                          ▼
-          ┌────────────────────────────────┐
-          │   Power BI Report (.pbip)      │
-          │   PBIR visuals + slicers       │
-          │   60+ visual types             │
-          └────────────────────────────────┘
-```
+## 🗂️ Data Sources
 
----
+### Connection Types
 
-## 9. Data Type Mappings
+| Tableau | Power BI | Notes |
+|---------|----------|-------|
+| Live Connection | DirectQuery | Real-time |
+| Extract | Import | Local cache |
+| Published Data Source | Shared Dataset | Reusable |
 
-### Tableau → Lakehouse (Delta) Types
+### Connectors (25 types)
 
-| Tableau Type | Delta Lake Type | Status |
-|-------------|----------------|--------|
-| `string` | `STRING` | ✅ |
-| `integer` | `BIGINT` | ✅ |
-| `int64` | `BIGINT` | ✅ |
-| `real` | `DOUBLE` | ✅ |
-| `double` | `DOUBLE` | ✅ |
-| `decimal` | `DOUBLE` | ✅ |
-| `number` | `DOUBLE` | ✅ |
-| `boolean` | `BOOLEAN` | ✅ |
-| `date` | `DATE` | ✅ |
-| `datetime` | `TIMESTAMP` | ✅ |
-| `time` | `STRING` | ⚠️ |
-| `spatial` | `STRING` | ⚠️ |
-| `binary` | `BINARY` | ✅ |
+> **Full reference:** [TABLEAU_TO_POWERQUERY_REFERENCE.md](TABLEAU_TO_POWERQUERY_REFERENCE.md)
 
-### Tableau → Power Query M Types (Dataflow Gen2)
+| Tableau | Power BI | Availability |
+|---------|----------|---------------|
+| SQL Server | SQL Server | ✅ |
+| PostgreSQL | PostgreSQL | ✅ |
+| MySQL | MySQL | ✅ |
+| Oracle | Oracle | ✅ |
+| Excel | Excel | ✅ |
+| CSV | Text/CSV | ✅ |
+| JSON | JSON | ✅ |
+| XML | XML | ✅ |
+| PDF | PDF | ✅ |
+| Web Data Connector | Web | ✅ |
+| Snowflake | Snowflake | ✅ |
+| BigQuery | BigQuery | ✅ |
+| Redshift | Redshift | ✅ |
+| Databricks | Databricks | ✅ |
+| Spark | Spark | ✅ |
+| Teradata | Teradata | ✅ |
+| SAP HANA | SAP HANA | ✅ |
+| Azure SQL | Azure SQL | ✅ |
+| Azure Synapse | Azure Synapse | ✅ |
+| Google Sheets | Google Sheets | ✅ |
+| SharePoint | SharePoint | ✅ |
+| GeoJSON | GeoJSON | ✅ |
+| Salesforce | Salesforce | ✅ |
 
-| Tableau Type | Power Query M Type | Status |
-|-------------|-------------------|--------|
-| `string` | `type text` | ✅ |
-| `integer` | `Int64.Type` | ✅ |
-| `real` | `type number` | ✅ |
-| `boolean` | `type logical` | ✅ |
-| `date` | `type date` | ✅ |
-| `datetime` | `type datetime` | ✅ |
-
-### Tableau → TMDL Types (Semantic Model)
-
-| Tableau Type | TMDL Type | Status |
-|-------------|-----------|--------|
-| `string` | `String` | ✅ |
-| `integer` | `Int64` | ✅ |
-| `real` | `Double` | ✅ |
-| `boolean` | `Boolean` | ✅ |
-| `date` | `DateTime` | ✅ |
-| `datetime` | `DateTime` | ✅ |
-
----
-
-## 10. Formatting
+## 🎨 Formatting
 
 ### Number Formats
 
-| Tableau Format | DAX formatString | Status |
-|---------------|-----------------|--------|
-| Number (2 decimals) | `#,##0.00` | ✅ |
-| Percentage | `0.0%` | ✅ |
-| Currency | `$#,##0.00` | ✅ |
-| Integer | `#,##0` | ✅ |
-| Custom | Mapped as-is | ⚠️ |
+| Tableau | Power BI | Example |
+|---------|----------|---------|
+| `n0` | `#,##0` | 1,234 |
+| `n2` | `#,##0.00` | 1,234.56 |
+| `c0` | `$#,##0` | $1,234 |
+| `c2` | `$#,##0.00` | $1,234.56 |
+| `p0` | `0%` | 50% |
+| `p2` | `0.00%` | 50.25% |
 
 ### Date Formats
 
-| Tableau Format | DAX formatString | Status |
-|---------------|-----------------|--------|
-| `YYYY-MM-DD` | `yyyy-MM-dd` | ✅ |
-| `MM/DD/YYYY` | `MM/dd/yyyy` | ✅ |
-| `Month Day, Year` | `MMMM dd, yyyy` | ✅ |
-| Short date | Locale default | ✅ |
+| Tableau | Power BI | Example |
+|---------|----------|---------|
+| `d` (short) | `dd/MM/yyyy` | 15/02/2024 |
+| `D` (long) | `dddd, MMMM dd, yyyy` | Thursday, February 15, 2024 |
+| `t` (time) | `HH:mm` | 14:30 |
+| `T` (long time) | `HH:mm:ss` | 14:30:45 |
+
+## ⚙️ Page/Report Settings
+
+### Dashboard Options
+
+| Tableau | Power BI | Notes |
+|---------|----------|-------|
+| Dashboard Size | Page Size | Fixed or responsive dimensions |
+| Show Title | Show Title | Page option |
+| Background Color | Background Color | Page formatting |
+| Show Filters | Filter Pane | Show/hide |
 
 ---
 
-## 11. Semantic Roles
+## 🔬 Complex Transformation Examples
 
-| Tableau semantic-role | TMDL dataCategory | Status |
-|----------------------|-------------------|--------|
-| `[Country].[Name]` | `Country` | ✅ |
-| `[State].[Name]` | `StateOrProvince` | ✅ |
-| `[County].[Name]` | `County` | ✅ |
-| `[City].[Name]` | `City` | ✅ |
-| `[Postal Code].[Name]` | `PostalCode` | ✅ |
-| `[Latitude]` | `Latitude` | ✅ |
-| `[Longitude]` | `Longitude` | ✅ |
+This section shows real-world Tableau formulas and their automatically generated DAX equivalents.
+
+### Example 1: Multi-condition Revenue with SUM(IF) → SUMX
+
+**Tableau:**
+```
+SUM(IF [order_status] != "Cancelled" THEN [quantity] * [unit_price] * (1 - [discount]) ELSE 0 END)
+```
+
+**Generated DAX:**
+```dax
+SUMX('Orders', IF('Orders'[order_status] != "Cancelled", 'Orders'[quantity] * 'Orders'[unit_price] * (1 - 'Orders'[discount]), 0))
+```
+
+**What happens:**
+1. `IF/THEN/ELSE/END` → `IF(condition, value, else)`
+2. `SUM(IF(...))` → `SUMX('Orders', IF(...))` — iterator needed because DAX `SUM()` only takes a column
+3. Bare `[column]` references → `'Orders'[column]` with table qualification
+
+### Example 2: LOD FIXED with Nested Conditions (YTD Revenue)
+
+**Tableau:**
+```
+{FIXED : SUM(IF YEAR([transaction_date]) = YEAR(TODAY()) THEN [amount] ELSE 0 END)}
+```
+
+**Generated DAX:**
+```dax
+CALCULATE(
+    SUMX('transactions', IF(YEAR('transactions'[transaction_date]) = YEAR(TODAY()), 'transactions'[amount], 0)),
+    ALL('transactions')
+)
+```
+
+**What happens:**
+1. `{FIXED : ...}` with no dimensions → `CALCULATE(..., ALL('table'))` (grand total across all rows)
+2. Inner `SUM(IF ...)` → `SUMX('table', IF(...))`
+3. `YEAR()` and `TODAY()` map directly
+4. The result is a YTD calculation that ignores all filters
+
+### Example 3: Multi-Dimension LOD FIXED
+
+**Tableau:**
+```
+{FIXED [region], [channel] : SUM([quantity] * [unit_price])}
+```
+
+**Generated DAX:**
+```dax
+CALCULATE(SUM('Orders'[quantity] * 'Orders'[unit_price]), ALLEXCEPT('Orders', 'Orders'[region], 'Orders'[channel]))
+```
+
+**What happens:**
+1. `{FIXED dim1, dim2 : AGG}` → `CALCULATE(AGG, ALLEXCEPT('table', 'table'[dim1], 'table'[dim2]))`
+2. `ALLEXCEPT` removes all filters except the specified dimensions
+
+### Example 4: LOD EXCLUDE
+
+**Tableau:**
+```
+{EXCLUDE [channel] : SUM([quantity] * [unit_price])}
+```
+
+**Generated DAX:**
+```dax
+CALCULATE(SUM('Orders'[quantity] * 'Orders'[unit_price]), REMOVEFILTERS('Orders'[channel]))
+```
+
+### Example 5: Nested IF/ELSEIF (Customer Tier)
+
+**Tableau:**
+```
+IF [Revenue per Customer] > 10000 THEN "Platinum"
+ELSEIF [Revenue per Customer] > 5000 THEN "Gold"
+ELSEIF [Revenue per Customer] > 1000 THEN "Silver"
+ELSE "Bronze" END
+```
+
+**Generated DAX:**
+```dax
+IF([Revenue per Customer] > 10000, "Platinum", IF([Revenue per Customer] > 5000, "Gold", IF([Revenue per Customer] > 1000, "Silver", "Bronze")))
+```
+
+**What happens:**
+1. Each `ELSEIF` becomes a nested `IF()` in the ELSE branch
+2. The final `ELSE` becomes the innermost default value
+
+### Example 6: Null Handling (ISNULL + ZN)
+
+**Tableau:**
+```
+IF ISNULL([discount]) THEN 0 ELSE ZN([discount]) END
+```
+
+**Generated DAX:**
+```dax
+IF(ISBLANK('Orders'[discount]), 0, IF(ISBLANK('Orders'[discount]), 0, 'Orders'[discount]))
+```
+
+**What happens:**
+1. `ISNULL(x)` → `ISBLANK(x)`
+2. `ZN(x)` → `IF(ISBLANK(x), 0, x)` (Zero if Null)
+
+### Example 7: String Concatenation with Type Detection
+
+**Tableau:**
+```
+UPPER([city]) + ", " + [state] + " (" + [country] + ")"
+```
+
+**Generated DAX:**
+```dax
+UPPER('Customers'[city]) & ", " & 'Customers'[state] & " (" & 'Customers'[country] & ")"
+```
+
+**What happens:**
+1. When the calculation datatype is `string`, `+` → `&`
+2. `UPPER()` maps directly
+3. Column references are table-qualified
+
+### Example 8: Date Argument Reordering (DATEDIFF)
+
+**Tableau:**
+```
+DATEDIFF("day", [first_purchase_date], TODAY())
+```
+
+**Generated DAX:**
+```dax
+DATEDIFF('Customers'[first_purchase_date], TODAY(), DAY)
+```
+
+**What happens:**
+1. Tableau: `DATEDIFF(interval, start, end)` → DAX: `DATEDIFF(start, end, INTERVAL)`
+2. The interval string `"day"` moves from first arg to last arg and becomes the keyword `DAY`
+
+### Example 9: Window Function (Budget Variance)
+
+**Tableau:**
+```
+SUM([amount]) - WINDOW_AVG(SUM([amount]))
+```
+
+**Generated DAX:**
+```dax
+SUM('transactions'[amount]) - CALCULATE(SUM('transactions'[amount]), ALL('transactions'))
+```
+
+### Example 10: Cross-Table Reference in Calculated Column
+
+**Tableau** (calculated column on Orders table referencing Customers):
+```
+"Segment: " + [segment]
+```
+
+**Generated DAX** (when relationship is manyToOne):
+```dax
+"Segment: " & RELATED('Customers'[segment])
+```
+
+**Generated DAX** (when relationship is manyToMany):
+```dax
+"Segment: " & LOOKUPVALUE('Customers'[segment], 'Customers'[customer_id], 'Orders'[customer_id])
+```
+
+### Example 11: Security USERNAME() → RLS Role
+
+**Tableau:**
+```xml
+<calculation formula='[CustomerEmail] = USERNAME()' />
+```
+
+**Generated TMDL:**
+```tmdl
+role 'Is Current User'
+    modelPermission: read
+    tablePermission Orders
+        filterExpression = 'Orders'[CustomerEmail] = USERPRINCIPALNAME()
+```
+
+### Example 12: User Filter → RLS Role with Inline Mappings
+
+**Tableau:**
+```xml
+<user-filter column='[territory]'>
+    <member user='john@acme.com' value='North' />
+    <member user='john@acme.com' value='South' />
+    <member user='jane@acme.com' value='East' />
+</user-filter>
+```
+
+**Generated TMDL:**
+```tmdl
+role 'Territory Access'
+    modelPermission: read
+    tablePermission Orders
+        filterExpression = (USERPRINCIPALNAME() = "john@acme.com" && [territory] IN {"North", "South"})
+            || (USERPRINCIPALNAME() = "jane@acme.com" && [territory] = "East")
+```
 
 ---
 
-## 12. Complex Transformation Examples
-
-### Example 1: SUM(IF) → SUMX
-
-```
-Tableau:
-  SUM(IF [order_status] != "Cancelled"
-      THEN [quantity] * [unit_price] * (1 - [discount])
-      ELSE 0 END)
-
-DAX (Semantic Model measure):
-  SUMX('Orders',
-    IF('Orders'[order_status] != "Cancelled",
-       'Orders'[quantity] * 'Orders'[unit_price] * (1 - 'Orders'[discount]),
-       0))
-```
-
-### Example 2: LOD FIXED → CALCULATE
-
-```
-Tableau:
-  {FIXED [customer_id] : SUM([quantity] * [unit_price])}
-
-DAX:
-  CALCULATE(
-    SUM('Orders'[quantity] * 'Orders'[unit_price]),
-    ALLEXCEPT('Orders', 'Orders'[customer_id]))
-```
-
-### Example 3: Nested IF/ELSEIF
-
-```
-Tableau:
-  IF [Revenue] > 10000 THEN "Platinum"
-  ELSEIF [Revenue] > 5000 THEN "Gold"
-  ELSEIF [Revenue] > 1000 THEN "Silver"
-  ELSE "Bronze" END
-
-DAX:
-  IF([Revenue] > 10000, "Platinum",
-    IF([Revenue] > 5000, "Gold",
-      IF([Revenue] > 1000, "Silver", "Bronze")))
-```
-
-### Example 4: Null Handling
-
-```
-Tableau:
-  IFNULL([discount], 0) * [price]
-
-DAX:
-  IF(ISBLANK([discount]), 0, [discount]) * [price]
-```
-
-### Example 5: String Concatenation
-
-```
-Tableau:
-  [First Name] + " " + [Last Name]
-
-DAX:
-  [First Name] & " " & [Last Name]
-```
-
-### Example 6: DATEDIFF
-
-```
-Tableau:
-  DATEDIFF('day', [order_date], [ship_date])
-
-DAX:
-  DATEDIFF([order_date], [ship_date], DAY)
-```
-
-### Example 7: Window Functions
-
-```
-Tableau:
-  WINDOW_AVG(SUM([revenue]))
-
-DAX:
-  CALCULATE(SUM('Table'[revenue]), ALL('Table'))
-```
-
-### Example 8: Cross-Table Reference
-
-```
-Tableau calc column (on Orders table):
-  [segment]     ← from Customers table
-
-DAX (manyToOne):
-  RELATED('Customers'[segment])
-
-DAX (manyToMany):
-  LOOKUPVALUE('Customers'[segment], 'Customers'[id], [customer_id])
-```
-
-### Example 9: Row-Level Security
-
-```
-Tableau user filter:
-  user@company.com → [Region] IN {"West", "East"}
-
-TMDL RLS role:
-  role Territory_Access
-    tablePermission 'Orders'
-      filterExpression = USERPRINCIPALNAME() = "user@company.com" && [Region] IN {"West", "East"}
-```
-
-### Example 10: Parameter → What-If Table
-
-```
-Tableau parameter:
-  "Top N" — Integer range, min=5, max=50, step=5
-
-TMDL:
-  table 'Top N'
-    partition 'Top N' = calculated
-      expression = GENERATESERIES(5, 50, 5)
-
-  measure 'Top N Value' = SELECTEDVALUE('Top N'[Value], 10)
-```
-
-### Example 11: Calculated Column Materialisation
-
-```
-Tableau calculated column:
-  IF [Revenue] > 10000 THEN "High" ELSE "Low" END
-
-Lakehouse DDL:
-  Revenue_Tier STRING
-
-Dataflow Gen2 (M):
-  Table.AddColumn(Source, "Revenue_Tier",
-    each if [Revenue] > 10000 then "High" else "Low")
-
-Notebook (PySpark):
-  df = df.withColumn("Revenue_Tier",
-    F.when(F.col("Revenue") > 10000, "High").otherwise("Low"))
-
-TMDL:
-  column Revenue_Tier
-      dataType: string
-      sourceColumn: Revenue_Tier
-```
-
-### Example 12: Full Pipeline Flow
-
-```
-Tableau:
-  Data source (Snowflake) → 3 tables joined → 5 calculated columns → Dashboard
-
-Fabric artifacts generated:
-  1. Lakehouse     — 3 Delta tables + 5 materialised calc columns
-  2. Dataflow Gen2 — 3 M queries (Snowflake connector) + calc column steps
-  3. Notebook      — PySpark cells for each table + calc column transforms
-  4. SemanticModel — DirectLake TMDL with entity partitions
-  5. Pipeline      — Dataflow refresh → Notebook run → Model refresh
-  6. PBI Report    — .pbip with PBIR visuals + DAX measures
-```
+**Note**: This reference covers the most common mappings. Some specific or advanced features may require adjustments or custom solutions in Power BI.

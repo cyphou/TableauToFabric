@@ -1,0 +1,47 @@
+table Extract
+	lineageTag: 3c338b8f-5568-48ee-90a6-a5fd48881ec4
+
+	measure '[Number of Records]' = 1
+		displayFolder: Measures
+		lineageTag: f5ec4232-d180-48c7-ac88-23efa6502df3
+
+	column 'Number of Records'
+		dataType: int64
+		lineageTag: 09d2189a-747e-4398-9969-54c5432eaf52
+		summarizeBy: sum
+		sourceColumn: 'Number of Records'
+
+		annotation SummarizationSetBy = Automatic
+
+	column a
+		dataType: string
+		lineageTag: 97d50a89-94c5-4a50-963a-9431d352236c
+		summarizeBy: none
+		sourceColumn: a
+
+		annotation SummarizationSetBy = Automatic
+
+	column x
+		dataType: int64
+		lineageTag: f2b89cef-3fac-405e-8487-65d1a2d48d24
+		summarizeBy: sum
+		sourceColumn: x
+
+		annotation SummarizationSetBy = Automatic
+
+	column y
+		dataType: int64
+		lineageTag: 40d15299-6edb-45c8-9301-0d5c7079ecfd
+		summarizeBy: sum
+		sourceColumn: y
+
+		annotation SummarizationSetBy = Automatic
+
+	partition 'Extract-a364a00b-98e8-4726-9428-cfd523f2f1d2' = entity
+		mode: directLake
+		entityName: extract
+		schemaName: dbo
+		expressionSource: DatabaseQuery
+
+	annotation PBI_ResultType = Table
+

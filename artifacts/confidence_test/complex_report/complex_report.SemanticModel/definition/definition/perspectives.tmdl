@@ -1,0 +1,8 @@
+perspective 'Full Model'
+	perspectiveTable Orders
+	perspectiveTable Customers
+	perspectiveTable Products
+	perspectiveTable Regions
+	perspectiveTable Targets
+	perspectiveTable 'Year Selector'
+	perspectiveTable 'Segment Filter'

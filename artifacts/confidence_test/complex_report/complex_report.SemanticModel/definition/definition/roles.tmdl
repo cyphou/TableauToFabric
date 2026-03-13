@@ -1,0 +1,7 @@
+role RegionSecurity
+	modelPermission: read
+	annotation MigrationNote = "Migrated from Tableau user filter 'RegionSecurity'."
+
+	tablePermission Regions
+		filterExpression = (USERPRINCIPALNAME() = "alice@contoso.com" && [RegionName] IN {"East", "West"}) || (USERPRINCIPALNAME() = "bob@contoso.com" && [RegionName] = "Central") || (USERPRINCIPALNAME() = "charlie@contoso.com" && [RegionName] = "South")
+

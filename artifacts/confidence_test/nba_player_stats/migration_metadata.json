@@ -1,0 +1,22 @@
+{
+  "project_name": "nba_player_stats",
+  "source": "TableauToFabric",
+  "generated_at": "2026-03-05T10:47:26.929245",
+  "artifacts_generated": [
+    "lakehouse",
+    "dataflow",
+    "notebook",
+    "semanticmodel",
+    "pipeline",
+    "pbi"
+  ],
+  "stats": {
+    "lakehouse_tables": 1,
+    "dataflow_queries": 1,
+    "notebook_cells": 15,
+    "semanticmodel_tables": 2,
+    "pipeline_activities": 4,
+    "pbi_pages": 1,
+    "pbi_visuals": 20
+  }
+}

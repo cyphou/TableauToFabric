@@ -1,0 +1,22 @@
+{
+  "project_name": "TABLEAU_10_TWBX",
+  "source": "TableauToFabric",
+  "generated_at": "2026-03-05T10:46:51.935444",
+  "artifacts_generated": [
+    "lakehouse",
+    "dataflow",
+    "notebook",
+    "semanticmodel",
+    "pipeline",
+    "pbi"
+  ],
+  "stats": {
+    "lakehouse_tables": 2,
+    "dataflow_queries": 2,
+    "notebook_cells": 15,
+    "semanticmodel_tables": 2,
+    "pipeline_activities": 3,
+    "pbi_pages": 1,
+    "pbi_visuals": 5
+  }
+}

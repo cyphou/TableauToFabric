@@ -1,0 +1,8 @@
+{
+  "displayName": "Cache",
+  "type": "Pipeline",
+  "generated_at": "2026-03-05T10:46:41.223964",
+  "activities": 4,
+  "stages": 3,
+  "lakehouse": "Cache"
+}

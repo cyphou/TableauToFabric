@@ -1,0 +1,25 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/dataflow/definition/dataflowGen2/1.0.0/schema.json",
+  "properties": {
+    "displayName": "Cache_Dataflow",
+    "description": "Dataflow Gen2 generated from Tableau workbook: Cache",
+    "type": "DataflowGen2",
+    "created": "2026-03-05T10:46:41.173253"
+  },
+  "mashupDocument": "\nsection Section1;\n\nshared Extract = let\n    // TODO: Configure the source for DATAENGINE\n    // Connection type not automatically supported\n    Source = #table(\n        {\"Category\", \"Number of Records\", \"Order Date\", \"Sales Target\", \"Segment\"},\n        {\n            {\"Sample 1\", 2, 3, 4, \"Sample 5\"},\n            {\"Sample 2\", 3, 4, 5, \"Sample 6\"}\n        }\n    )\nin\n    Source;",
+  "queries": [
+    {
+      "name": "Extract",
+      "description": "Ingests data from Extract",
+      "queryId": "extract",
+      "resultType": "Table",
+      "loadEnabled": true,
+      "destination": {
+        "type": "Lakehouse",
+        "tableName": "extract",
+        "updateMethod": "Replace",
+        "schemaMapping": "Auto"
+      }
+    }
+  ]
+}

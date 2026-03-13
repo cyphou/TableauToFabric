@@ -6,15 +6,117 @@ and exports them in JSON format for conversion to Power BI.
 """
 
 import os
+import sys
 import json
 import logging
 import zipfile
 import xml.etree.ElementTree as ET
 from datetime import datetime
 import re
-from .datasource_extractor import extract_datasource
+from datasource_extractor import extract_datasource
+from hyper_reader import read_hyper_from_twbx
 
 logger = logging.getLogger(__name__)
+
+# Ensure Unicode output on Windows consoles (✓, →, ❌, etc.)
+if sys.stdout and hasattr(sys.stdout, 'reconfigure'):
+    try:
+        sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+        sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+    except (AttributeError, OSError):
+        pass
+
+
+# ── Pre-compiled shared regex patterns ────────────────────────────────────────
+
+_RE_FIELD_REF = re.compile(r'\[([^\]]+)\]\.\[([^\]]+)\]')
+_RE_DERIVATION_PREFIX = re.compile(
+    r'^(none|sum|avg|count|min|max|usr|yr|mn|dy|qr|wk|attr|md|mdy|hms|hr|mt|sc|thr|trunc|tyr|tqr|tmn|tdy|twk):'
+)
+_RE_TABLE_CALC_PREFIX = re.compile(
+    r'^(pcto|pctd|diff|running_sum|running_avg|running_count|running_min|running_max|rank|rank_unique|rank_dense):(sum|avg|count|min|max|countd)?:?'
+)
+_RE_TYPE_SUFFIX = re.compile(r':(nk|qk|ok|fn|tn)$')
+
+
+def _clean_field_ref(raw):
+    """Strip Tableau derivation prefixes, table calc prefixes, and type suffixes.
+
+    Handles patterns like ``yr:Order Date:ok`` → ``Order Date``,
+    ``none:Ship Mode:nk`` → ``Ship Mode``, ``tyr:Date:qk`` → ``Date``,
+    ``pcto:sum:Sales:nk`` → ``Sales``.
+    """
+    clean = _RE_DERIVATION_PREFIX.sub('', raw)
+    clean = _RE_TYPE_SUFFIX.sub('', clean)
+    clean = _RE_TABLE_CALC_PREFIX.sub('', clean)
+    return clean
+
+
+def _strip_brackets(s):
+    """Remove Tableau bracket notation from a field/table name."""
+    return s.replace('[', '').replace(']', '')
+
+
+def _split_sql_values(values_str):
+    """Split a SQL VALUES tuple string into individual values.
+
+    Handles quoted strings that contain commas, e.g.::
+
+        ``"'hello, world', 42, NULL"`` → ``["'hello, world'", "42", "NULL"]``
+    """
+    result = []
+    current = []
+    in_quote = False
+    for ch in values_str:
+        if ch == "'" and not in_quote:
+            in_quote = True
+            current.append(ch)
+        elif ch == "'" and in_quote:
+            in_quote = False
+            current.append(ch)
+        elif ch == ',' and not in_quote:
+            result.append(''.join(current).strip())
+            current = []
+        else:
+            current.append(ch)
+    if current:
+        result.append(''.join(current).strip())
+    return result
+
+
+def _scan_delimited_sample(text_chunk, col_names, max_rows):
+    """Attempt to extract sample rows from tab- or comma-delimited blocks.
+
+    Some Hyper files embed small data blocks.  This does a best-effort
+    scan for consistent delimiter lines that match the expected column
+    count.
+
+    Returns:
+        list[dict]: Up to *max_rows* dicts ``{col_name: value}``.
+    """
+    ncols = len(col_names) if col_names else 0
+    if ncols < 2:
+        return []
+    samples = []
+    for delim in ('\t', '|'):
+        lines = text_chunk.split('\n')
+        for line in lines:
+            parts = line.split(delim)
+            # Accept lines whose column count matches ±1
+            if abs(len(parts) - ncols) <= 1 and len(parts) >= ncols:
+                row = {}
+                for i in range(ncols):
+                    val = parts[i].strip() if i < len(parts) else ''
+                    row[col_names[i]] = val
+                # Skip if every value is empty or looks like binary
+                if all(v == '' or v.startswith('\x00') for v in row.values()):
+                    continue
+                samples.append(row)
+                if len(samples) >= max_rows:
+                    return samples
+        if samples:
+            return samples
+    return samples
 
 
 class TableauExtractor:
@@ -59,21 +161,11 @@ class TableauExtractor:
         self.extract_aliases(root)
         self.extract_custom_sql(root)
         self.extract_user_filters(root)
+        self.extract_datasource_filters(root)
         self.extract_custom_geocoding(root)
         self.extract_published_datasources(root)
         self.extract_data_blending(root)
-        self.extract_datasource_filters(root)
         self.extract_hyper_metadata()
-        
-        # Workbook-level assets from packaged files
-        custom_shapes = self.extract_custom_shapes()
-        if custom_shapes:
-            self.workbook_data['custom_shapes'] = custom_shapes
-            print(f"  ✓ {len(custom_shapes)} custom shapes found in package")
-        embedded_fonts = self.extract_embedded_fonts()
-        if embedded_fonts:
-            self.workbook_data['embedded_fonts'] = embedded_fonts
-            print(f"  ✓ {len(embedded_fonts)} embedded fonts found in package")
         
         # Save the exports
         self.save_extractions()
@@ -112,6 +204,7 @@ class TableauExtractor:
                 'name': worksheet.get('name', ''),
                 'title': worksheet.findtext('.//title', ''),
                 'chart_type': self.determine_chart_type(worksheet),
+                'original_mark_class': self._extract_mark_class(worksheet),
                 'fields': self.extract_worksheet_fields(worksheet),
                 'filters': self.extract_worksheet_filters(worksheet),
                 'formatting': self.extract_formatting(worksheet),
@@ -120,9 +213,9 @@ class TableauExtractor:
                 'sort_orders': self.extract_worksheet_sort_orders(worksheet),
                 'mark_encoding': self.extract_mark_encoding(worksheet),
                 'axes': self.extract_axes(worksheet),
+                'reference_lines': self.extract_reference_lines(worksheet),
                 'annotations': self.extract_annotations(worksheet),
                 'trend_lines': self.extract_trend_lines(worksheet),
-                'reference_lines': self.extract_reference_lines(worksheet),
                 'pages_shelf': self.extract_pages_shelf(worksheet),
                 'table_calcs': self.extract_table_calcs(worksheet),
                 'forecasting': self.extract_forecasting(worksheet),
@@ -135,12 +228,6 @@ class TableauExtractor:
                 'dynamic_title': self.extract_dynamic_title(worksheet),
                 'analytics_stats': self.extract_analytics_pane_stats(worksheet),
             }
-            # Detect viz-in-tooltip worksheet reference
-            tooltip_data = ws_data.get('tooltips', [])
-            viz_refs = [t for t in tooltip_data if t.get('type') == 'viz_in_tooltip']
-            if viz_refs:
-                ws_data['tooltip'] = {'viz_in_tooltip': True,
-                                      'worksheet': viz_refs[0].get('worksheet', '')}
             worksheets.append(ws_data)
         
         self.workbook_data['worksheets'] = worksheets
@@ -163,6 +250,7 @@ class TableauExtractor:
                 'filters': self.extract_dashboard_filters(dashboard),
                 'parameters': self.extract_dashboard_parameters(dashboard),
                 'theme': self.extract_theme(dashboard),
+                'layout_containers': self.extract_layout_containers(dashboard),
                 'device_layouts': self.extract_device_layouts(dashboard),
                 'containers': self.extract_dashboard_containers(dashboard),
                 'show_hide_containers': self.extract_show_hide_containers(dashboard),
@@ -211,15 +299,74 @@ class TableauExtractor:
         print(f"  ✓ {len(datasources)} datasources extracted (filtered from {len(raw_datasources)} raw)")
     
     def extract_calculations(self, root):
-        """Extracts calculated fields - now integrated in enhanced datasource extraction"""
+        """Extracts calculated fields - now integrated in enhanced datasource extraction.
+
+        Also captures worksheet-level calculations defined inside
+        ``<datasource-dependencies>`` blocks (common for LOD ratio formulas
+        that Tableau auto-generates per worksheet).
+        """
         
         # Calculations are now extracted directly in extract_datasource
         # This method maintains backward compatibility
         calculations = []
+        seen_names = set()
         
         for datasource in root.findall('.//datasource'):
             ds_data = extract_datasource(datasource, twbx_path=self.tableau_file)
-            calculations.extend(ds_data.get('calculations', []))
+            for calc in ds_data.get('calculations', []):
+                cname = calc.get('name', '')
+                if cname not in seen_names:
+                    seen_names.add(cname)
+                    calculations.append(calc)
+        
+        # Capture worksheet-level calculations from <datasource-dependencies>
+        # These are calculations scoped to a specific worksheet (e.g. LOD
+        # ratio formulas) that are NOT part of the main datasource definition.
+        # Also inject them into the parent datasource's calculations list so
+        # the TMDL generator can route them to the correct table.
+        ds_by_name = {ds.get('name', ''): ds
+                      for ds in self.workbook_data.get('datasources', [])}
+        ds_seen = {}  # datasource_name -> set of calc names already present
+        for ds_name, ds in ds_by_name.items():
+            ds_seen[ds_name] = {c.get('name', '') for c in ds.get('calculations', [])}
+
+        for ws in root.findall('.//worksheet'):
+            for dep in ws.findall('.//datasource-dependencies'):
+                ds_ref = dep.get('datasource', '')
+                for col_elem in dep.findall('column'):
+                    calc_elem = col_elem.find('calculation')
+                    if calc_elem is None:
+                        continue
+                    calc_formula = calc_elem.get('formula', '').strip()
+                    if not calc_formula:
+                        continue
+                    calc_class = calc_elem.get('class', 'tableau')
+                    if calc_class == 'categorical-bin':
+                        continue
+                    cname = col_elem.get('name', '')
+                    if cname in seen_names:
+                        continue
+                    seen_names.add(cname)
+                    raw_caption = col_elem.get('caption', cname)
+                    # If caption looks like a formula (auto-generated by
+                    # Tableau), sanitize: strip brackets for a cleaner name
+                    if '[' in raw_caption and ']' in raw_caption:
+                        raw_caption = raw_caption.replace('[', '').replace(']', '')
+                    calc_entry = {
+                        'name': cname,
+                        'caption': raw_caption,
+                        'formula': calc_formula,
+                        'class': calc_class,
+                        'datatype': col_elem.get('datatype', 'real'),
+                        'role': col_elem.get('role', 'measure'),
+                        'type': col_elem.get('type', 'quantitative'),
+                    }
+                    calculations.append(calc_entry)
+                    # Also inject into the parent datasource so the TMDL
+                    # generator picks it up during per-datasource processing
+                    if ds_ref in ds_by_name and cname not in ds_seen.get(ds_ref, set()):
+                        ds_by_name[ds_ref].setdefault('calculations', []).append(calc_entry)
+                        ds_seen.setdefault(ds_ref, set()).add(cname)
         
         self.workbook_data['calculations'] = calculations
         print(f"  ✓ {len(calculations)} calculations extracted")
@@ -249,6 +396,21 @@ class TableauExtractor:
                 'domain_type': param.get('param-domain-type', ''),
                 'allowable_values': self.extract_allowable_values(param),
             }
+
+            # Detect dynamic (database-query-driven) parameters in old format
+            if param.get('param-domain-type') == 'database':
+                param_data['domain_type'] = 'database'
+                query_elem = param.find('.//query')
+                if query_elem is None:
+                    query_elem = param.find('.//calculation')
+                if query_elem is not None:
+                    param_data['query'] = query_elem.get('formula', '') or query_elem.text or ''
+                conn_elem = param.find('.//connection')
+                if conn_elem is not None:
+                    param_data['query_connection'] = conn_elem.get('class', '')
+                    param_data['query_dbname'] = conn_elem.get('dbname', '')
+                param_data['refresh_on_open'] = True
+
             parameters.append(param_data)
         
         # Format 2: New-style <parameters><parameter> elements
@@ -273,6 +435,31 @@ class TableauExtractor:
                 'domain_type': domain_type,
                 'allowable_values': self.extract_allowable_values(param),
             }
+
+            # Detect dynamic (database-query-driven) parameters (Tableau 2024.3+)
+            query_elem = param.find('.//query')
+            if query_elem is not None:
+                param_data['domain_type'] = 'database'
+                param_data['query'] = query_elem.text or query_elem.get('value', '')
+                conn_elem = param.find('.//query-connection')
+                if conn_elem is None:
+                    conn_elem = param.find('.//connection')
+                if conn_elem is not None:
+                    param_data['query_connection'] = conn_elem.get('class', '')
+                    param_data['query_dbname'] = conn_elem.get('dbname', '')
+                param_data['refresh_on_open'] = (
+                    param.get('refresh-on-open', 'false').lower() == 'true'
+                )
+            elif param.get('param-domain-type') == 'database':
+                # Column-style dynamic parameter
+                param_data['domain_type'] = 'database'
+                sql_elem = param.find('.//query')
+                if sql_elem is None:
+                    sql_elem = param.find('.//calculation')
+                if sql_elem is not None:
+                    param_data['query'] = sql_elem.get('formula', '') or sql_elem.text or ''
+                param_data['refresh_on_open'] = True
+
             parameters.append(param_data)
         
         self.workbook_data['parameters'] = parameters
@@ -312,23 +499,132 @@ class TableauExtractor:
     
     # Helper methods
     
+    def _extract_mark_class(self, worksheet):
+        """Returns the raw Tableau mark class string (e.g. 'Bar', 'Gantt Bar').
+
+        Used downstream by the PBIR generator to look up custom visual
+        GUIDs for mark types that have AppSource equivalents.
+        """
+        for pane in worksheet.findall('.//pane'):
+            mark = pane.find('.//mark')
+            if mark is not None and mark.get('class'):
+                return mark.get('class')
+        for mark in worksheet.findall('.//style/mark'):
+            if mark.get('class'):
+                return mark.get('class')
+        return None
+
     def determine_chart_type(self, worksheet):
-        """Determines the chart type from the Tableau mark type"""
+        """Determines the chart type from the Tableau mark type.
+        
+        When the mark class is 'Automatic', infers the visual type from
+        field shelf assignments (columns/rows/color) instead of defaulting
+        to 'table'.
+        """
+        mark_class = None
         # Search for the mark class in panes
         for pane in worksheet.findall('.//pane'):
             mark = pane.find('.//mark')
             if mark is not None and mark.get('class'):
-                return self._map_tableau_mark_to_type(mark.get('class'))
+                mark_class = mark.get('class')
+                break
         
         # Search in style/mark
-        for mark in worksheet.findall('.//style/mark'):
-            if mark.get('class'):
-                return self._map_tableau_mark_to_type(mark.get('class'))
+        if mark_class is None:
+            for mark in worksheet.findall('.//style/mark'):
+                if mark.get('class'):
+                    mark_class = mark.get('class')
+                    break
         
-        # Fallback
+        # Fallback: map encoding
+        if mark_class is None:
+            if worksheet.find('.//encoding/map') is not None:
+                return 'map'
+            return 'bar'
+        
+        # For explicit mark types, use the mapping directly
+        if mark_class != 'Automatic':
+            return self._map_tableau_mark_to_type(mark_class)
+        
+        # Automatic: infer from field shelf assignments
+        return self._infer_automatic_chart_type(worksheet)
+    
+    def _infer_automatic_chart_type(self, worksheet):
+        """Infers the chart type when Tableau uses 'Automatic' mark.
+        
+        Uses field shelf assignments (columns/rows) and field names to
+        determine the most appropriate Power BI visual type.
+        """
+        date_words = {'date', 'time', 'year', 'month', 'day', 'week', 'quarter',
+                      'datetime', 'timestamp', 'period', 'yr', 'mois',
+                      # French
+                      'année', 'annee', 'jour', 'semaine', 'trimestre',
+                      'commande', 'expédition', 'expedition', 'livraison'}
+        measure_words = {'sales', 'profit', 'revenue', 'amount', 'quantity', 'qty',
+                         'count', 'sum', 'total', 'price', 'cost', 'margin',
+                         'budget', 'forecast', 'actual', 'target', 'value',
+                         'weight', 'height', 'distance', 'rate', 'ratio',
+                         'score', 'index', 'number', 'num', 'avg', 'average',
+                         # French
+                         'ventes', 'vente', 'bénéfice', 'bénéfices', 'benefice',
+                         'coût', 'cout', 'quantité', 'quantite', 'montant',
+                         'prix', 'marge', 'remise', 'objectif', 'prévision',
+                         'prevision', 'chiffre', 'recette', 'dépense', 'depense'}
+        geo_words = {'latitude', 'longitude', 'lat', 'lon', 'lng',
+                     'zip', 'postal', 'geo', 'geolocation'}
+        # Geographic pairs that strongly indicate a map
+        geo_pairs = {('latitude', 'longitude'), ('lat', 'lon'), ('lat', 'lng')}
+
+        col_fields = []
+        row_fields = []
+
+        # Parse rows/cols shelf text for field references
+        for shelf_tag, target in [('cols', col_fields), ('rows', row_fields)]:
+            shelf = worksheet.find(f'./table/{shelf_tag}')
+            if shelf is not None and shelf.text:
+                refs = re.findall(r'\[([^\]]+)\]\.\[([^\]]+)\]', shelf.text)
+                for _, field_ref in refs:
+                    # Strip derivation/aggregation prefixes
+                    clean = _clean_field_ref(field_ref)
+                    target.append(clean)
+
+        def _is_date(name):
+            return any(w in name.lower().split() for w in date_words)
+
+        def _is_measure(name):
+            return any(w in name.lower().split() for w in measure_words)
+
+        # Check for map encoding
         if worksheet.find('.//encoding/map') is not None:
             return 'map'
-        return 'bar'
+        # Check for geographic field pairs (lat+lon)
+        all_field_words = set()
+        for f in col_fields + row_fields:
+            all_field_words.update(f.lower().split())
+        for w1, w2 in geo_pairs:
+            if w1 in all_field_words and w2 in all_field_words:
+                return 'map'
+
+        all_row_measures = all(_is_measure(f) for f in row_fields) if row_fields else False
+        all_col_measures = all(_is_measure(f) for f in col_fields) if col_fields else False
+        has_date_col = any(_is_date(f) for f in col_fields)
+        has_date_row = any(_is_date(f) for f in row_fields)
+
+        # Two measures on rows + columns → scatter
+        if col_fields and row_fields and all_col_measures and all_row_measures:
+            return 'scatterChart'
+        # Date on columns/rows with a measure → line
+        if has_date_col and row_fields:
+            return 'lineChart'
+        if has_date_row and col_fields:
+            return 'lineChart'
+        # Dimension + measure → bar chart
+        if col_fields and row_fields:
+            return 'clusteredBarChart'
+        # Only has fields on one axis → table
+        if not col_fields and not row_fields:
+            return 'table'
+        return 'clusteredBarChart'
     
     def _map_tableau_mark_to_type(self, mark_class):
         """Maps Tableau mark types to Power BI visual types.
@@ -338,7 +634,7 @@ class TableauExtractor:
         """
         mark_map = {
             # ── Standard mark classes ──────────────────────────────
-            'Automatic': 'table',
+            'Automatic': 'clusteredBarChart',  # fallback; usually handled by _infer_automatic_chart_type
             'Bar': 'clusteredBarChart',
             'Stacked Bar': 'stackedBarChart',
             'Line': 'lineChart',
@@ -350,8 +646,8 @@ class TableauExtractor:
             'Map': 'map',
             'Pie': 'pieChart',
             'Gantt Bar': 'clusteredBarChart',
-            'Polygon': 'filledMap',
-            'Multipolygon': 'filledMap',
+            'Polygon': 'map',
+            'Multipolygon': 'map',
             'Density': 'map',
             # ── Extended mark/chart types (Tableau 2020+) ───────────
             'SemiCircle': 'donutChart',
@@ -407,22 +703,78 @@ class TableauExtractor:
         # Regex for Tableau derivation prefixes (none, sum, avg, count, usr, yr, etc.)
         derivation_re = r'^(none|sum|avg|count|min|max|usr|yr|mn|dy|qr|wk|attr|md|mdy|hms|hr|mt|sc|thr|trunc):'
         suffix_re = r':(nk|qk|ok|fn|tn)$'
+        # Quick table calc prefixes (pcto = % of total, pctd = % difference, running_*)
+        table_calc_re = r'^(pcto|pctd|diff|running_sum|running_avg|running_count|running_min|running_max|rank|rank_unique|rank_dense):(sum|avg|count|min|max|countd)?:?'
         
         # Extract from <table><rows> and <table><cols> (text content with field refs)
         for shelf_name, shelf_tag in [('columns', 'cols'), ('rows', 'rows')]:
             shelf = worksheet.find(f'./table/{shelf_tag}')
             if shelf is not None and shelf.text:
                 # Text contains refs like [datasource].[field:type]
-                refs = re.findall(r'\[([^\]]+)\]\.\[([^\]]+)\]', shelf.text)
-                for ds_ref, field_ref in refs:
+                # or three-part [datasource].[column].[aggregation:instance:suffix]
+                # Use a regex that captures 2 or 3 bracket groups.
+                three_part_re = r'\[([^\]]+)\]\.\[([^\]]+)\](?:\.\[([^\]]+)\])?'
+                refs = re.findall(three_part_re, shelf.text)
+                for match in refs:
+                    ds_ref, field_ref, instance_ref = match[0], match[1], match[2]
+
+                    # Three-part ref: [ds].[__tableau_internal_object_id__].[cnt:...:qk]
+                    # means COUNT(*) on the table rows.
+                    if '__tableau_internal' in field_ref and instance_ref:
+                        inst_agg = re.match(r'^(cnt|sum|avg|min|max|countd|median):', instance_ref)
+                        if inst_agg:
+                            fields.append({
+                                'name': 'Number of Records',
+                                'shelf': shelf_name,
+                                'datasource': ds_ref,
+                                'aggregation': inst_agg.group(1),
+                            })
+                            continue
+                        # No aggregation on internal field → skip it entirely
+                        continue
+
+                    # Detect quick table calc prefix before cleaning
+                    table_calc_match = re.match(table_calc_re, field_ref)
+                    # Detect quick table calc prefix before cleaning
+                    table_calc_match = re.match(table_calc_re, field_ref)
+                    table_calc_type = None
+                    table_calc_agg = None
+                    if table_calc_match:
+                        table_calc_type = table_calc_match.group(1)
+                        table_calc_agg = table_calc_match.group(2) or 'sum'
+
+                    # Detect aggregation prefix (cnt:, sum:, avg:, etc.)
+                    agg_prefix_match = re.match(r'^(cnt|sum|avg|min|max|countd|median|attr|stdev|stdevp|var|varp):', field_ref)
+                    shelf_agg = agg_prefix_match.group(1) if agg_prefix_match else None
+
                     # Clean the field name (remove derivation prefix and type suffix)
-                    clean_name = re.sub(derivation_re, '', field_ref)
+                    clean_name = re.sub(table_calc_re, '', field_ref)
+                    clean_name = re.sub(derivation_re, '', clean_name)
                     clean_name = re.sub(suffix_re, '', clean_name)
-                    fields.append({
+
+                    # COUNT on __tableau_internal_object_id__ = COUNT(*)
+                    # Convert to synthetic "Number of Records" measure.
+                    if '__tableau_internal' in clean_name and shelf_agg:
+                        field_data = {
+                            'name': 'Number of Records',
+                            'shelf': shelf_name,
+                            'datasource': ds_ref,
+                            'aggregation': shelf_agg,
+                        }
+                        fields.append(field_data)
+                        continue
+                    
+                    field_data = {
                         'name': clean_name,
                         'shelf': shelf_name,
                         'datasource': ds_ref
-                    })
+                    }
+                    if table_calc_type:
+                        field_data['table_calc'] = table_calc_type
+                        field_data['table_calc_agg'] = table_calc_agg
+                    if shelf_agg:
+                        field_data['aggregation'] = shelf_agg
+                    fields.append(field_data)
         
         # Extract from encodings (color, size, detail, tooltip, label, text)
         for encoding in worksheet.findall('.//encodings'):
@@ -440,7 +792,53 @@ class TableauExtractor:
                                 'shelf': enc_type,
                                 'datasource': col_refs[0][0]
                             })
-        
+
+        # ── Expand :Measure Names / Multiple Values ───────────────
+        # When a worksheet uses these virtual fields, the actual measures
+        # are listed in <datasource-dependencies> <column-instance> entries
+        # with aggregation derivations (Sum, Avg, Count, CountD, User, ...).
+        # We cross-reference with <column role='measure'> to only include
+        # columns that are truly measures (not CountD on dimension columns).
+        has_measure_names = any(
+            f.get('name', '') in (':Measure Names', 'Measure Names')
+            for f in fields
+        )
+        if has_measure_names:
+            agg_derivations = {
+                'Sum', 'Avg', 'Count', 'CountD', 'Min', 'Max',
+                'Median', 'Stdev', 'Var', 'User', 'Attribute',
+            }
+            # Collect existing field names to avoid duplicates
+            existing_names = {f.get('name', '') for f in fields}
+            for dep in worksheet.findall('.//datasource-dependencies'):
+                ds_ref = dep.get('datasource', '')
+                # Build a set of column names with role='measure'
+                measure_cols = set()
+                for col_elem in dep.findall('column'):
+                    if col_elem.get('role', '') == 'measure':
+                        measure_cols.add(col_elem.get('name', '').strip('[]'))
+                # Also include calculation columns (User derivation) —
+                # they may have role='measure' in column definition
+                for ci in dep.findall('column-instance'):
+                    deriv = ci.get('derivation', '')
+                    if deriv not in agg_derivations:
+                        continue
+                    col_name = ci.get('column', '').strip('[]')
+                    # Skip internal Tableau columns
+                    if col_name.startswith('__tableau_internal'):
+                        continue
+                    # Only include columns that are measures (or User-derived calcs)
+                    if col_name not in measure_cols and deriv != 'User':
+                        continue
+                    if col_name in existing_names:
+                        continue
+                    existing_names.add(col_name)
+                    fields.append({
+                        'name': col_name,
+                        'shelf': 'measure_value',
+                        'datasource': ds_ref,
+                    })
+
         return fields
     
     def extract_worksheet_filters(self, worksheet):
@@ -452,12 +850,18 @@ class TableauExtractor:
             col_match = re.findall(r'\[([^\]]+)\]\.\[([^\]]+)\]', column_ref)
             if col_match:
                 ds_ref, field_ref = col_match[0]
-                clean_name = re.sub(r'^(none|sum|avg|count|min|max):', '', field_ref)
-                clean_name = re.sub(r':(nk|qk|ok|fn|tn)$', '', clean_name)
+                clean_name = _clean_field_ref(field_ref)
             else:
                 ds_ref = ''
-                clean_name = column_ref.replace('[', '').replace(']', '')
-            
+                field_ref = column_ref
+                clean_name = _strip_brackets(column_ref)
+
+            # Detect date-part filters (yr:, qr:, mn:, dy:, wk:, etc.)
+            _date_part_match = re.match(
+                r'^(yr|qr|mn|dy|wk|tyr|tqr|tmn|tdy|twk|hr|mt|sc|trunc):',
+                field_ref)
+            _date_part = _date_part_match.group(1) if _date_part_match else None
+
             filter_type = ''
             filter_values = []
             filter_min = None
@@ -482,13 +886,35 @@ class TableauExtractor:
                         if val:
                             filter_values.append(val.replace('&quot;', '"'))
                 elif func == 'range':
-                    filter_type = 'range'
                     from_val = groupfilter.get('from', '')
                     to_val = groupfilter.get('to', '')
-                    filter_min = from_val if from_val else None
-                    filter_max = to_val if to_val else None
+                    # Detect text-range vs numeric/date range.
+                    # Tableau uses func="range" on categorical text fields
+                    # (e.g. from="Shipped Early" to="Shipped On Time")
+                    # to mean "keep only these categories".  In PBI this
+                    # should be a categorical In filter, not an Advanced >=/<= filter.
+                    _is_numeric_range = False
+                    for _rv in (from_val, to_val):
+                        if _rv:
+                            try:
+                                float(_rv)
+                                _is_numeric_range = True
+                            except (ValueError, TypeError):
+                                pass
+                    if _is_numeric_range:
+                        filter_type = 'range'
+                        filter_min = from_val if from_val else None
+                        filter_max = to_val if to_val else None
+                    else:
+                        # Text range → effectively "all selected" on a
+                        # categorical field.  Tableau uses an alphabetical
+                        # range (from="A" to="Z") to keep all values.
+                        # Skip: no real filtering intended.
+                        filter_type = 'all'
                 elif func == 'level-members':
                     filter_type = 'all'  # filter "all selected"
+                elif func == 'crossjoin':
+                    filter_type = 'all'  # multi-field action filter → skip
                 elif func == 'except' or func == 'not':
                     exclude_mode = True
                     filter_type = 'categorical'
@@ -512,20 +938,28 @@ class TableauExtractor:
                 'exclude': exclude_mode,
                 'include_null': include_null,
                 'is_context': filt.get('context', '') == 'true',
+                'date_part': _date_part
             })
         return filters
     
     def extract_formatting(self, element):
-        """Extracts formatting information (colors, fonts, borders, backgrounds, shading)"""
+        """Extracts formatting information (colors, fonts, backgrounds, borders)"""
         formatting = {}
         
         # Extract styles from <style-rule>  
         for style_rule in element.findall('.//style-rule'):
             rule_element = style_rule.get('element', '')
-            for format_elem in style_rule.findall('.//format'):
+            format_elem = style_rule.find('.//format')
+            if format_elem is not None:
                 attrs = dict(format_elem.attrib)
                 if attrs:
-                    formatting.setdefault(rule_element, {}).update(attrs)
+                    formatting[rule_element] = attrs
+            # Also collect all format children (some style-rules have multiple formats)
+            for fmt in style_rule.findall('.//format'):
+                attr_name = fmt.get('attr', '')
+                attr_val = fmt.get('value', '')
+                if attr_name and attr_val and rule_element:
+                    formatting.setdefault(rule_element, {})[attr_name] = attr_val
         
         # Extract format encodings from <format>
         for fmt in element.findall('.//format'):
@@ -539,31 +973,42 @@ class TableauExtractor:
             if pane_fmt.get('attr') == 'fill-color':
                 formatting['background_color'] = pane_fmt.get('value', '')
         
-        # Font properties from style
-        for style in element.findall('.//style'):
-            for rule in style.findall('.//style-rule'):
-                elem_name = rule.get('element', '')
-                for fmt in rule.findall('.//format'):
-                    attr = fmt.get('attr', '')
-                    value = fmt.get('value', '')
-                    if attr and value:
-                        formatting.setdefault(elem_name, {})[attr] = value
+        # Table/header formatting depth (font sizes, weights, colors, borders, banding)
+        for fmt_attr in ('font-size', 'font-family', 'font-weight', 'font-color',
+                         'text-align', 'border-style', 'border-color', 'border-width',
+                         'band-color', 'band-size'):
+            for fmt in element.findall(f'.//format[@attr="{fmt_attr}"]'):
+                scope = fmt.get('scope', 'worksheet')
+                val = fmt.get('value', '')
+                if val:
+                    formatting.setdefault(f'{scope}_style', {})[fmt_attr] = val
         
-        # Header formatting
-        for header in element.findall('.//header'):
-            for fmt in header.findall('.//format'):
-                attr = fmt.get('attr', '')
-                value = fmt.get('value', '')
-                if attr and value:
-                    formatting.setdefault('header', {})[attr] = value
+        # Legend position and formatting
+        legend_elem = element.find('.//legend')
+        if legend_elem is not None:
+            legend_info = {}
+            legend_pos = legend_elem.get('position', '')
+            if legend_pos:
+                legend_info['position'] = legend_pos
+            legend_title = legend_elem.get('title', '')
+            if legend_title:
+                legend_info['title'] = legend_title
+            # Check for legend style attributes
+            for attr in ('font-size', 'font-family', 'font-weight', 'font-color'):
+                val = legend_elem.get(attr, '')
+                if val:
+                    legend_info[attr] = val
+            if legend_info:
+                formatting['legend'] = legend_info
         
-        # Cell formatting
-        for cell in element.findall('.//cell'):
-            for fmt in cell.findall('.//format'):
-                attr = fmt.get('attr', '')
-                value = fmt.get('value', '')
-                if attr and value:
-                    formatting.setdefault('cell', {})[attr] = value
+        # Also check legend style rule 
+        if 'legend-title' in formatting:
+            formatting.setdefault('legend', {})['title_style'] = formatting['legend-title']
+        if 'color-legend' in formatting:
+            formatting.setdefault('legend', {}).update({
+                k: v for k, v in formatting['color-legend'].items()
+                if k not in formatting.get('legend', {})
+            })
         
         return formatting
     
@@ -746,13 +1191,30 @@ class TableauExtractor:
                 })
                 continue
             
-            # Per-object padding/margins
+            # Per-object padding/margins from zone-style format elements
             obj_padding = {}
+            zone_style = zone.find('zone-style')
+            if zone_style is not None:
+                for fmt in zone_style.findall('format'):
+                    attr_name = fmt.get('attr', '')
+                    attr_val = fmt.get('value', '')
+                    if attr_name.startswith(('padding-', 'margin-')):
+                        try:
+                            obj_padding[attr_name] = int(attr_val)
+                        except (ValueError, TypeError):
+                            pass
+                    elif attr_name.startswith('border-'):
+                        key = attr_name.replace('-', '_')
+                        obj_padding[key] = attr_val
+            # Also check direct zone attributes
             for pad_attr in ('padding-top', 'padding-bottom', 'padding-left', 'padding-right',
                              'margin-top', 'margin-bottom', 'margin-left', 'margin-right'):
                 val = zone.get(pad_attr, '')
-                if val:
-                    obj_padding[pad_attr.replace('-', '_')] = int(val)
+                if val and pad_attr not in obj_padding:
+                    try:
+                        obj_padding[pad_attr] = int(val)
+                    except (ValueError, TypeError):
+                        pass
             
             # Filtre (quick filter / parameter control)
             if zone_type == 'filter' or zone.get('type-v2') == 'filter':
@@ -801,11 +1263,10 @@ class TableauExtractor:
             col_match = re.findall(r'\[([^\]]+)\]\.\[([^\]]+)\]', column_ref)
             if col_match:
                 ds_ref, field_ref = col_match[0]
-                clean_name = re.sub(r'^(none|sum|avg|count|min|max):', '', field_ref)
-                clean_name = re.sub(r':(nk|qk|ok|fn|tn)$', '', clean_name)
+                clean_name = _clean_field_ref(field_ref)
             else:
                 ds_ref = ''
-                clean_name = column_ref.replace('[', '').replace(']', '')
+                clean_name = _strip_brackets(column_ref)
             
             filter_values = [v.text for v in filt.findall('.//value') if v.text]
             filters.append({
@@ -832,6 +1293,64 @@ class TableauExtractor:
                     }
                 })
         return params
+    
+    def extract_layout_containers(self, dashboard):
+        """Extracts layout container hierarchy (horizontal/vertical nesting).
+        
+        Tableau uses <layout-container> elements to organize zones
+        into horizontal and vertical groups with spacing.
+        """
+        containers = []
+        for lc in dashboard.findall('.//layout-container'):
+            container = {
+                'orientation': lc.get('orientation', 'vertical'),  # horizontal or vertical
+                'position': {
+                    'x': int(lc.get('x', 0)),
+                    'y': int(lc.get('y', 0)),
+                    'w': int(lc.get('w', 0)),
+                    'h': int(lc.get('h', 0)),
+                },
+                'children': [],
+            }
+            # Extract child zone references
+            for child in lc.findall('.//zone'):
+                child_name = child.get('name', '')
+                if child_name:
+                    container['children'].append(child_name)
+            containers.append(container)
+        return containers
+    
+    def extract_device_layouts(self, dashboard):
+        """Extracts device-specific layouts (phone, tablet, desktop).
+        
+        Tableau dashboards can have different layouts per device type,
+        with different zone visibility and positioning.
+        """
+        layouts = []
+        for dl in dashboard.findall('.//device-layout'):
+            device_type = dl.get('device-type', 'default')
+            
+            # Get zones visible in this device layout
+            visible_zones = []
+            for zone in dl.findall('.//zone'):
+                zone_name = zone.get('name', '')
+                if zone_name:
+                    visible_zones.append({
+                        'name': zone_name,
+                        'position': {
+                            'x': int(zone.get('x', 0)),
+                            'y': int(zone.get('y', 0)),
+                            'w': int(zone.get('w', 0)),
+                            'h': int(zone.get('h', 0)),
+                        }
+                    })
+            
+            layouts.append({
+                'device_type': device_type,  # phone, tablet, desktop
+                'zones': visible_zones,
+                'auto_generated': dl.get('auto-generated', 'false') == 'true',
+            })
+        return layouts
     
     def extract_theme(self, dashboard):
         """Extracts the theme (colors, fonts, custom color palettes) from the dashboard or workbook"""
@@ -941,7 +1460,7 @@ class TableauExtractor:
             }
             # Capture active filters at the time of the story point
             for filt in sp.findall('.//filter'):
-                col = filt.get('column', '').replace('[', '').replace(']', '')
+                col = _strip_brackets(filt.get('column', ''))
                 vals = [v.text for v in filt.findall('.//value') if v.text]
                 if col:
                     sp_data['filters_state'].append({'field': col, 'values': vals})
@@ -949,12 +1468,24 @@ class TableauExtractor:
         return story_points
     
     def extract_worksheet_sort_orders(self, worksheet):
-        """Extracts sort orders of a worksheet"""
+        """Extracts sort orders of a worksheet including computed sorts."""
         sorts = []
         for sort in worksheet.findall('.//sort'):
-            col = sort.get('column', '').replace('[', '').replace(']', '')
+            col = _strip_brackets(sort.get('column', ''))
             direction = sort.get('direction', 'ASC')
-            sorts.append({'field': col, 'direction': direction.upper()})
+            sort_entry = {'field': col, 'direction': direction.upper()}
+            
+            # Computed sort: sort by another field/measure
+            sort_using = sort.get('using', '')
+            if sort_using:
+                sort_entry['sort_by'] = _strip_brackets(sort_using)
+            
+            # Sort type: alphabetic, manual, computed
+            sort_type = sort.get('type', '')
+            if sort_type:
+                sort_entry['sort_type'] = sort_type
+            
+            sorts.append(sort_entry)
         return sorts
     
     def extract_mark_encoding(self, worksheet):
@@ -962,10 +1493,7 @@ class TableauExtractor:
         encoding = {}
         
         for enc_elem in worksheet.findall('.//encodings'):
-            # Helper to clean Tableau derivation prefixes from field refs
-            def _clean_field_ref(raw):
-                clean = re.sub(r'^(none|sum|avg|count|min|max|usr|yr|mn|dy|qr|wk|attr|md|mdy|hms|hr|mt|sc|thr|trunc):', '', raw)
-                return re.sub(r':(nk|qk|ok|fn|tn)$', '', clean)
+            # Use module-level _clean_field_ref for derivation prefix cleaning
             
             # Color
             color = enc_elem.find('.//color')
@@ -973,21 +1501,34 @@ class TableauExtractor:
                 column = color.get('column', '')
                 palette = color.get('palette', '')
                 col_refs = re.findall(r'\[([^\]]+)\]\.\[([^\]]+)\]', column)
+                
+                # Detect quantitative vs categorical color encoding
+                # quantitative = `:qk` suffix or explicit `type="quantitative"`
+                color_type = color.get('type', '')
+                if not color_type and ':qk' in column:
+                    color_type = 'quantitative'
+                elif not color_type and ':nk' in column:
+                    color_type = 'categorical'
+                
                 color_data = {
-                    'field': _clean_field_ref(col_refs[0][1]) if col_refs else column.replace('[', '').replace(']', ''),
+                    'field': _clean_field_ref(col_refs[0][1]) if col_refs else _strip_brackets(column),
                     'palette': palette,
+                    'type': color_type,
                 }
-                # Continuous vs discrete type
-                col_type = color.get('type', '')
-                if col_type:
-                    color_data['type'] = col_type
-                # Palette colors
+                
+                # Extract palette colors from <color-palette> within the encoding
                 palette_colors = []
-                for pc in color.findall('.//color'):
-                    if pc.text:
-                        palette_colors.append(pc.text)
+                for cp in enc_elem.findall('.//color-palette/color'):
+                    if cp.text:
+                        palette_colors.append(cp.text)
+                # Also check parent worksheet for palette-specific colors
+                if not palette_colors:
+                    for cp in worksheet.findall(f'.//color-palette[@name="{palette}"]/color'):
+                        if cp.text:
+                            palette_colors.append(cp.text)
                 if palette_colors:
                     color_data['palette_colors'] = palette_colors
+                
                 # Stepped color thresholds from <bucket> elements
                 thresholds = []
                 for bucket in color.findall('.//bucket'):
@@ -1002,10 +1543,12 @@ class TableauExtractor:
                         thresholds.append(thresh)
                 if thresholds:
                     color_data['thresholds'] = thresholds
+                
                 # Legend position
                 legend = color.find('.//legend')
                 if legend is not None:
                     color_data['legend_position'] = legend.get('position', 'right')
+                
                 encoding['color'] = color_data
             
             # Size
@@ -1014,7 +1557,7 @@ class TableauExtractor:
                 column = size.get('column', '')
                 col_refs = re.findall(r'\[([^\]]+)\]\.\[([^\]]+)\]', column)
                 encoding['size'] = {
-                    'field': _clean_field_ref(col_refs[0][1]) if col_refs else column.replace('[', '').replace(']', '')
+                    'field': _clean_field_ref(col_refs[0][1]) if col_refs else _strip_brackets(column)
                 }
             
             # Shape
@@ -1023,142 +1566,98 @@ class TableauExtractor:
                 column = shape.get('column', '')
                 col_refs = re.findall(r'\[([^\]]+)\]\.\[([^\]]+)\]', column)
                 encoding['shape'] = {
-                    'field': _clean_field_ref(col_refs[0][1]) if col_refs else column.replace('[', '').replace(']', '')
+                    'field': _clean_field_ref(col_refs[0][1]) if col_refs else _strip_brackets(column)
                 }
             
-            # Label
+            # Label (with position, font, orientation)
             label = enc_elem.find('.//label')
             if label is not None:
                 column = label.get('column', '')
                 col_refs = re.findall(r'\[([^\]]+)\]\.\[([^\]]+)\]', column)
                 show_labels = label.get('show-label', 'false') == 'true'
-                label_position = label.get('position', label.get('mark-position', ''))
                 encoding['label'] = {
-                    'field': _clean_field_ref(col_refs[0][1]) if col_refs else column.replace('[', '').replace(']', ''),
+                    'field': _clean_field_ref(col_refs[0][1]) if col_refs else _strip_brackets(column),
                     'show': show_labels,
-                    'position': label_position,
+                    'position': label.get('label-position', ''),  # top, center, bottom, left, right
+                    'orientation': label.get('label-orientation', ''),  # horizontal, vertical, diagonal
+                    'font_size': label.get('font-size', ''),
+                    'font_weight': label.get('font-weight', ''),  # bold, normal
+                    'font_color': label.get('font-color', ''),
+                    'content_type': label.get('content-type', ''),  # value, percent, category
                 }
         
         return encoding
     
     def extract_axes(self, worksheet):
-        """Extracts axis configuration (range, scale, title, format, rotation, continuous/discrete)"""
+        """Extracts axis configuration including continuous/discrete detection and dual-axis."""
         axes = {}
-        for axis in worksheet.findall('.//axis'):
+        axis_elements = worksheet.findall('.//axis')
+        
+        for axis in axis_elements:
             axis_type = axis.get('type', '')  # x, y
-            axis_data = {
+            
+            # Detect continuous vs discrete
+            # Continuous axes have numeric/date ranges; discrete have categories  
+            is_continuous = axis.get('auto-range', 'true') != '' or axis.get('range-min') is not None
+            
+            axes[axis_type] = {
                 'auto_range': axis.get('auto-range', 'true') == 'true',
                 'range_min': axis.get('range-min', None),
                 'range_max': axis.get('range-max', None),
                 'scale': axis.get('scale', 'linear'),
                 'title': axis.findtext('.//title', ''),
                 'reversed': axis.get('reversed', 'false') == 'true',
-                'format': axis.get('format', ''),
-                'label_rotation': axis.get('label-rotation', ''),
-                'show_label': axis.get('show-label', 'true') == 'true',
-                'show_title': axis.get('show-title', 'true') == 'true',
+                'continuous': is_continuous,
             }
-            # Determine if continuous or discrete
-            if axis.get('dimension', '') or axis.get('ordinal', ''):
-                axis_data['is_continuous'] = False
-            elif axis.get('quantitative', ''):
-                axis_data['is_continuous'] = True
-            axes[axis_type] = axis_data
+        
+        # Detect dual axis: multiple y-axis definitions or sync flag
+        y_axes = [a for a in axis_elements if a.get('type') == 'y']
+        if len(y_axes) > 1:
+            axes['dual_axis'] = True
+            # Check for synchronized dual axis (range synced)
+            axes['dual_axis_sync'] = any(a.get('synchronized', 'false') == 'true' for a in y_axes)
+        else:
+            axes['dual_axis'] = False
+            axes['dual_axis_sync'] = False
+        
         return axes
     
-    def extract_annotations(self, worksheet):
-        """Extracts annotations (point, area, text annotations)"""
-        annotations = []
-        for anno in worksheet.findall('.//point-annotation'):
-            formatted = anno.find('.//formatted-text')
-            text = ''
-            if formatted is not None:
-                parts = [r.text for r in formatted.findall('.//run') if r.text]
-                text = ''.join(parts)
-            annotations.append({
-                'type': 'point',
-                'text': text,
-                'column': anno.get('column', ''),
-                'row': anno.get('row', ''),
-            })
-        for anno in worksheet.findall('.//area-annotation'):
-            formatted = anno.find('.//formatted-text')
-            text = ''
-            if formatted is not None:
-                parts = [r.text for r in formatted.findall('.//run') if r.text]
-                text = ''.join(parts)
-            annotations.append({
-                'type': 'area',
-                'text': text,
-            })
-        for anno in worksheet.findall('.//text-annotation'):
-            formatted = anno.find('.//formatted-text')
-            text = ''
-            if formatted is not None:
-                parts = [r.text for r in formatted.findall('.//run') if r.text]
-                text = ''.join(parts)
-            annotations.append({
-                'type': 'text',
-                'text': text,
-            })
-        # Also check <annotation> generic elements
-        for anno in worksheet.findall('.//annotation'):
-            formatted = anno.find('.//formatted-text')
-            text = ''
-            if formatted is not None:
-                parts = [r.text for r in formatted.findall('.//run') if r.text]
-                text = ''.join(parts)
-            if text:
-                annotations.append({
-                    'type': anno.get('type', 'text'),
-                    'text': text,
-                })
-        return annotations
-
-    def extract_trend_lines(self, worksheet):
-        """Extracts trend lines from a worksheet"""
-        trend_lines = []
-        for tl in worksheet.findall('.//trend-line'):
-            trend_lines.append({
-                'type': tl.get('type', 'linear'),
-                'field': tl.get('column', ''),
-                'color': tl.get('color', ''),
-                'show_confidence': tl.get('show-confidence', 'false') == 'true',
-                'show_equation': tl.get('show-equation', 'false') == 'true',
-                'show_r_squared': tl.get('show-r-squared', 'false') == 'true',
-                'per_color': tl.get('per-color', 'false') == 'true',
-            })
-        # Also check <trend-lines><trend-line> nested format
-        for tl_container in worksheet.findall('.//trend-lines'):
-            for tl in tl_container.findall('.//trend-line'):
-                if not any(t.get('type') == tl.get('type', 'linear') for t in trend_lines):
-                    trend_lines.append({
-                        'type': tl.get('type', 'linear'),
-                        'field': tl.get('column', ''),
-                        'color': tl.get('color', ''),
-                        'show_confidence': tl.get('show-confidence', 'false') == 'true',
-                        'show_equation': tl.get('show-equation', 'false') == 'true',
-                        'show_r_squared': tl.get('show-r-squared', 'false') == 'true',
-                        'per_color': tl.get('per-color', 'false') == 'true',
-                    })
-        return trend_lines
-
     def extract_reference_lines(self, worksheet):
         """Extracts reference lines, bands, and distributions"""
         ref_lines = []
         for rl in worksheet.findall('.//reference-line'):
-            ref_lines.append({
-                'type': 'line',
-                'value': rl.get('value', ''),
-                'label': rl.get('label', ''),
+            # Value may be on the element or in a child <reference-line-value>
+            value = rl.get('value', '')
+            rl_vals = rl.findall('reference-line-value')
+            if not value and rl_vals:
+                value = rl_vals[0].get('value', '')
+            # Label may be on the element or in a child <reference-line-label>
+            label = rl.get('label', '')
+            rl_lbl = rl.find('reference-line-label')
+            if not label and rl_lbl is not None:
+                label = rl_lbl.get('value', '')
+            # Color fallback: element attribute or line-color
+            line_color = rl.get('color', rl.get('line-color', '#666666'))
+            # Detect band (2+ reference-line-value children = band)
+            is_band = len(rl_vals) >= 2
+            entry = {
+                'type': 'band' if is_band else 'line',
+                'value': value,
+                'label': label,
                 'label_type': rl.get('label-type', 'value'),
-                'scope': rl.get('scope', 'per-pane'),
+                'scope': rl.get('scope', ''),
                 'axis': rl.get('axis', 'y'),
-                'color': rl.get('color', '#666666'),
-                'style': rl.get('style', 'solid'),
+                'color': line_color,
+                'line_color': line_color,
+                'style': rl.get('style', rl.get('line-style', 'solid')),
                 'computation': rl.get('computation', 'constant'),
                 'field': rl.get('column', ''),
-            })
+                'is_band': is_band,
+            }
+            if is_band:
+                entry['value_from'] = rl_vals[0].get('value', rl_vals[0].get('column', ''))
+                entry['value_to'] = rl_vals[1].get('value', rl_vals[1].get('column', ''))
+            ref_lines.append(entry)
         for rb in worksheet.findall('.//reference-band'):
             ref_lines.append({
                 'type': 'band',
@@ -1182,135 +1681,43 @@ class TableauExtractor:
                 'percentile': rd.get('percentile', ''),
             })
         return ref_lines
-
-    def extract_pages_shelf(self, worksheet):
-        """Extracts the Pages shelf field (animation shelf in Tableau)"""
-        pages = {}
-        pages_elem = worksheet.find('.//pages')
-        if pages_elem is not None and pages_elem.text:
-            refs = re.findall(r'\[([^\]]+)\]\.\[([^\]]+)\]', pages_elem.text)
-            if refs:
-                pages['field'] = refs[0][1]
-                pages['datasource'] = refs[0][0]
-            else:
-                pages['field'] = pages_elem.text.strip().replace('[', '').replace(']', '')
-        return pages
-
-    def extract_table_calcs(self, worksheet):
-        """Extracts table calculation addressing/partitioning from <table-calc> elements"""
-        table_calcs = []
-        for tc in worksheet.findall('.//table-calc'):
-            calc_data = {
-                'field': tc.get('column', '').replace('[', '').replace(']', ''),
-                'type': tc.get('type', ''),
-                'ordering_type': tc.get('ordering-type', 'Rows'),
-                'compute_using': [],
-                'direction': tc.get('direction', ''),
-                'at_level': tc.get('at-level', ''),
+    
+    def extract_annotations(self, worksheet):
+        """Extracts annotations (text callouts on charts).
+        
+        Parses <annotation> elements containing point/area annotations with text.
+        """
+        annotations = []
+        
+        for ann in worksheet.findall('.//annotation'):
+            ann_data = {
+                'type': ann.get('type', 'point'),  # point, area, mark
+                'text': '',
+                'position': {},
             }
-            # Compute-using dimensions
-            for dim in tc.findall('.//compute-using'):
-                val = dim.text or dim.get('column', '')
-                if val:
-                    clean = val.strip().replace('[', '').replace(']', '')
-                    calc_data['compute_using'].append(clean)
-            # Also check <order-by> for secondary sort
-            for ob in tc.findall('.//order-by'):
-                field = ob.get('column', '').replace('[', '').replace(']', '')
-                direction = ob.get('direction', 'ASC')
-                calc_data.setdefault('order_by', []).append({
-                    'field': field, 'direction': direction
-                })
-            table_calcs.append(calc_data)
-        return table_calcs
-
-    def extract_device_layouts(self, dashboard):
-        """Extracts device-specific layouts (phone, tablet) from dashboard"""
-        layouts = []
-        for layout in dashboard.findall('.//devicelayout'):
-            device_type = layout.get('type', '')
-            zones = []
-            for zone in layout.findall('.//zone'):
-                zone_data = {
-                    'name': zone.get('name', ''),
-                    'type': zone.get('type', ''),
-                    'position': {
-                        'x': int(zone.get('x', 0)),
-                        'y': int(zone.get('y', 0)),
-                        'w': int(zone.get('w', 0)),
-                        'h': int(zone.get('h', 0)),
-                    },
-                    'visible': zone.get('is-visible', 'true') == 'true',
+            
+            # Annotation text
+            formatted = ann.find('.//formatted-text')
+            if formatted is not None:
+                parts = []
+                for run in formatted.findall('.//run'):
+                    if run.text:
+                        parts.append(run.text)
+                ann_data['text'] = ''.join(parts)
+            
+            # Position
+            pos = ann.find('.//point')
+            if pos is not None:
+                ann_data['position'] = {
+                    'x': pos.get('x', '0'),
+                    'y': pos.get('y', '0'),
                 }
-                zones.append(zone_data)
-            layouts.append({
-                'device_type': device_type,
-                'width': int(layout.get('width', 0)),
-                'height': int(layout.get('height', 0)),
-                'zones': zones,
-            })
-        # Also check for <layout device-type="phone"> style elements
-        for layout in dashboard.findall('.//layout[@device-type]'):
-            device_type = layout.get('device-type', '')
-            if device_type and not any(l['device_type'] == device_type for l in layouts):
-                zones = []
-                for zone in layout.findall('.//zone'):
-                    zones.append({
-                        'name': zone.get('name', ''),
-                        'type': zone.get('type', ''),
-                        'position': {
-                            'x': int(zone.get('x', 0)),
-                            'y': int(zone.get('y', 0)),
-                            'w': int(zone.get('w', 0)),
-                            'h': int(zone.get('h', 0)),
-                        },
-                        'visible': zone.get('is-visible', 'true') == 'true',
-                    })
-                layouts.append({
-                    'device_type': device_type,
-                    'width': int(layout.get('width', 0)),
-                    'height': int(layout.get('height', 0)),
-                    'zones': zones,
-                })
-        return layouts
-
-    def extract_dashboard_containers(self, dashboard):
-        """Extracts horizontal/vertical layout containers with nesting and padding"""
-        containers = []
-        for lc in dashboard.findall('.//layout-container'):
-            orientation = lc.get('orientation', '')
-            container = {
-                'orientation': orientation,
-                'name': lc.get('name', ''),
-                'position': {
-                    'x': int(lc.get('x', 0)),
-                    'y': int(lc.get('y', 0)),
-                    'w': int(lc.get('w', 0)),
-                    'h': int(lc.get('h', 0)),
-                },
-                'padding': {
-                    'top': int(lc.get('padding-top', lc.get('margin-top', 0))),
-                    'bottom': int(lc.get('padding-bottom', lc.get('margin-bottom', 0))),
-                    'left': int(lc.get('padding-left', lc.get('margin-left', 0))),
-                    'right': int(lc.get('padding-right', lc.get('margin-right', 0))),
-                },
-                'children': [],
-            }
-            for child in lc:
-                if child.tag == 'zone':
-                    container['children'].append({
-                        'type': 'zone',
-                        'name': child.get('name', ''),
-                        'position': {
-                            'x': int(child.get('x', 0)),
-                            'y': int(child.get('y', 0)),
-                            'w': int(child.get('w', 0)),
-                            'h': int(child.get('h', 0)),
-                        }
-                    })
-            containers.append(container)
-        return containers
-
+            
+            if ann_data['text']:
+                annotations.append(ann_data)
+        
+        return annotations
+    
     def extract_workbook_actions(self, root):
         """Extracts actions at the workbook level (filter, highlight, url, navigate, param, set)"""
         actions = []
@@ -1355,8 +1762,8 @@ class TableauExtractor:
             if action_type == 'filter':
                 field_mappings = []
                 for fm in action.findall('.//field-mapping'):
-                    src = fm.get('source-field', '').replace('[', '').replace(']', '')
-                    tgt = fm.get('target-field', '').replace('[', '').replace(']', '')
+                    src = _strip_brackets(fm.get('source-field', ''))
+                    tgt = _strip_brackets(fm.get('target-field', ''))
                     field_mappings.append({'source': src, 'target': tgt})
                 action_data['field_mappings'] = field_mappings
             
@@ -1364,8 +1771,8 @@ class TableauExtractor:
             if action_type == 'highlight':
                 field_mappings = []
                 for fm in action.findall('.//field-mapping'):
-                    src = fm.get('source-field', '').replace('[', '').replace(']', '')
-                    tgt = fm.get('target-field', '').replace('[', '').replace(']', '')
+                    src = _strip_brackets(fm.get('source-field', ''))
+                    tgt = _strip_brackets(fm.get('target-field', ''))
                     field_mappings.append({'source': src, 'target': tgt})
                 if field_mappings:
                     action_data['field_mappings'] = field_mappings
@@ -1373,7 +1780,7 @@ class TableauExtractor:
             # Parameter action
             if action_type == 'param':
                 action_data['parameter'] = action.get('param', '')
-                action_data['source_field'] = action.get('source-field', '').replace('[', '').replace(']', '')
+                action_data['source_field'] = _strip_brackets(action.get('source-field', ''))
             
             # Set-value action: parse target set details
             if action_type == 'set-value':
@@ -1401,8 +1808,8 @@ class TableauExtractor:
                 set_elem = col.find('.//set')
                 if set_elem is not None or '-set-' in col.get('name', ''):
                     set_data = {
-                        'name': col.get('caption', col.get('name', '')).replace('[', '').replace(']', ''),
-                        'raw_name': col.get('name', '').replace('[', '').replace(']', ''),
+                        'name': _strip_brackets(col.get('caption', col.get('name', ''))),
+                        'raw_name': _strip_brackets(col.get('name', '')),
                         'datatype': col.get('datatype', 'boolean'),
                     }
                     
@@ -1439,7 +1846,7 @@ class TableauExtractor:
         
         for ds in root.findall('.//datasource'):
             for group_elem in ds.findall('.//group'):
-                group_name = group_elem.get('caption', group_elem.get('name', '')).replace('[', '').replace(']', '')
+                group_name = _strip_brackets(group_elem.get('caption', group_elem.get('name', '')))
                 if not group_name:
                     continue
                 
@@ -1453,10 +1860,9 @@ class TableauExtractor:
                     # Combined Field — extract source fields
                     levels = []
                     for lm in group_elem.findall('.//groupfilter[@function="level-members"]'):
-                        level = lm.get('level', '').replace('[', '').replace(']', '')
-                        # Clean the prefixes none:xxx:nk/qk
-                        if level.startswith('none:') and ':' in level[5:]:
-                            level = level[5:level.rfind(':')]
+                        level = _strip_brackets(lm.get('level', ''))
+                        # Clean all Tableau derivation prefixes (yr:, mn:, none:, etc.)
+                        level = _clean_field_ref(level)
                         levels.append(level)
                     
                     groups.append({
@@ -1473,7 +1879,7 @@ class TableauExtractor:
                     first_member = group_elem.find('.//groupfilter[@function="member"]')
                     if first_member is not None:
                         level = first_member.get('level', '')
-                        source_field = level.replace('[', '').replace(']', '')
+                        source_field = _clean_field_ref(_strip_brackets(level))
                     
                     members = {}
                     for child_gf in top_gf.findall('./groupfilter'):
@@ -1529,8 +1935,8 @@ class TableauExtractor:
                 bin_elem = col.find('.//bin')
                 if bin_elem is not None:
                     bins.append({
-                        'name': col.get('caption', col.get('name', '')).replace('[', '').replace(']', ''),
-                        'source_field': bin_elem.get('source', '').replace('[', '').replace(']', ''),
+                        'name': _strip_brackets(col.get('caption', col.get('name', ''))),
+                        'source_field': _strip_brackets(bin_elem.get('source', '')),
                         'size': bin_elem.get('size', '10'),
                         'datatype': col.get('datatype', 'integer')
                     })
@@ -1547,7 +1953,7 @@ class TableauExtractor:
                 h_name = drill_path.get('name', '')
                 levels = []
                 for field in drill_path.findall('.//field'):
-                    level_name = field.get('name', '').replace('[', '').replace(']', '')
+                    level_name = _strip_brackets(field.get('name', ''))
                     if level_name:
                         levels.append(level_name)
                 
@@ -1566,7 +1972,7 @@ class TableauExtractor:
         
         for ds in root.findall('.//datasource'):
             for sort in ds.findall('.//sort'):
-                col = sort.get('column', '').replace('[', '').replace(']', '')
+                col = _strip_brackets(sort.get('column', ''))
                 direction = sort.get('direction', 'ASC')
                 sort_type = sort.get('type', 'data')  # data, manual, field, computed
                 sort_data = {
@@ -1598,7 +2004,7 @@ class TableauExtractor:
         
         for ds in root.findall('.//datasource'):
             for col in ds.findall('.//column'):
-                col_name = col.get('name', '').replace('[', '').replace(']', '')
+                col_name = _strip_brackets(col.get('name', ''))
                 aliases_elem = col.find('.//aliases')
                 if aliases_elem is not None:
                     col_aliases = {}
@@ -1648,8 +2054,8 @@ class TableauExtractor:
             ds_name = ds.get('caption', ds.get('name', ''))
             
             for uf in ds.findall('.//user-filter'):
-                filter_name = uf.get('name', '').replace('[', '').replace(']', '')
-                filter_column = uf.get('column', '').replace('[', '').replace(']', '')
+                filter_name = _strip_brackets(uf.get('name', ''))
+                filter_column = _strip_brackets(uf.get('column', ''))
                 
                 # Extract user-to-value mappings
                 user_mappings = []
@@ -1668,7 +2074,7 @@ class TableauExtractor:
                 if group_filter is not None:
                     gf_func = group_filter.get('function', '')
                     gf_member = group_filter.get('member', '')
-                    gf_level = group_filter.get('level', '').replace('[', '').replace(']', '')
+                    gf_level = _strip_brackets(group_filter.get('level', ''))
                     gf_data = {
                         'function': gf_func,
                         'member': gf_member,
@@ -1696,8 +2102,8 @@ class TableauExtractor:
                 if calc is not None:
                     formula = calc.get('formula', '')
                     if formula and user_func_pattern.search(formula):
-                        col_name = col.get('caption', col.get('name', '')).replace('[', '').replace(']', '')
-                        raw_name = col.get('name', '').replace('[', '').replace(']', '')
+                        col_name = _strip_brackets(col.get('caption', col.get('name', '')))
+                        raw_name = _strip_brackets(col.get('name', ''))
                         
                         # Detect which user functions are used
                         functions_used = list(set(
@@ -1722,9 +2128,215 @@ class TableauExtractor:
         self.workbook_data['user_filters'] = user_filters
         print(f"  ✓ {len(user_filters)} user filters/security rules extracted")
 
-    # ═══════════════════════════════════════════════════════════════
-    #  ADDITIONAL EXTRACTION METHODS — Coverage 100%
-    # ═══════════════════════════════════════════════════════════════
+    def extract_datasource_filters(self, root):
+        """Extract data source-level (extract) filters baked into connections.
+
+        These are filters defined on the data source itself (not on worksheets)
+        and they restrict what data is imported.  In Tableau XML they appear as
+        ``<filter>`` elements directly under ``<datasource>`` or inside
+        ``<extract>``/``<connection>`` blocks, distinguished from worksheet
+        filters by the ``class="categorical"``/``class="quantitative"``
+        attribute and the ``column`` attribute referencing a fully-qualified
+        field ``[datasource].[column]``.
+        """
+        ds_filters = []
+
+        for ds in root.findall('.//datasource'):
+            ds_name = ds.get('caption', ds.get('name', ''))
+            ds_raw_name = ds.get('name', '')
+
+            # 1. Top-level <filter> elements on the datasource
+            for filt in ds.findall('./filter'):
+                fdata = self._parse_datasource_filter(filt, ds_name)
+                if fdata:
+                    ds_filters.append(fdata)
+
+            # 2. Filters inside <extract><connection>
+            extract_el = ds.find('.//extract')
+            if extract_el is not None:
+                for filt in extract_el.findall('.//filter'):
+                    fdata = self._parse_datasource_filter(filt, ds_name)
+                    if fdata:
+                        ds_filters.append(fdata)
+
+            # 3. Filters inside <connection> (named/federated connections)
+            for conn in ds.findall('.//connection'):
+                for filt in conn.findall('./filter'):
+                    fdata = self._parse_datasource_filter(filt, ds_name)
+                    if fdata:
+                        ds_filters.append(fdata)
+
+        # Deduplicate by (datasource, column, type)
+        seen = set()
+        unique = []
+        for f in ds_filters:
+            key = (f['datasource'], f['column'], f['filter_class'])
+            if key not in seen:
+                seen.add(key)
+                unique.append(f)
+
+        self.workbook_data['datasource_filters'] = unique
+        print(f"  [OK] {len(unique)} datasource-level filters extracted")
+
+    @staticmethod
+    def _parse_datasource_filter(filt_element, ds_name):
+        """Parse a single ``<filter>`` element from a datasource context.
+
+        Returns a dict or ``None`` if the element is not a meaningful
+        datasource filter (e.g. missing column).
+        """
+        column = filt_element.get('column', '')
+        if not column:
+            return None
+
+        # Clean brackets
+        clean_col = _strip_brackets(column)
+
+        filter_class = filt_element.get('class', '')  # categorical / quantitative
+        filter_type = filt_element.get('type', '')      # e.g. included, excluded
+
+        # Categorical values: <groupfilter member="..."> or <member> elements
+        values = []
+        for gf in filt_element.findall('.//groupfilter'):
+            member = gf.get('member', '')
+            if member:
+                values.append(member)
+        for member_el in filt_element.findall('.//member'):
+            val = member_el.get('value', member_el.text or '')
+            if val:
+                values.append(val)
+        # Plain <value> children (overlap with global filters format)
+        for val_el in filt_element.findall('.//value'):
+            if val_el.text:
+                values.append(val_el.text)
+
+        # Quantitative range
+        range_min = None
+        range_max = None
+        min_el = filt_element.find('.//min')
+        max_el = filt_element.find('.//max')
+        if min_el is not None:
+            range_min = min_el.get('value', min_el.text)
+        if max_el is not None:
+            range_max = max_el.get('value', max_el.text)
+
+        return {
+            'datasource': ds_name,
+            'column': clean_col,
+            'filter_class': filter_class,
+            'filter_type': filter_type,
+            'values': values,
+            'range_min': range_min,
+            'range_max': range_max,
+        }
+
+    # ── New extraction methods (ported from Fabric) ──────────────────────
+
+    def extract_trend_lines(self, worksheet):
+        """Extracts trend lines from a worksheet"""
+        trend_lines = []
+        for tl in worksheet.findall('.//trend-line'):
+            trend_lines.append({
+                'type': tl.get('type', 'linear'),
+                'field': tl.get('column', ''),
+                'color': tl.get('color', ''),
+                'show_confidence': tl.get('show-confidence', 'false') == 'true',
+                'show_equation': tl.get('show-equation', 'false') == 'true',
+                'show_r_squared': tl.get('show-r-squared', 'false') == 'true',
+                'per_color': tl.get('per-color', 'false') == 'true',
+            })
+        # Also check <trend-lines><trend-line> nested format
+        for tl_container in worksheet.findall('.//trend-lines'):
+            for tl in tl_container.findall('.//trend-line'):
+                if not any(t.get('type') == tl.get('type', 'linear') for t in trend_lines):
+                    trend_lines.append({
+                        'type': tl.get('type', 'linear'),
+                        'field': tl.get('column', ''),
+                        'color': tl.get('color', ''),
+                        'show_confidence': tl.get('show-confidence', 'false') == 'true',
+                        'show_equation': tl.get('show-equation', 'false') == 'true',
+                        'show_r_squared': tl.get('show-r-squared', 'false') == 'true',
+                        'per_color': tl.get('per-color', 'false') == 'true',
+                    })
+        return trend_lines
+
+    def extract_pages_shelf(self, worksheet):
+        """Extracts the Pages shelf field (animation shelf in Tableau)"""
+        pages = {}
+        pages_elem = worksheet.find('.//pages')
+        if pages_elem is not None and pages_elem.text:
+            refs = re.findall(r'\[([^\]]+)\]\.\[([^\]]+)\]', pages_elem.text)
+            if refs:
+                pages['field'] = refs[0][1]
+                pages['datasource'] = refs[0][0]
+            else:
+                pages['field'] = pages_elem.text.strip().replace('[', '').replace(']', '')
+        return pages
+
+    def extract_table_calcs(self, worksheet):
+        """Extracts table calculation addressing/partitioning from <table-calc> elements"""
+        table_calcs = []
+        for tc in worksheet.findall('.//table-calc'):
+            calc_data = {
+                'field': tc.get('column', '').replace('[', '').replace(']', ''),
+                'type': tc.get('type', ''),
+                'ordering_type': tc.get('ordering-type', 'Rows'),
+                'compute_using': [],
+                'direction': tc.get('direction', ''),
+                'at_level': tc.get('at-level', ''),
+            }
+            # Compute-using dimensions
+            for dim in tc.findall('.//compute-using'):
+                val = dim.text or dim.get('column', '')
+                if val:
+                    clean = val.strip().replace('[', '').replace(']', '')
+                    calc_data['compute_using'].append(clean)
+            # Also check <order-by> for secondary sort
+            for ob in tc.findall('.//order-by'):
+                field = ob.get('column', '').replace('[', '').replace(']', '')
+                direction = ob.get('direction', 'ASC')
+                calc_data.setdefault('order_by', []).append({
+                    'field': field, 'direction': direction
+                })
+            table_calcs.append(calc_data)
+        return table_calcs
+
+    def extract_dashboard_containers(self, dashboard):
+        """Extracts horizontal/vertical layout containers with nesting and padding"""
+        containers = []
+        for lc in dashboard.findall('.//layout-container'):
+            orientation = lc.get('orientation', '')
+            container = {
+                'orientation': orientation,
+                'name': lc.get('name', ''),
+                'position': {
+                    'x': int(lc.get('x', 0)),
+                    'y': int(lc.get('y', 0)),
+                    'w': int(lc.get('w', 0)),
+                    'h': int(lc.get('h', 0)),
+                },
+                'padding': {
+                    'top': int(lc.get('padding-top', lc.get('margin-top', 0))),
+                    'bottom': int(lc.get('padding-bottom', lc.get('margin-bottom', 0))),
+                    'left': int(lc.get('padding-left', lc.get('margin-left', 0))),
+                    'right': int(lc.get('padding-right', lc.get('margin-right', 0))),
+                },
+                'children': [],
+            }
+            for child in lc:
+                if child.tag == 'zone':
+                    container['children'].append({
+                        'type': 'zone',
+                        'name': child.get('name', ''),
+                        'position': {
+                            'x': int(child.get('x', 0)),
+                            'y': int(child.get('y', 0)),
+                            'w': int(child.get('w', 0)),
+                            'h': int(child.get('h', 0)),
+                        }
+                    })
+            containers.append(container)
+        return containers
 
     def extract_forecasting(self, worksheet):
         """Extracts forecast configuration from <forecast> elements."""
@@ -1818,18 +2430,30 @@ class TableauExtractor:
         return dual_axis
 
     def extract_custom_shapes(self):
-        """Extracts custom shape references from .twbx package."""
+        """Extracts custom shape references from .twbx package.
+
+        Also extracts binary shape files into ``<output_dir>/shapes/``
+        so the generator can embed them as ``RegisteredResources/``.
+        """
         shapes = []
         file_ext = os.path.splitext(self.tableau_file)[1].lower()
         if file_ext in ['.twbx', '.tdsx']:
             try:
+                shapes_dir = os.path.join(self.output_dir, 'shapes')
                 with zipfile.ZipFile(self.tableau_file, 'r') as z:
                     for name in z.namelist():
                         if '/Shapes/' in name or '/shapes/' in name:
+                            filename = os.path.basename(name)
                             shapes.append({
                                 'path': name,
-                                'filename': os.path.basename(name),
+                                'filename': filename,
                             })
+                            # Extract binary shape file
+                            if filename and not name.endswith('/'):
+                                os.makedirs(shapes_dir, exist_ok=True)
+                                target = os.path.join(shapes_dir, filename)
+                                with z.open(name) as src, open(target, 'wb') as dst:
+                                    dst.write(src.read())
             except (zipfile.BadZipFile, OSError, KeyError) as exc:
                 logger.debug("Could not read shapes from archive: %s", exc)
         return shapes
@@ -1943,7 +2567,27 @@ class TableauExtractor:
         print(f"  ✓ {len(blending)} data blending links extracted")
 
     def extract_hyper_metadata(self):
-        """Extracts .hyper file metadata from .twbx packages (file names and sizes)."""
+        """Extracts .hyper file metadata from .twbx packages (file names, sizes, and column info).
+
+        Reads the first bytes of each ``.hyper`` file to detect the Hyper
+        format signature and extract table/column metadata when possible.
+        When INSERT statements are present in the header region, sample
+        data rows are also extracted (up to ``max_sample_rows`` per table).
+
+        Column type mapping: 0=bool, 1=bigint, 2=smallint, 3=int, 4=double,
+        5=oid, 6=bytes, 7=text, 8=varchar, 9=char, 10=json, 11=date,
+        12=interval, 13=time, 14=timestamp, 15=timestamptz, 16=geography,
+        17=numeric.
+        """
+        # Hyper type-id → friendly name
+        _hyper_type_map = {
+            0: 'boolean', 1: 'bigint', 2: 'smallint', 3: 'integer',
+            4: 'double', 5: 'oid', 6: 'bytes', 7: 'text', 8: 'varchar',
+            9: 'char', 10: 'json', 11: 'date', 12: 'interval', 13: 'time',
+            14: 'timestamp', 15: 'timestamptz', 16: 'geography', 17: 'numeric',
+        }
+        max_sample_rows = 5  # number of sample rows to extract per table
+
         hyper_files = []
         file_ext = os.path.splitext(self.tableau_file)[1].lower()
         if file_ext in ['.twbx', '.tdsx']:
@@ -1951,17 +2595,163 @@ class TableauExtractor:
                 with zipfile.ZipFile(self.tableau_file, 'r') as z:
                     for info in z.infolist():
                         if info.filename.lower().endswith('.hyper'):
-                            hyper_files.append({
+                            entry = {
                                 'path': info.filename,
                                 'filename': os.path.basename(info.filename),
                                 'size_bytes': info.file_size,
                                 'compressed_size': info.compress_size,
-                            })
+                            }
+                            # Attempt to parse header for column metadata
+                            try:
+                                raw = z.read(info.filename)
+                                header_str = raw[:min(4096, len(raw))]
+                                # Detect format signature
+                                if header_str[:4] == b'HyPe':
+                                    entry['format'] = 'hyper'
+                                elif header_str[:6] == b'SQLite':
+                                    entry['format'] = 'sqlite'
+                                # Scan a larger region for SQL patterns
+                                scan_limit = min(262144, len(raw))
+                                text_region = raw[:scan_limit]
+                                try:
+                                    text_chunk = text_region.decode('utf-8', errors='replace')
+                                except (UnicodeDecodeError, AttributeError):
+                                    text_chunk = ''
+                                creates = re.findall(
+                                    r'CREATE\s+TABLE\s+"?([^"\s(]+)"?\s*\(([^)]+)\)',
+                                    text_chunk, re.IGNORECASE
+                                )
+                                if creates:
+                                    tables_info = []
+                                    for tname, cols_str in creates:
+                                        cols = []
+                                        for col_def in cols_str.split(','):
+                                            col_def = col_def.strip()
+                                            parts = col_def.split()
+                                            if len(parts) >= 2:
+                                                cname = parts[0].strip('"')
+                                                ctype = ' '.join(parts[1:]).lower()
+                                                cols.append({
+                                                    'name': cname,
+                                                    'hyper_type': ctype,
+                                                })
+                                        tbl_entry = {
+                                            'table': tname,
+                                            'columns': cols,
+                                            'column_count': len(cols),
+                                        }
+                                        # --- Sample-row extraction ---
+                                        samples = self._extract_hyper_sample_rows(
+                                            text_chunk, tname, cols, max_sample_rows
+                                        )
+                                        if samples:
+                                            tbl_entry['sample_rows'] = samples
+                                            tbl_entry['sample_row_count'] = len(samples)
+                                        tables_info.append(tbl_entry)
+                                    entry['tables'] = tables_info
+                                # Estimate row count from file size and column count
+                                if entry.get('tables'):
+                                    tbl0 = entry['tables'][0]
+                                    ncols = tbl0.get('column_count', 1)
+                                    avg_bytes_per_col = 20
+                                    estimated = entry['size_bytes'] // max(ncols * avg_bytes_per_col, 1)
+                                    entry['estimated_row_count'] = max(estimated, 0)
+                            except Exception as exc:
+                                logger.debug("Could not parse hyper header: %s", exc)
+                            hyper_files.append(entry)
             except (zipfile.BadZipFile, OSError, KeyError) as exc:
                 logger.debug("Could not read hyper files from archive: %s", exc)
         self.workbook_data['hyper_files'] = hyper_files
         if hyper_files:
-            print(f"  ✓ {len(hyper_files)} .hyper extract files detected")
+            total_tables = sum(len(h.get('tables', [])) for h in hyper_files)
+            total_rows = sum(
+                h.get('estimated_row_count', 0, ) for h in hyper_files
+            )
+            msg = f"  ✓ {len(hyper_files)} .hyper extract files detected"
+            if total_tables:
+                msg += f" ({total_tables} tables parsed)"
+            if total_rows:
+                msg += f" (~{total_rows:,} rows estimated)"
+            print(msg)
+
+        # Attempt deeper reading via SQLite (hyper_reader module)
+        file_ext = os.path.splitext(self.tableau_file)[1].lower()
+        if file_ext in ['.twbx', '.tdsx']:
+            try:
+                deep_results = read_hyper_from_twbx(
+                    self.tableau_file, max_rows=20,
+                )
+                if deep_results:
+                    # Merge deep data (actual row counts, richer sample rows)
+                    deep_map = {}
+                    for dr in deep_results:
+                        key = dr.get('original_filename', '')
+                        deep_map[key] = dr
+                    for entry in hyper_files:
+                        fname = entry.get('filename', '')
+                        deep = deep_map.get(fname)
+                        if deep and deep.get('tables'):
+                            entry['hyper_reader_tables'] = deep['tables']
+                            entry['hyper_reader_format'] = deep.get('format', 'unknown')
+                            # Update row count from actual COUNT(*)
+                            total = sum(
+                                t.get('row_count', 0) for t in deep['tables']
+                            )
+                            if total > 0:
+                                entry['actual_row_count'] = total
+                    logger.debug("Hyper reader enriched %d file(s)", len(deep_results))
+            except Exception as exc:
+                logger.debug("Hyper reader enrichment failed: %s", exc)
+
+    # ------------------------------------------------------------------
+    # Helpers for Hyper sample-row extraction
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _extract_hyper_sample_rows(text_chunk, table_name, columns, max_rows):
+        """Extract sample data rows from INSERT statements in a Hyper text region.
+
+        Some Hyper files contain SQL-style INSERT statements in their
+        headers.  This method scans for ``INSERT INTO "table" VALUES
+        (...)`` patterns and returns up to *max_rows* dicts mapping
+        column names to string values.
+
+        Args:
+            text_chunk: The decoded text region of the .hyper file.
+            table_name: The target table name (matched against INSERT).
+            columns: Column info list, each with a 'name' key.
+            max_rows: Maximum sample rows to return.
+
+        Returns:
+            list[dict]: Up to *max_rows* dicts ``{col_name: value}``.
+        """
+        # Escape table name for regex
+        esc_name = re.escape(table_name)
+        # Match INSERT INTO "table" VALUES (...), (...)
+        insert_pat = re.compile(
+            r'INSERT\s+INTO\s+"?' + esc_name + r'"?\s+VALUES\s*'
+            r'(\([^)]*\)(?:\s*,\s*\([^)]*\))*)',
+            re.IGNORECASE,
+        )
+        col_names = [c.get('name', f'col{i}') for i, c in enumerate(columns)]
+        samples = []
+        for m in insert_pat.finditer(text_chunk):
+            values_block = m.group(1)
+            # Split into individual value tuples
+            tuples = re.findall(r'\(([^)]*)\)', values_block)
+            for tup in tuples:
+                vals = _split_sql_values(tup)
+                row = {}
+                for i, v in enumerate(vals):
+                    name = col_names[i] if i < len(col_names) else f'col{i}'
+                    row[name] = v.strip().strip("'")
+                samples.append(row)
+                if len(samples) >= max_rows:
+                    return samples
+        # Fallback: try to detect CSV-like or TSV-like data blocks
+        if not samples:
+            samples = _scan_delimited_sample(text_chunk, col_names, max_rows)
+        return samples
 
     def extract_totals_subtotals(self, worksheet):
         """Extracts grand-total and sub-total settings from a worksheet."""
@@ -2131,104 +2921,6 @@ class TableauExtractor:
                     'scope': ref.get('scope', 'per-pane'),
                 })
         return stats
-
-    def extract_datasource_filters(self, root):
-        """Extract data source-level (extract) filters baked into connections.
-
-        These are filters defined on the data source itself (not on worksheets)
-        and they restrict what data is imported.  In Tableau XML they appear as
-        ``<filter>`` elements directly under ``<datasource>`` or inside
-        ``<extract>``/``<connection>`` blocks.
-        """
-        ds_filters = []
-
-        for ds in root.findall('.//datasource'):
-            ds_name = ds.get('caption', ds.get('name', ''))
-
-            # 1. Top-level <filter> elements on the datasource
-            for filt in ds.findall('./filter'):
-                fdata = self._parse_datasource_filter(filt, ds_name)
-                if fdata:
-                    ds_filters.append(fdata)
-
-            # 2. Filters inside <extract><connection>
-            extract_el = ds.find('.//extract')
-            if extract_el is not None:
-                for filt in extract_el.findall('.//filter'):
-                    fdata = self._parse_datasource_filter(filt, ds_name)
-                    if fdata:
-                        ds_filters.append(fdata)
-
-            # 3. Filters inside <connection> (named/federated connections)
-            for conn in ds.findall('.//connection'):
-                for filt in conn.findall('./filter'):
-                    fdata = self._parse_datasource_filter(filt, ds_name)
-                    if fdata:
-                        ds_filters.append(fdata)
-
-        # Deduplicate by (datasource, column, type)
-        seen = set()
-        unique = []
-        for f in ds_filters:
-            key = (f['datasource'], f['column'], f['filter_class'])
-            if key not in seen:
-                seen.add(key)
-                unique.append(f)
-
-        self.workbook_data['datasource_filters'] = unique
-        print(f"  [OK] {len(unique)} datasource-level filters extracted")
-
-    @staticmethod
-    def _parse_datasource_filter(filt_element, ds_name):
-        """Parse a single ``<filter>`` element from a datasource context.
-
-        Returns a dict or ``None`` if the element is not a meaningful
-        datasource filter (e.g. missing column).
-        """
-        column = filt_element.get('column', '')
-        if not column:
-            return None
-
-        # Clean brackets
-        clean_col = column.strip().strip('[]')
-
-        filter_class = filt_element.get('class', '')  # categorical / quantitative
-        filter_type = filt_element.get('type', '')      # e.g. included, excluded
-
-        # Categorical values: <groupfilter member="..."> or <member> elements
-        values = []
-        for gf in filt_element.findall('.//groupfilter'):
-            member = gf.get('member', '')
-            if member:
-                values.append(member)
-        for member_el in filt_element.findall('.//member'):
-            val = member_el.get('value', member_el.text or '')
-            if val:
-                values.append(val)
-        # Plain <value> children
-        for val_el in filt_element.findall('.//value'):
-            if val_el.text:
-                values.append(val_el.text)
-
-        # Quantitative range
-        range_min = None
-        range_max = None
-        min_el = filt_element.find('.//min')
-        max_el = filt_element.find('.//max')
-        if min_el is not None:
-            range_min = min_el.get('value', min_el.text)
-        if max_el is not None:
-            range_max = max_el.get('value', max_el.text)
-
-        return {
-            'datasource': ds_name,
-            'column': clean_col,
-            'filter_class': filter_class,
-            'filter_type': filter_type,
-            'values': values,
-            'range_min': range_min,
-            'range_max': range_max,
-        }
 
     def save_extractions(self):
         """Saves extractions to JSON"""

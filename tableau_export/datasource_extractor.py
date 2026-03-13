@@ -1,4 +1,4 @@
-﻿"""
+"""
 Datasource extraction module for Tableau workbooks.
 
 Parses Tableau XML datasource elements, extracting connections,
@@ -11,7 +11,7 @@ import zipfile
 import os
 import csv
 import re
-from .dax_converter import _reverse_tableau_bracket_escape
+from dax_converter import _reverse_tableau_bracket_escape
 
 def _detect_csv_delimiter(header_line):
     """Detects the CSV delimiter from the first line (header).
@@ -88,13 +88,17 @@ def extract_datasource(datasource_elem, twbx_path=None):
     # Build the connection_name -> connection_details mapping
     connection_map = _build_connection_map(datasource_elem, twbx_path=twbx_path)
     
+    calcs = extract_calculations(datasource_elem)
+    for c in calcs:
+        c['datasource_name'] = ds_name
+
     datasource = {
         'name': ds_name,
         'caption': ds_caption,
         'connection': extract_connection_details(datasource_elem),
         'connection_map': connection_map,
         'tables': extract_tables_with_columns(datasource_elem, connection_map),
-        'calculations': extract_calculations(datasource_elem),
+        'calculations': calcs,
         'columns': extract_column_metadata(datasource_elem),
         'relationships': extract_relationships(datasource_elem)
     }
@@ -117,18 +121,72 @@ def _parse_connection_class(inner_conn, named_conn=None, twbx_path=None):
         dict: {type: str, details: dict}
     """
     conn_class = inner_conn.get('class', 'unknown')
-    
+
+    # ── Dispatch table for simple attribute-mapping connectors ──────────────
+    # Each entry: conn_class → (type_name, {detail_key: xml_attr_or_default, ...})
+    _SIMPLE_CONNECTORS = {
+        'excel-direct': ('Excel', {
+            'filename': ('filename', ''),
+            'cleaning': ('cleaning', 'no'),
+            'compat': ('compat', 'no'),
+        }),
+        'ogrdirect': ('GeoJSON', {
+            'filename': ('filename', ''),
+            'directory': ('directory', ''),
+        }),
+        'sqlserver': ('SQL Server', {
+            'server': ('server', ''),
+            'database': ('dbname', ''),
+            'authentication': ('authentication', 'sspi'),
+            'username': ('username', ''),
+        }),
+        'postgres': ('PostgreSQL', {
+            'server': ('server', ''),
+            'port': ('port', '5432'),
+            'database': ('dbname', ''),
+            'username': ('username', ''),
+            'sslmode': ('sslmode', 'require'),
+        }),
+        'bigquery': ('BigQuery', {
+            'project': ('project', ''),
+            'dataset': ('dataset', ''),
+            'service_account': ('service-account-email', ''),
+        }),
+        'oracle': ('Oracle', {
+            'server': ('server', ''),
+            'service': ('service', ''),
+            'port': ('port', '1521'),
+            'username': ('username', ''),
+        }),
+        'mysql': ('MySQL', {
+            'server': ('server', ''),
+            'port': ('port', '3306'),
+            'database': ('dbname', ''),
+            'username': ('username', ''),
+        }),
+        'snowflake': ('Snowflake', {
+            'server': ('server', ''),
+            'database': ('dbname', ''),
+            'schema': ('schema', ''),
+            'warehouse': ('warehouse', ''),
+            'role': ('role', ''),
+        }),
+        'sapbw': ('SAP BW', {
+            'server': ('server', ''),
+            'system_number': ('systemNumber', '00'),
+            'client_id': ('clientId', ''),
+            'language': ('language', 'EN'),
+            'cube': ('cube', ''),
+            'catalog': ('catalog', ''),
+        }),
+    }
+
+    # ── Special cases (need extra logic) ────────────────────────────────────
     if conn_class == 'excel-direct':
-        return {
-            'type': 'Excel',
-            'details': {
-                'filename': inner_conn.get('filename', ''),
-                'caption': named_conn.get('caption', '') if named_conn is not None else '',
-                'cleaning': inner_conn.get('cleaning', 'no'),
-                'compat': inner_conn.get('compat', 'no')
-            }
-        }
-    
+        result = _build_from_dispatch(inner_conn, _SIMPLE_CONNECTORS['excel-direct'])
+        result['details']['caption'] = named_conn.get('caption', '') if named_conn is not None else ''
+        return result
+
     if conn_class == 'textscan':
         csv_filename = inner_conn.get('filename', '')
         csv_directory = inner_conn.get('directory', '')
@@ -145,100 +203,38 @@ def _parse_connection_class(inner_conn, named_conn=None, twbx_path=None):
                 'encoding': inner_conn.get('charset', 'utf-8')
             }
         }
-    
-    if conn_class == 'ogrdirect':
+
+    # ── Dispatch simple connectors ──────────────────────────────────────────
+    if conn_class in _SIMPLE_CONNECTORS:
+        return _build_from_dispatch(inner_conn, _SIMPLE_CONNECTORS[conn_class])
+
+    # ── sqlproxy: Tableau Server Published Datasource ──────────────────────
+    if conn_class == 'sqlproxy':
         return {
-            'type': 'GeoJSON',
-            'details': {
-                'filename': inner_conn.get('filename', ''),
-                'directory': inner_conn.get('directory', '')
-            }
-        }
-    
-    if conn_class == 'sqlserver':
-        return {
-            'type': 'SQL Server',
+            'type': 'Tableau Server',
             'details': {
                 'server': inner_conn.get('server', ''),
-                'database': inner_conn.get('dbname', ''),
-                'authentication': inner_conn.get('authentication', 'sspi'),
-                'username': inner_conn.get('username', '')
-            }
-        }
-    
-    if conn_class == 'postgres':
-        return {
-            'type': 'PostgreSQL',
-            'details': {
-                'server': inner_conn.get('server', ''),
-                'port': inner_conn.get('port', '5432'),
-                'database': inner_conn.get('dbname', ''),
-                'username': inner_conn.get('username', ''),
-                'sslmode': inner_conn.get('sslmode', 'require')
-            }
-        }
-    
-    if conn_class == 'bigquery':
-        return {
-            'type': 'BigQuery',
-            'details': {
-                'project': inner_conn.get('project', ''),
-                'dataset': inner_conn.get('dataset', ''),
-                'service_account': inner_conn.get('service-account-email', '')
-            }
-        }
-    
-    if conn_class == 'oracle':
-        return {
-            'type': 'Oracle',
-            'details': {
-                'server': inner_conn.get('server', ''),
-                'service': inner_conn.get('service', ''),
-                'port': inner_conn.get('port', '1521'),
-                'username': inner_conn.get('username', '')
-            }
-        }
-    
-    if conn_class == 'mysql':
-        return {
-            'type': 'MySQL',
-            'details': {
-                'server': inner_conn.get('server', ''),
-                'port': inner_conn.get('port', '3306'),
-                'database': inner_conn.get('dbname', ''),
-                'username': inner_conn.get('username', '')
-            }
-        }
-    
-    if conn_class == 'snowflake':
-        return {
-            'type': 'Snowflake',
-            'details': {
-                'server': inner_conn.get('server', ''),
-                'database': inner_conn.get('dbname', ''),
-                'schema': inner_conn.get('schema', ''),
-                'warehouse': inner_conn.get('warehouse', ''),
-                'role': inner_conn.get('role', '')
+                'port': inner_conn.get('port', '443'),
+                'dbname': inner_conn.get('dbname', ''),
+                'channel': inner_conn.get('channel', 'https'),
+                'server_ds_name': inner_conn.get('server-ds-friendly-name', ''),
             }
         }
 
-    if conn_class == 'sapbw':
-        return {
-            'type': 'SAP BW',
-            'details': {
-                'server': inner_conn.get('server', ''),
-                'system_number': inner_conn.get('systemNumber', '00'),
-                'client_id': inner_conn.get('clientId', ''),
-                'language': inner_conn.get('language', 'EN'),
-                'cube': inner_conn.get('cube', ''),
-                'catalog': inner_conn.get('catalog', '')
-            }
-        }
-
+    # ── Fallback for unknown connector types ────────────────────────────────
     return {
         'type': conn_class.upper(),
         'details': dict(inner_conn.attrib)
     }
+
+
+def _build_from_dispatch(inner_conn, spec):
+    """Build a {type, details} dict from a dispatch table spec."""
+    type_name, attr_map = spec
+    details = {}
+    for detail_key, (xml_attr, default) in attr_map.items():
+        details[detail_key] = inner_conn.get(xml_attr, default)
+    return {'type': type_name, 'details': details}
 
 
 def _build_connection_map(datasource_elem, twbx_path=None):
@@ -280,6 +276,11 @@ def extract_connection_details(datasource_elem):
         if inner_conn is not None:
             return _parse_connection_class(inner_conn, named_conn)
     
+    # Direct connection (no named-connection wrapper) — e.g. sqlproxy
+    conn_class = connection_elem.get('class', '')
+    if conn_class and conn_class != 'federated':
+        return _parse_connection_class(connection_elem)
+
     return {'type': 'Unknown', 'details': {}}
 
 
@@ -317,9 +318,11 @@ def extract_tables_with_columns(datasource_elem, connection_map=None):
         columns = []
         for col_elem in relation.findall('./columns/column'):
             raw_name = col_elem.get('name', '')
+            datatype = col_elem.get('datatype', 'string')
             column = {
                 'name': _reverse_tableau_bracket_escape(raw_name),
-                'datatype': col_elem.get('datatype', 'string'),
+                'datatype': datatype,
+                'role': 'measure' if datatype in ('real', 'integer') else 'dimension',
                 'ordinal': int(col_elem.get('ordinal', 0)),
                 'length': col_elem.get('length', None),
                 'nullable': col_elem.get('nullable', 'true') == 'true',
@@ -368,9 +371,20 @@ def extract_tables_with_columns(datasource_elem, connection_map=None):
             # Skip user-filter columns
             if col_elem.get('user:auto-column', '') == 'sheet_link':
                 continue
+            datatype = col_elem.get('datatype', 'string')
+            # Infer role: explicit role attribute takes precedence,
+            # otherwise numeric types default to 'measure' (Tableau convention)
+            explicit_role = col_elem.get('role', '')
+            if explicit_role:
+                role = explicit_role
+            elif datatype in ('real', 'integer'):
+                role = 'measure'
+            else:
+                role = 'dimension'
             ds_columns[col_name] = {
                 'name': col_name.strip('[]'),
-                'datatype': col_elem.get('datatype', 'string'),
+                'datatype': datatype,
+                'role': role,
                 'ordinal': 0,
                 'length': None,
                 'nullable': True,
@@ -388,6 +402,23 @@ def extract_tables_with_columns(datasource_elem, connection_map=None):
                     col['ordinal'] = ordinal
                     ordinal += 1
                     table['columns'].append(col)
+    
+    # Phase 2.5: Override column roles from datasource-level <column> elements.
+    # Users may override Tableau's default role (e.g. set an integer column
+    # like "Row ID" to dimension). These overrides are stored at the
+    # datasource level as explicit role attributes.
+    ds_role_overrides = {}
+    for col_elem in datasource_elem.findall('./column'):
+        col_name = col_elem.get('name', '').strip('[]')
+        explicit_role = col_elem.get('role', '')
+        if col_name and explicit_role:
+            ds_role_overrides[col_name] = explicit_role
+    if ds_role_overrides:
+        for table in raw_tables.values():
+            for col in table.get('columns', []):
+                cname = col.get('name', '')
+                if cname in ds_role_overrides:
+                    col['role'] = ds_role_overrides[cname]
 
     # Phase 3: For tables STILL with no columns, extract from
     # <metadata-records><metadata-record class='column'>.
@@ -396,8 +427,7 @@ def extract_tables_with_columns(datasource_elem, connection_map=None):
     # <columns>) and no <cols><map> entries exist.
     still_needing = [t for t in raw_tables.values() if not t['columns']]
     if still_needing:
-        # Build mapping: table_name -> [column_dict, ...] from metadata-records
-        metadata_table_cols = {}  # table_name -> [col, ...]
+        metadata_table_cols = {}
         for mr in datasource_elem.findall('.//metadata-record[@class="column"]'):
             remote_name = (mr.findtext('remote-name') or '').strip()
             local_name = (mr.findtext('local-name') or '').strip()
@@ -418,6 +448,7 @@ def extract_tables_with_columns(datasource_elem, connection_map=None):
             col = {
                 'name': col_name,
                 'datatype': local_type,
+                'role': 'measure' if local_type in ('real', 'integer') else 'dimension',
                 'ordinal': ordinal_val,
                 'length': None,
                 'nullable': contains_null == 'true',
@@ -428,14 +459,12 @@ def extract_tables_with_columns(datasource_elem, connection_map=None):
             tname = table['name']
             meta_cols = metadata_table_cols.get(tname, [])
             if meta_cols:
-                # Sort by ordinal for consistent column order
                 meta_cols.sort(key=lambda c: c['ordinal'])
                 table['columns'] = meta_cols
 
     # Phase 4: Last-resort fallback — if a table still has no columns,
     # populate from datasource-level <column> elements that are NOT
-    # calculations (physical columns only).  This covers edge cases
-    # where neither <columns>, <cols><map>, nor <metadata-records> exist.
+    # calculations (physical columns only).
     final_needing = [t for t in raw_tables.values() if not t['columns']]
     if final_needing:
         ds_phys_cols = []
@@ -451,6 +480,7 @@ def extract_tables_with_columns(datasource_elem, connection_map=None):
             ds_phys_cols.append({
                 'name': col_name,
                 'datatype': col_elem.get('datatype', 'string'),
+                'role': 'measure' if col_elem.get('datatype', 'string') in ('real', 'integer') else 'dimension',
                 'ordinal': ordinal,
                 'length': None,
                 'nullable': True,
@@ -461,7 +491,13 @@ def extract_tables_with_columns(datasource_elem, connection_map=None):
             for table in final_needing:
                 table['columns'] = list(ds_phys_cols)
 
-    return list(raw_tables.values())
+    # Filter out 0-column tables when other tables have columns
+    # (e.g. Tableau extract artifacts like 'Extract' tables in .twbx files)
+    tables = list(raw_tables.values())
+    has_populated = any(t['columns'] for t in tables)
+    if has_populated:
+        tables = [t for t in tables if t['columns']]
+    return tables
 
 
 def extract_column_metadata(datasource_elem):
@@ -497,21 +533,59 @@ def extract_column_metadata(datasource_elem):
 
 
 def extract_calculations(datasource_elem):
-    """Extracts Tableau calculations with formulas"""
+    """Extracts Tableau calculations with formulas.
+    
+    Also extracts <table-calc> elements for COMPUTE USING (addressing)
+    so that DAX generation can use proper filter context.
+    """
     calculations = []
     
     for col_elem in datasource_elem.findall('.//column'):
         calc_elem = col_elem.find('.//calculation')
         if calc_elem is not None:
+            calc_class = calc_elem.get('class', 'tableau')
+            # Skip categorical-bin calculations — they are handled by group
+            # extraction and have no formula, which would produce empty measures.
+            if calc_class == 'categorical-bin':
+                continue
+            calc_formula = calc_elem.get('formula', '')
+            # Skip calculations with no formula to avoid empty measures
+            if not calc_formula.strip():
+                continue
             calculation = {
                 'name': col_elem.get('name', ''),
                 'caption': col_elem.get('caption', col_elem.get('name', '')),
-                'formula': calc_elem.get('formula', ''),
-                'class': calc_elem.get('class', 'tableau'),
+                'formula': calc_formula,
+                'class': calc_class,
                 'datatype': col_elem.get('datatype', 'real'),
                 'role': col_elem.get('role', 'measure'),
                 'type': col_elem.get('type', 'quantitative')
             }
+            
+            # Extract table-calc addressing (COMPUTE USING dimensions)
+            table_calc = calc_elem.find('.//table-calc')
+            if table_calc is not None:
+                addressing_fields = []
+                for addr in table_calc.findall('.//addressing-field'):
+                    field_name = addr.get('name', addr.text or '')
+                    if field_name:
+                        # Clean [datasource].[field] format
+                        match = re.search(r'\[([^\]]+)\]$', field_name)
+                        addressing_fields.append(match.group(1) if match else field_name)
+                
+                partition_fields = []
+                for part in table_calc.findall('.//partitioning-field'):
+                    field_name = part.get('name', part.text or '')
+                    if field_name:
+                        match = re.search(r'\[([^\]]+)\]$', field_name)
+                        partition_fields.append(match.group(1) if match else field_name)
+                
+                if addressing_fields or partition_fields:
+                    calculation['table_calc_addressing'] = addressing_fields
+                    calculation['table_calc_partitioning'] = partition_fields
+                    calculation['table_calc_type'] = table_calc.get('type', '')
+                    calculation['table_calc_ordering'] = table_calc.get('ordering-type', '')
+            
             calculations.append(calculation)
     
     return calculations
@@ -600,9 +674,20 @@ def extract_relationships(datasource_elem):
     # --- New format: Object Model relationships (modern Tableau) ---
     for elem in datasource_elem.iter():
         if elem.tag and elem.tag.endswith('object-graph'):
+            # Build object-id → table caption map
+            obj_id_to_name = {}
+            for obj_elem in elem.findall('.//object'):
+                obj_id = obj_elem.get('id', '')
+                obj_caption = obj_elem.get('caption', '')
+                if obj_id and obj_caption:
+                    obj_id_to_name[obj_id] = obj_caption
+
             for rel_elem in elem.findall('.//relationship'):
+                # Try attribute-based expression (some formats)
                 expr = rel_elem.get('expression', '')
                 join_type = rel_elem.get('type', 'Left').lower()
+
+                # Method 1: expression attribute with [Table].[Column] format
                 matches = re.findall(r'\[([^\]]+)\]\.\[([^\]]+)\]', expr)
                 if len(matches) >= 2:
                     left_table, left_col = matches[0]
@@ -615,6 +700,55 @@ def extract_relationships(datasource_elem):
                             'left': {'table': left_table, 'column': left_col},
                             'right': {'table': right_table, 'column': right_col}
                         })
+                    continue
+
+                # Method 2: nested <expression> child elements + endpoint object-ids
+                expr_elem = rel_elem.find('expression')
+                if expr_elem is None:
+                    continue
+                col_ops = []
+                for sub_expr in expr_elem.findall('expression'):
+                    op = sub_expr.get('op', '')
+                    col_match = re.findall(r'\[([^\]]+)\]', op)
+                    if col_match:
+                        col_ops.append(col_match[0])
+                if len(col_ops) < 2:
+                    continue
+
+                # Resolve endpoint object-ids to table names
+                first_ep = rel_elem.find('first-end-point')
+                second_ep = rel_elem.find('second-end-point')
+                if first_ep is None or second_ep is None:
+                    continue
+                first_table = obj_id_to_name.get(first_ep.get('object-id', ''), '')
+                second_table = obj_id_to_name.get(second_ep.get('object-id', ''), '')
+                if not first_table or not second_table:
+                    continue
+
+                # Column names may have "(TableName)" suffix — strip it
+                left_col = col_ops[0]
+                right_col = col_ops[1]
+                # Strip " (TableName)" suffix if it matches the endpoint table
+                suffix_first = f' ({first_table})'
+                suffix_second = f' ({second_table})'
+                if left_col.endswith(suffix_first):
+                    left_col = left_col[:-len(suffix_first)]
+                if right_col.endswith(suffix_second):
+                    right_col = right_col[:-len(suffix_second)]
+                # Also strip the other table's suffix (in case of reversed naming)
+                if left_col.endswith(suffix_second):
+                    left_col = left_col[:-len(suffix_second)]
+                if right_col.endswith(suffix_first):
+                    right_col = right_col[:-len(suffix_first)]
+
+                key = (first_table, left_col, second_table, right_col)
+                if key not in seen:
+                    seen.add(key)
+                    relationships.append({
+                        'type': join_type,
+                        'left': {'table': first_table, 'column': left_col},
+                        'right': {'table': second_table, 'column': right_col}
+                    })
     
     return relationships
 
@@ -623,12 +757,12 @@ def extract_relationships(datasource_elem):
 # These functions were extracted for maintainability but are re-exported here
 # so that ALL existing imports remain valid (backward compatibility).
 
-from .dax_converter import (              # noqa: E402
+from dax_converter import (              # noqa: E402
     convert_tableau_formula_to_dax,
     map_tableau_to_powerbi_type,
 )
 
-from .m_query_builder import (            # noqa: E402
+from m_query_builder import (            # noqa: E402
     generate_power_query_m,
     map_tableau_to_m_type,
     inject_m_steps,

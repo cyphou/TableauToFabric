@@ -1,61 +1,7 @@
 # Tableau Properties → Power Query M Complete Reference
 
 Complete mapping of **every Tableau data source property** to its Power Query M equivalent.
-Power Query M is used in **Dataflow Gen2** artifacts for data ingestion into Lakehouse Delta tables.
 All connector conversions are implemented in `tableau_export/m_query_builder.py`.
-
-## M Query Generation Architecture
-
-```
-  ┌──────────────────────┐
-  │ Tableau Data Source   │
-  │ (XML <connection>)    │
-  └──────────┬───────────┘
-             │
-             v
-  ┌──────────────────────┐     ┌──────────────────────────────────────────┐
-  │ Identify Connector   │     │ 31 connector types:                      │
-  │ m_query_builder.py   ├────>│ SQL Server, PostgreSQL, Snowflake,       │
-  │                      │     │ BigQuery, Oracle, Excel, CSV, JSON, ...  │
-  └──────────┬───────────┘     └──────────────────────────────────────────┘
-             │
-             v
-  ┌──────────────────────┐     ┌──────────────────────────────────────────┐
-  │ Build Connection     │     │ Server, port, database, schema, table    │
-  │ Steps                ├────>│ Credentials handled by Fabric at runtime │
-  └──────────┬───────────┘     └──────────────────────────────────────────┘
-             │
-             v
-  ┌──────────────────────┐     ┌──────────────────────────────────────────┐
-  │ Apply Transforms     │     │ 40+ transformation generators:           │
-  │ (column types, calc  ├────>│ TransformColumnTypes, AddColumn,          │
-  │  columns, filters)   │     │ SelectRows, RenameColumns, ...           │
-  └──────────┬───────────┘     └──────────────────────────────────────────┘
-             │
-             v
-  ┌──────────────────────┐
-  │ Emit M Query         │
-  │                      │
-  │  let                 │
-  │    Source = ...,      │
-  │    Nav = ...,         │
-  │    #"Types" = ...,    │
-  │    #"Calc cols" = ... │
-  │  in                  │
-  │    #"Calc cols"      │
-  └──────────┬───────────┘
-             │
-             v
-  ┌──────────────────────────────────────────────────────────┐
-  │  Dataflow Gen2 Artifact                                  │
-  │  ├── dataflow_definition.json  (Lakehouse destination)   │
-  │  ├── mashup.pq                 (combined M document)     │
-  │  └── queries/*.m               (per-table M queries)     │
-  └──────────────────────────────────────────────────────────┘
-```
-
-> **Note:** In the Fabric architecture, Power Query M queries in Dataflow Gen2 ingest data into
-> Lakehouse Delta tables. The Semantic Model then uses **DirectLake** mode to read from those tables.
 
 > **Legend**  
 > ✅ Automatic — fully converted by the migration tool  
@@ -67,7 +13,7 @@ All connector conversions are implemented in `tableau_export/m_query_builder.py`
 
 ## 1. Data Source Connectors
 
-### Supported Connectors (25 types)
+### Supported Connectors (23 types)
 
 | # | Tableau Connection | Power Query M Function | Status | Notes |
 |---|-------------------|----------------------|--------|-------|
@@ -118,8 +64,8 @@ All connector conversions are implemented in `tableau_export/m_query_builder.py`
 | 12 | `directory` | Combined with filename for path | ✅ | |
 | 13 | `delimiter` (CSV) | `Delimiter` option | ✅ | |
 | 14 | `encoding` (CSV) | `Encoding` option (codepage) | ✅ | UTF-8 → 65001 |
-| 15 | `authentication` | Power Query credential prompt | ⚠️ | Fabric handles auth separately |
-| 16 | `ssl-mode` | Implicit in connector | ⚠️ | Handled by Fabric gateway |
+| 15 | `authentication` | Power Query credential prompt | ⚠️ | Power BI handles auth separately |
+| 16 | `ssl-mode` | Implicit in connector | ⚠️ | Handled by Power BI gateway |
 | 17 | `username` / `password` | Credential manager | ❌ | Never stored in M query |
 | 18 | `initial-sql` | `[Query="..."]` option | ✅ | Via Custom SQL connector |
 | 19 | `one-time-sql` | `[Query="..."]` option | ⚠️ | Merged with initial-sql |
@@ -128,8 +74,8 @@ All connector conversions are implemented in `tableau_export/m_query_builder.py`
 
 ## 3. Column / Field Properties
 
-| # | Tableau Property | Dataflow Gen2 / Semantic Model | Status | Notes |
-|---|-----------------|-------------------------------|--------|-------|
+| # | Tableau Property | Power Query / Semantic Model | Status | Notes |
+|---|-----------------|------------------------------|--------|-------|
 | 1 | Column `name` | M column name + TMDL column name | ✅ | Bracket escaping reversed |
 | 2 | Column `datatype` | M `Table.TransformColumnTypes()` | ✅ | Full type mapping (see §7) |
 | 3 | Column `role` (dimension/measure) | TMDL `summarizeBy` property | ✅ | |
@@ -145,8 +91,8 @@ All connector conversions are implemented in `tableau_export/m_query_builder.py`
 
 ## 4. Table Properties
 
-| # | Tableau Property | Dataflow Gen2 / Semantic Model | Status | Notes |
-|---|-----------------|-------------------------------|--------|-------|
+| # | Tableau Property | Power Query / Semantic Model | Status | Notes |
+|---|-----------------|------------------------------|--------|-------|
 | 1 | Table `name` | M query name + TMDL table name | ✅ | |
 | 2 | Table `connection_type` | M connector function | ✅ | See §1 |
 | 3 | Table `columns[]` | M type changes + TMDL columns | ✅ | |
@@ -171,11 +117,11 @@ All connector conversions are implemented in `tableau_export/m_query_builder.py`
 
 ## 6. Workbook / Report Properties
 
-| # | Tableau Property | Fabric Equivalent | Status | Notes |
+| # | Tableau Property | Power BI Equivalent | Status | Notes |
 |---|-----------------|-------------------|--------|-------|
 | 1 | Worksheet (viz) | PBIR visual page | ✅ | |
 | 2 | Dashboard | PBIR page with multiple visuals | ✅ | |
-| 3 | Story / story point | Bookmark | ✅ | |
+| 3 | Story / story point | Power BI bookmark | ✅ | |
 | 4 | Parameter | What-If parameter table | ✅ | GENERATESERIES / DATATABLE |
 | 5 | Set | Boolean calculated column | ✅ | IN expression |
 | 6 | Group | SWITCH calculated column | ✅ | |
@@ -194,7 +140,7 @@ All connector conversions are implemented in `tableau_export/m_query_builder.py`
 
 ## 7. Data Type Mapping
 
-### Tableau → Power Query M Types (Dataflow Gen2)
+### Tableau → Power Query M Types
 
 | Tableau Type | Power Query M Type | Status |
 |-------------|-------------------|--------|
@@ -226,23 +172,12 @@ All connector conversions are implemented in `tableau_export/m_query_builder.py`
 | `datetime` | `DateTime` | ✅ |
 | `number` | `Double` | ✅ |
 
-### Tableau → Lakehouse Delta Types
-
-| Tableau Type | Delta Lake Type | Status |
-|-------------|----------------|--------|
-| `string` | `STRING` | ✅ |
-| `integer` | `BIGINT` | ✅ |
-| `real` | `DOUBLE` | ✅ |
-| `boolean` | `BOOLEAN` | ✅ |
-| `date` | `DATE` | ✅ |
-| `datetime` | `TIMESTAMP` | ✅ |
-
 ---
 
 ## 8. Semantic Role / dataCategory Mapping
 
-| Tableau semantic-role | TMDL dataCategory | Status |
-|----------------------|-------------------|--------|
+| Tableau semantic-role | Power BI dataCategory | Status |
+|----------------------|----------------------|--------|
 | `[Country].[Name]` | `Country` | ✅ |
 | `[State].[Name]` | `StateOrProvince` | ✅ |
 | `[County].[Name]` | `County` | ✅ |
@@ -255,18 +190,18 @@ All connector conversions are implemented in `tableau_export/m_query_builder.py`
 
 ## 9. Extract / Data Refresh Properties
 
-| # | Tableau Property | Fabric Equivalent | Status | Notes |
+| # | Tableau Property | Power BI Equivalent | Status | Notes |
 |---|-----------------|-------------------|--------|-------|
-| 1 | Tableau Extract (.hyper) | Dataflow Gen2 → Lakehouse (Delta) | ⚠️ | Reconnect to original source |
-| 2 | Live connection | DirectLake mode | ⚠️ | Near-real-time via Delta tables |
-| 3 | Extract filter | Dataflow M filter / notebook filter | ⚠️ | Manual review recommended |
-| 4 | Incremental extract | Fabric incremental refresh policy | 🔧 | Manual setup in Fabric |
+| 1 | Tableau Extract (.hyper) | Power BI Import mode | ⚠️ | Reconnect to original source |
+| 2 | Live connection | DirectQuery mode | ⚠️ | Configure in Power BI Desktop |
+| 3 | Extract filter | Data source filter / M filter | ⚠️ | Manual review recommended |
+| 4 | Incremental extract | Incremental refresh policy | 🔧 | Manual setup in Power BI |
 
 ---
 
 ## 10. Power Query M Step Patterns
 
-The migration tool generates M queries in Dataflow Gen2 following this standard pattern:
+The migration tool generates M queries following this standard pattern:
 
 ```
 let
@@ -278,10 +213,7 @@ let
         {"Column2", Int64.Type},
         {"Column3", type datetime}
     }),
-    // Calculated column materialisation steps (if any)
-    #"Added CalcCol" = Table.AddColumn(#"Changed Types", "CalcCol",
-        each if [Status] = "Active" then "Yes" else "No", type text),
-    Result = #"Added CalcCol"
+    Result = #"Changed Types"
 in
     Result
 ```
@@ -297,7 +229,6 @@ in
 | Feature expansion | `Table.ExpandRecordColumn()` | GeoJSON features |
 | Geometry serialization | `Table.TransformColumns()` | GeoJSON with geometry |
 | Column rename | `Table.RenameColumns()` | GeoJSON geometry field |
-| Calculated column | `Table.AddColumn()` | Materialised calc columns |
 
 ---
 

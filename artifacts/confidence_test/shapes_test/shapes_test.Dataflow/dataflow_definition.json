@@ -1,0 +1,51 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/dataflow/definition/dataflowGen2/1.0.0/schema.json",
+  "properties": {
+    "displayName": "shapes_test_Dataflow",
+    "description": "Dataflow Gen2 generated from Tableau workbook: shapes_test",
+    "type": "DataflowGen2",
+    "created": "2026-03-05T10:47:32.628480"
+  },
+  "mashupDocument": "\nsection Section1;\n\nshared Orders = let\n    // Source Excel: /Users/mkorotchenkov/Documents/My Tableau Repository/Datasources/2021.2/en_US-US/Sample - Superstore.xls\n    Source = Excel.Workbook(File.Contents(DataFolder & \"\\\\Users\\mkorotchenkov\\Documents\\My Tableau Repository\\Datasources\\2021.2\\en_US-US\\Sample - Superstore.xls\"), null, true),\n    #\"Orders Sheet\" = Source{[Item=\"Orders\",Kind=\"Sheet\"]}[Data],\n    #\"Promoted Headers\" = Table.PromoteHeaders(#\"Orders Sheet\", [PromoteAllScalars=true]),\n    #\"Changed Types\" = Table.TransformColumnTypes(#\"Promoted Headers\", {\n        {\"Row ID\", Int64.Type},\n        {\"Order ID\", type text},\n        {\"Order Date\", type date},\n        {\"Ship Date\", type date},\n        {\"Ship Mode\", type text},\n        {\"Customer ID\", type text},\n        {\"Customer Name\", type text},\n        {\"Segment\", type text},\n        {\"Country/Region\", type text},\n        {\"City\", type text},\n        {\"State\", type text},\n        {\"Postal Code\", Int64.Type},\n        {\"Region\", type text},\n        {\"Product ID\", type text},\n        {\"Category\", type text},\n        {\"Sub-Category\", type text},\n        {\"Product Name\", type text},\n        {\"Sales\", type number},\n        {\"Quantity\", Int64.Type},\n        {\"Discount\", type number},\n        {\"Profit\", type number}\n    }),\n    Result = #\"Changed Types\"\n,\n    CalcCol_profit_bin = Table.AddColumn(Result, \"Profit (bin)\", each [Profit])\nin\n    CalcCol_profit_bin;\n\nshared People = let\n    // Source Excel: /Users/mkorotchenkov/Documents/My Tableau Repository/Datasources/2021.2/en_US-US/Sample - Superstore.xls\n    Source = Excel.Workbook(File.Contents(DataFolder & \"\\\\Users\\mkorotchenkov\\Documents\\My Tableau Repository\\Datasources\\2021.2\\en_US-US\\Sample - Superstore.xls\"), null, true),\n    #\"People Sheet\" = Source{[Item=\"People\",Kind=\"Sheet\"]}[Data],\n    #\"Promoted Headers\" = Table.PromoteHeaders(#\"People Sheet\", [PromoteAllScalars=true]),\n    #\"Changed Types\" = Table.TransformColumnTypes(#\"Promoted Headers\", {\n        {\"Regional Manager\", type text},\n        {\"Region\", type text}\n    }),\n    Result = #\"Changed Types\"\nin\n    Result;\n\nshared Returns = let\n    // Source Excel: /Users/mkorotchenkov/Documents/My Tableau Repository/Datasources/2021.2/en_US-US/Sample - Superstore.xls\n    Source = Excel.Workbook(File.Contents(DataFolder & \"\\\\Users\\mkorotchenkov\\Documents\\My Tableau Repository\\Datasources\\2021.2\\en_US-US\\Sample - Superstore.xls\"), null, true),\n    #\"Returns Sheet\" = Source{[Item=\"Returns\",Kind=\"Sheet\"]}[Data],\n    #\"Promoted Headers\" = Table.PromoteHeaders(#\"Returns Sheet\", [PromoteAllScalars=true]),\n    #\"Changed Types\" = Table.TransformColumnTypes(#\"Promoted Headers\", {\n        {\"Returned\", type text},\n        {\"Order ID\", type text}\n    }),\n    Result = #\"Changed Types\"\nin\n    Result;",
+  "queries": [
+    {
+      "name": "Orders",
+      "description": "Ingests data from Orders + 1 calculated column(s)",
+      "queryId": "orders",
+      "resultType": "Table",
+      "loadEnabled": true,
+      "destination": {
+        "type": "Lakehouse",
+        "tableName": "orders",
+        "updateMethod": "Replace",
+        "schemaMapping": "Auto"
+      }
+    },
+    {
+      "name": "People",
+      "description": "Ingests data from People",
+      "queryId": "people",
+      "resultType": "Table",
+      "loadEnabled": true,
+      "destination": {
+        "type": "Lakehouse",
+        "tableName": "people",
+        "updateMethod": "Replace",
+        "schemaMapping": "Auto"
+      }
+    },
+    {
+      "name": "Returns",
+      "description": "Ingests data from Returns",
+      "queryId": "returns",
+      "resultType": "Table",
+      "loadEnabled": true,
+      "destination": {
+        "type": "Lakehouse",
+        "tableName": "returns",
+        "updateMethod": "Replace",
+        "schemaMapping": "Auto"
+      }
+    }
+  ]
+}

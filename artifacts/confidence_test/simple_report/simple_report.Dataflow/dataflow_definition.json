@@ -1,0 +1,25 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/dataflow/definition/dataflowGen2/1.0.0/schema.json",
+  "properties": {
+    "displayName": "simple_report_Dataflow",
+    "description": "Dataflow Gen2 generated from Tableau workbook: simple_report",
+    "type": "DataflowGen2",
+    "created": "2026-03-05T10:47:43.606372"
+  },
+  "mashupDocument": "\nsection Section1;\n\nshared Sales = let\n    // Source SQL Server\n    Source = Sql.Database(\"sql-prod-01.contoso.com\", \"SalesDB\"),\n    #\"Sales Table\" = Source{[Schema=\"dbo\", Item=\"Sales\"]}[Data],\n    Result = #\"Sales Table\"\nin\n    Result;",
+  "queries": [
+    {
+      "name": "Sales",
+      "description": "Ingests data from Sales",
+      "queryId": "sales",
+      "resultType": "Table",
+      "loadEnabled": true,
+      "destination": {
+        "type": "Lakehouse",
+        "tableName": "sales",
+        "updateMethod": "Replace",
+        "schemaMapping": "Auto"
+      }
+    }
+  ]
+}

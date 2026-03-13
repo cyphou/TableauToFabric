@@ -1,0 +1,67 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/lakehouse/definition/lakehouse/1.0.0/schema.json",
+  "properties": {
+    "displayName": "simple_report_Lakehouse",
+    "description": "Lakehouse generated from Tableau workbook: simple_report",
+    "created": "2026-03-05T10:47:43.587306",
+    "defaultSchema": "dbo"
+  },
+  "tables": [
+    {
+      "name": "sales",
+      "original_name": "Sales",
+      "columns": [
+        {
+          "name": "SaleID",
+          "datatype": "INT",
+          "nullable": true,
+          "original_name": "SaleID",
+          "original_type": "integer"
+        },
+        {
+          "name": "Category",
+          "datatype": "STRING",
+          "nullable": true,
+          "original_name": "Category",
+          "original_type": "string"
+        },
+        {
+          "name": "Product",
+          "datatype": "STRING",
+          "nullable": true,
+          "original_name": "Product",
+          "original_type": "string"
+        },
+        {
+          "name": "Amount",
+          "datatype": "DOUBLE",
+          "nullable": true,
+          "original_name": "Amount",
+          "original_type": "real"
+        },
+        {
+          "name": "Quantity",
+          "datatype": "INT",
+          "nullable": true,
+          "original_name": "Quantity",
+          "original_type": "integer"
+        },
+        {
+          "name": "SaleDate",
+          "datatype": "DATE",
+          "nullable": true,
+          "original_name": "SaleDate",
+          "original_type": "date"
+        }
+      ],
+      "source_type": "SQL Server",
+      "source_connection": {
+        "server": "sql-prod-01.contoso.com",
+        "database": "SalesDB",
+        "authentication": "sspi",
+        "username": ""
+      },
+      "format": "delta"
+    }
+  ]
+}

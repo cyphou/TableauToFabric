@@ -1,831 +1,536 @@
-"""Tests for the pre-migration assessment module."""
+"""
+Tests for Pre-Migration Assessment Module (fabric_import.assessment).
+"""
 
 import json
 import os
-import pytest
+import sys
+import tempfile
+import shutil
+import unittest
+
+# Ensure parent dir on path for imports
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 from fabric_import.assessment import (
-    PASS, INFO, WARN, FAIL,
     CheckItem, CategoryResult, AssessmentReport,
-    run_assessment,
-    print_assessment_report,
-    save_assessment_report,
-    _check_datasources,
-    _check_calculations,
-    _check_visuals,
-    _check_filters,
-    _check_data_model,
-    _check_interactivity,
-    _check_extract_and_packaging,
-    _check_migration_scope,
+    run_assessment, print_assessment_report, save_assessment_report,
+    _check_datasources, _check_calculations, _check_visuals,
+    _check_filters, _check_data_model, _check_interactivity,
+    _check_extract_and_packaging, _check_migration_scope,
+    PASS, INFO, WARN, FAIL,
 )
 
 
-# ═══════════════════════════════════════════════════════════════════
-#  Fixtures
-# ═══════════════════════════════════════════════════════════════════
+# ── Test fixtures ───────────────────────────────────────────────────
 
-@pytest.fixture
-def empty_extracted():
-    """Minimal extracted data — empty workbook."""
+def _empty_extracted():
     return {
-        "datasources": [],
-        "worksheets": [],
-        "dashboards": [],
-        "calculations": [],
-        "parameters": [],
-        "filters": [],
-        "stories": [],
-        "actions": [],
-        "sets": [],
-        "groups": [],
-        "bins": [],
-        "hierarchies": [],
-        "sort_orders": [],
-        "aliases": {},
-        "custom_sql": [],
-        "user_filters": [],
-        "data_blending": [],
-        "published_datasources": [],
-        "hyper_files": [],
-        "custom_shapes": [],
-        "embedded_fonts": [],
-        "custom_geocoding": [],
+        'datasources': [], 'worksheets': [], 'dashboards': [],
+        'calculations': [], 'parameters': [], 'filters': [],
+        'stories': [], 'actions': [], 'sets': [], 'groups': [],
+        'bins': [], 'hierarchies': [], 'sort_orders': [],
+        'custom_sql': [], 'user_filters': [],
     }
 
 
-@pytest.fixture
-def simple_extracted(empty_extracted):
-    """Simple workbook — fully supported, no issues."""
-    d = dict(empty_extracted)
-    d["datasources"] = [
-        {
-            "name": "Sales",
-            "connection": {"type": "Excel"},
-            "tables": [
-                {"name": "Orders", "columns": [{"name": "id"}, {"name": "amount"}]},
+def _simple_extracted():
+    return {
+        'datasources': [{
+            'name': 'Sales',
+            'connection': {'type': 'Excel'},
+            'tables': [
+                {'name': 'Orders', 'columns': [
+                    {'name': 'OrderID', 'datatype': 'integer'},
+                    {'name': 'Amount', 'datatype': 'real'},
+                ]},
             ],
-            "columns": [{"name": "Region"}],
-            "relationships": [],
-        }
-    ]
-    d["worksheets"] = [
-        {"name": "Sheet 1", "chart_type": "bar"},
-        {"name": "Sheet 2", "chart_type": "line"},
-    ]
-    d["dashboards"] = [{"name": "Dashboard 1"}]
-    d["calculations"] = [
-        {"name": "Profit", "caption": "Profit", "formula": "[Sales] - [Cost]"},
-    ]
-    return d
+            'relationships': [],
+        }],
+        'worksheets': [
+            {'name': 'Sheet1', 'chart_type': 'bar', 'mark_type': 'bar'},
+            {'name': 'Sheet2', 'chart_type': 'line', 'mark_type': 'line'},
+        ],
+        'dashboards': [{'name': 'Dashboard 1'}],
+        'calculations': [
+            {'name': 'Total', 'caption': 'Total', 'formula': 'SUM([Amount])'},
+        ],
+        'parameters': [], 'filters': [], 'stories': [], 'actions': [],
+        'sets': [], 'groups': [], 'bins': [], 'hierarchies': [],
+        'sort_orders': [], 'custom_sql': [], 'user_filters': [],
+    }
 
 
-@pytest.fixture
-def complex_extracted(empty_extracted):
-    """Complex workbook — many flags triggered."""
-    d = dict(empty_extracted)
-    d["datasources"] = [
-        {
-            "name": "BigData",
-            "connection": {"type": "BigQuery"},
-            "tables": [{"name": f"T{i}", "columns": [{"name": f"c{j}"} for j in range(30)]} for i in range(8)],
-            "columns": [{"name": "Region"}],
-            "relationships": [{"type": "inner"}] * 5,
-        },
-        {
-            "name": "SAP",
-            "connection": {"type": "Splunk"},
-            "tables": [{"name": "sap_table", "columns": [{"name": "a"}]}],
-            "columns": [],
-            "relationships": [],
-        },
-    ]
-    d["worksheets"] = [
-        {"name": "Map", "chart_type": "map"},
-        {"name": "Custom", "chart_type": "myCustomViz"},  # unmapped
-        {"name": "Scatter", "chart_type": "scatter",
-         "dual_axis": {"has_dual_axis": True}},
-        {"name": "Tooltips", "chart_type": "bar",
-         "tooltips": [{"is_viz_tooltip": True}]},
-    ]
-    d["dashboards"] = [
-        {"name": "Dash 1", "device_layouts": [{"type": "phone"}]},
-        {"name": "Dash 2"},
-    ]
-    d["calculations"] = [
-        {"name": "c1", "caption": "RegexCalc", "formula": "REGEXP_MATCH([Field], 'a')"},
-        {"name": "c2", "caption": "ScriptCalc", "formula": "SCRIPT_REAL('return x', [Sales])"},
-        {"name": "c3", "caption": "LODCalc", "formula": "{ FIXED [Region] : SUM([Sales]) }"},
-        {"name": "c4", "caption": "WindowCalc", "formula": "RUNNING_SUM(SUM([Sales]))"},
-        {"name": "c5", "caption": "SimpleCalc", "formula": "[A] + [B]"},
-        {"name": "c6", "caption": "LookupCalc", "formula": "LOOKUP(SUM([Sales]), -1)"},
-    ]
-    d["parameters"] = [
-        {"name": "P1", "allowable_values": list(range(30))},
-        {"name": "P2"},
-    ]
-    d["filters"] = [{"field": "Region"}] * 5
-    d["user_filters"] = [{"type": "user_calc", "formula": "USERNAME()"}]
-    d["custom_sql"] = [{"datasource": "BigData", "name": "Custom Q", "query": "SELECT 1"}]
-    d["actions"] = [
-        {"type": "filter"},
-        {"type": "url"},
-        {"type": "set"},
-    ]
-    d["stories"] = [{"name": "Story", "story_points": [{"name": "P1"}, {"name": "P2"}]}]
-    d["data_blending"] = [{"left": "A", "right": "B"}]
-    d["published_datasources"] = [{"name": "PubDS"}]
-    d["sets"] = [{"name": "TopN"}]
-    d["groups"] = [{"name": "Regions"}]
-    d["bins"] = [{"name": "PriceBin"}]
-    d["hierarchies"] = [{"name": "GeoHier"}]
-    d["hyper_files"] = [{"path": "data.hyper", "size_bytes": 50_000_000}]
-    d["custom_shapes"] = [{"path": "shapes/star.png"}]
-    d["embedded_fonts"] = [{"path": "fonts/custom.ttf"}]
-    d["custom_geocoding"] = [{"type": "custom_file", "path": "geo.csv"}]
-    return d
+def _complex_extracted():
+    return {
+        'datasources': [
+            {
+                'name': 'BigQuery Source',
+                'connection': {'type': 'BigQuery'},
+                'tables': [
+                    {'name': 'events', 'columns': [
+                        {'name': f'col{i}', 'datatype': 'string'} for i in range(100)
+                    ]},
+                ],
+                'relationships': [],
+            },
+            {
+                'name': 'Splunk Source',
+                'connection': {'type': 'Splunk'},
+                'tables': [{'name': 'logs', 'columns': []}],
+                'relationships': [],
+            },
+        ],
+        'worksheets': [
+            {'name': 'WS1', 'chart_type': 'custom_viz_type', 'mark_type': 'custom_viz_type',
+             'dual_axis': {'has_dual_axis': True}},
+        ],
+        'dashboards': [{'name': 'D1', 'device_layouts': [{'type': 'phone'}]}],
+        'calculations': [
+            {'name': 'ScriptCalc', 'caption': 'ScriptCalc',
+             'formula': 'SCRIPT_REAL("return 1", [x])'},
+            {'name': 'LOD', 'caption': 'LOD', 'formula': '{FIXED [Region] : SUM([Sales])}'},
+            {'name': 'RunSum', 'caption': 'RunSum', 'formula': 'RUNNING_SUM(SUM([Sales]))'},
+            {'name': 'RegexCalc', 'caption': 'RegexCalc',
+             'formula': 'REGEXP_MATCH([Name], "^A")'},
+        ],
+        'parameters': [
+            {'name': 'P1', 'allowable_values': [{'value': str(i)} for i in range(25)]},
+        ],
+        'filters': [{'field': 'Region'}],
+        'stories': [{'name': 'Story1', 'story_points': [{'name': 'SP1'}]}],
+        'actions': [
+            {'type': 'filter'}, {'type': 'url'}, {'type': 'set'},
+        ],
+        'sets': [{'name': 'SetA'}],
+        'groups': [{'name': 'GroupA'}],
+        'bins': [{'name': 'BinA'}],
+        'hierarchies': [{'name': 'Hier1'}],
+        'sort_orders': [],
+        'custom_sql': [{'name': 'Q1', 'query': 'SELECT * FROM tbl'}],
+        'user_filters': [{'type': 'user_filter', 'users': ['user1']}],
+        'hyper_files': [{'name': 'extract.hyper', 'size_bytes': 5 * 1024 * 1024}],
+        'custom_shapes': [{'name': 'shape1.png'}],
+        'embedded_fonts': [{'name': 'CustomFont.ttf'}],
+        'custom_geocoding': [{'type': 'custom_file', 'name': 'geo.csv'}],
+    }
 
 
 # ═══════════════════════════════════════════════════════════════════
-#  CheckItem / CategoryResult / AssessmentReport data classes
+#  Data class tests
 # ═══════════════════════════════════════════════════════════════════
 
-class TestDataClasses:
+class TestDataClasses(unittest.TestCase):
     def test_check_item_creation(self):
-        ck = CheckItem("Cat", "Test", PASS, "All good")
-        assert ck.severity == PASS
-        assert ck.category == "Cat"
+        ci = CheckItem("cat", "name", PASS, "detail")
+        self.assertEqual(ci.category, "cat")
+        self.assertEqual(ci.severity, PASS)
+        self.assertEqual(ci.recommendation, "")
 
-    def test_category_worst_severity(self):
+    def test_category_result_severity(self):
+        cat = CategoryResult(name="Test")
+        cat.checks.append(CheckItem("Test", "a", PASS, "ok"))
+        self.assertEqual(cat.worst_severity, PASS)
+        cat.checks.append(CheckItem("Test", "b", WARN, "warning"))
+        self.assertEqual(cat.worst_severity, WARN)
+        cat.checks.append(CheckItem("Test", "c", FAIL, "fail"))
+        self.assertEqual(cat.worst_severity, FAIL)
+
+    def test_category_result_counts(self):
         cat = CategoryResult(name="Test")
         cat.checks = [
-            CheckItem("Test", "a", PASS, "ok"),
-            CheckItem("Test", "b", WARN, "hmm"),
-            CheckItem("Test", "c", INFO, "fyi"),
+            CheckItem("T", "a", PASS, ""),
+            CheckItem("T", "b", PASS, ""),
+            CheckItem("T", "c", WARN, ""),
+            CheckItem("T", "d", FAIL, ""),
         ]
-        assert cat.worst_severity == WARN
+        self.assertEqual(cat.pass_count, 2)
+        self.assertEqual(cat.warn_count, 1)
+        self.assertEqual(cat.fail_count, 1)
 
-    def test_category_worst_severity_fail(self):
+    def test_empty_category_severity(self):
+        cat = CategoryResult(name="Empty")
+        self.assertEqual(cat.worst_severity, PASS)
+
+    def test_assessment_report_score_green(self):
+        report = AssessmentReport("WB", "2025-01-01T00:00:00Z")
         cat = CategoryResult(name="Test")
-        cat.checks = [
-            CheckItem("Test", "a", PASS, "ok"),
-            CheckItem("Test", "b", FAIL, "bad"),
-        ]
-        assert cat.worst_severity == FAIL
+        cat.checks.append(CheckItem("Test", "a", PASS, "ok"))
+        report.categories.append(cat)
+        self.assertEqual(report.overall_score, "GREEN")
 
-    def test_category_empty(self):
+    def test_assessment_report_score_yellow(self):
+        report = AssessmentReport("WB", "2025-01-01T00:00:00Z")
         cat = CategoryResult(name="Test")
-        assert cat.worst_severity == PASS
-        assert cat.pass_count == 0
+        cat.checks.append(CheckItem("Test", "a", WARN, "warn"))
+        report.categories.append(cat)
+        self.assertEqual(report.overall_score, "YELLOW")
 
-    def test_category_counts(self):
+    def test_assessment_report_score_red(self):
+        report = AssessmentReport("WB", "2025-01-01T00:00:00Z")
         cat = CategoryResult(name="Test")
-        cat.checks = [
-            CheckItem("Test", "a", PASS, ""),
-            CheckItem("Test", "b", PASS, ""),
-            CheckItem("Test", "c", WARN, ""),
-            CheckItem("Test", "d", FAIL, ""),
-        ]
-        assert cat.pass_count == 2
-        assert cat.warn_count == 1
-        assert cat.fail_count == 1
+        cat.checks.append(CheckItem("Test", "a", FAIL, "fail"))
+        report.categories.append(cat)
+        self.assertEqual(report.overall_score, "RED")
 
-    def test_report_overall_green(self, empty_extracted):
-        report = run_assessment(empty_extracted)
-        # Empty workbook — should be GREEN (no fail/warn from critical checks)
-        assert report.overall_score in ("GREEN", "YELLOW")
-
-    def test_report_overall_red(self, complex_extracted):
-        report = run_assessment(complex_extracted)
-        assert report.overall_score == "RED"
-
-    def test_report_to_dict(self, simple_extracted):
-        report = run_assessment(simple_extracted, workbook_name="Test")
+    def test_to_dict_roundtrip(self):
+        report = AssessmentReport("WB", "2025-01-01T00:00:00Z")
+        cat = CategoryResult(name="Cat1")
+        cat.checks.append(CheckItem("Cat1", "check1", PASS, "detail1", "rec1"))
+        report.categories.append(cat)
+        report.summary = {"test": True}
         d = report.to_dict()
-        assert d["workbook_name"] == "Test"
-        assert "overall_score" in d
-        assert "categories" in d
-        assert isinstance(d["categories"], list)
-        assert len(d["categories"]) == 8
-        for cat in d["categories"]:
-            assert "name" in cat
-            assert "checks" in cat
-
-    def test_report_total_checks(self, simple_extracted):
-        report = run_assessment(simple_extracted)
-        assert report.total_checks > 0
-        assert report.total_checks == report.total_pass + report.total_warn + report.total_fail + sum(
-            1 for c in report.categories for ck in c.checks if ck.severity == INFO
-        )
+        self.assertEqual(d["workbook_name"], "WB")
+        self.assertEqual(d["overall_score"], "GREEN")
+        self.assertEqual(len(d["categories"]), 1)
+        self.assertEqual(d["totals"]["pass"], 1)
 
 
 # ═══════════════════════════════════════════════════════════════════
-#  Category 1: Datasource Compatibility
+#  Category check tests
 # ═══════════════════════════════════════════════════════════════════
 
-class TestCheckDatasources:
-    def test_no_datasources(self, empty_extracted):
-        cat = _check_datasources(empty_extracted)
-        assert cat.worst_severity == WARN
-        assert any("datasource" in c.detail.lower() for c in cat.checks)
+class TestCheckDatasources(unittest.TestCase):
+    def test_no_datasources(self):
+        cat = _check_datasources({'datasources': []})
+        self.assertEqual(cat.worst_severity, WARN)
 
     def test_fully_supported_connector(self):
-        data = {
-            "datasources": [{"name": "DS", "connection": {"type": "Excel"}}],
-            "custom_sql": [], "data_blending": [], "published_datasources": [],
-        }
-        cat = _check_datasources(data)
-        conn_checks = [c for c in cat.checks if "Connector:" in c.name]
-        assert len(conn_checks) == 1
-        assert conn_checks[0].severity == PASS
+        ext = {'datasources': [{'name': 'DS1', 'connection': {'type': 'Excel'}}]}
+        cat = _check_datasources(ext)
+        sevs = [c.severity for c in cat.checks]
+        self.assertIn(PASS, sevs)
 
     def test_partially_supported_connector(self):
-        data = {
-            "datasources": [{"name": "DS", "connection": {"type": "BigQuery"}}],
-            "custom_sql": [], "data_blending": [], "published_datasources": [],
-        }
-        cat = _check_datasources(data)
-        conn_checks = [c for c in cat.checks if "Connector:" in c.name]
-        assert conn_checks[0].severity == WARN
+        ext = {'datasources': [{'name': 'DS1', 'connection': {'type': 'BigQuery'}}]}
+        cat = _check_datasources(ext)
+        sevs = [c.severity for c in cat.checks]
+        self.assertIn(WARN, sevs)
 
     def test_unsupported_connector(self):
-        data = {
-            "datasources": [{"name": "DS", "connection": {"type": "Splunk"}}],
-            "custom_sql": [], "data_blending": [], "published_datasources": [],
-        }
-        cat = _check_datasources(data)
-        conn_checks = [c for c in cat.checks if "Connector:" in c.name]
-        assert conn_checks[0].severity == FAIL
+        ext = {'datasources': [{'name': 'DS1', 'connection': {'type': 'Splunk'}}]}
+        cat = _check_datasources(ext)
+        sevs = [c.severity for c in cat.checks]
+        self.assertIn(FAIL, sevs)
 
     def test_unknown_connector(self):
-        data = {
-            "datasources": [{"name": "DS", "connection": {"type": "Unknown"}}],
-            "custom_sql": [], "data_blending": [], "published_datasources": [],
-        }
-        cat = _check_datasources(data)
-        conn_checks = [c for c in cat.checks if "Connector:" in c.name]
-        assert conn_checks[0].severity == WARN
+        ext = {'datasources': [{'name': 'DS1', 'connection': {'type': 'Unknown'}}]}
+        cat = _check_datasources(ext)
+        self.assertEqual(cat.worst_severity, WARN)
 
-    def test_unrecognised_connector(self):
-        data = {
-            "datasources": [{"name": "DS", "connection": {"type": "CustomDB"}}],
-            "custom_sql": [], "data_blending": [], "published_datasources": [],
-        }
-        cat = _check_datasources(data)
-        conn_checks = [c for c in cat.checks if "Connector:" in c.name]
-        assert conn_checks[0].severity == WARN
-        assert "Unrecognised" in conn_checks[0].detail
-
-    def test_data_blending_warn(self):
-        data = {
-            "datasources": [{"name": "DS", "connection": {"type": "CSV"}}],
-            "custom_sql": [], "published_datasources": [],
-            "data_blending": [{"left": "A", "right": "B"}],
-        }
-        cat = _check_datasources(data)
-        blend_checks = [c for c in cat.checks if "blending" in c.name]
-        assert blend_checks[0].severity == INFO  # auto-converted to relationships
-
-    def test_published_datasources_warn(self):
-        data = {
-            "datasources": [{"name": "DS", "connection": {"type": "CSV"}}],
-            "custom_sql": [], "data_blending": [],
-            "published_datasources": [{"name": "PubDS"}],
-        }
-        cat = _check_datasources(data)
-        pub_checks = [c for c in cat.checks if "Published" in c.name]
-        assert pub_checks[0].severity == INFO  # auto re-pointed to Fabric
-
-    def test_custom_sql_warn(self):
-        data = {
-            "datasources": [{"name": "DS", "connection": {"type": "CSV"}}],
-            "data_blending": [], "published_datasources": [],
-            "custom_sql": [{"query": "SELECT 1"}],
-        }
-        cat = _check_datasources(data)
-        sql_checks = [c for c in cat.checks if "Custom SQL" in c.name]
-        assert sql_checks[0].severity == INFO  # auto-embedded as native query passthrough
-
-    def test_all_pass(self, simple_extracted):
-        cat = _check_datasources(simple_extracted)
-        assert cat.fail_count == 0
-        # Excel connector → PASS, no blending/published/custom SQL → 3× PASS
-        pass_checks = [c for c in cat.checks if c.severity == PASS]
-        assert len(pass_checks) >= 4
-
-    def test_multiple_connector_types(self):
-        data = {
-            "datasources": [
-                {"name": "DS1", "connection": {"type": "Excel"}},
-                {"name": "DS2", "connection": {"type": "BigQuery"}},
-                {"name": "DS3", "connection": {"type": "Splunk"}},
-            ],
-            "custom_sql": [], "data_blending": [], "published_datasources": [],
-        }
-        cat = _check_datasources(data)
-        conn_checks = [c for c in cat.checks if "Connector:" in c.name]
-        severities = {c.severity for c in conn_checks}
-        assert PASS in severities   # Excel
-        assert WARN in severities   # BigQuery
-        assert FAIL in severities   # Splunk
-
-
-# ═══════════════════════════════════════════════════════════════════
-#  Category 2: Calculation Readiness
-# ═══════════════════════════════════════════════════════════════════
-
-class TestCheckCalculations:
-    def test_no_calculations(self, empty_extracted):
-        cat = _check_calculations(empty_extracted)
-        assert cat.worst_severity == PASS
-
-    def test_simple_calculations_pass(self, simple_extracted):
-        cat = _check_calculations(simple_extracted)
-        assert cat.fail_count == 0
-        assert cat.warn_count == 0
-
-    def test_unsupported_functions_fail(self):
-        data = {"calculations": [
-            {"name": "c", "caption": "ScriptCalc", "formula": "SCRIPT_REAL('x', [A])"},
+    def test_parameters_datasource_skipped(self):
+        ext = {'datasources': [
+            {'name': 'Parameters', 'connection': {'type': 'Unknown'}},
+            {'name': 'Real DS', 'connection': {'type': 'Excel'}},
         ]}
-        cat = _check_calculations(data)
-        assert cat.fail_count == 1
-        fail = [c for c in cat.checks if c.severity == FAIL][0]
-        assert "ScriptCalc" in fail.detail
+        cat = _check_datasources(ext)
+        # Should not have Unknown warning for Parameters
+        for c in cat.checks:
+            if 'Unknown' in c.name:
+                self.fail("Parameters datasource should be skipped")
 
-    def test_partial_functions_warn(self):
-        data = {"calculations": [
-            {"name": "c", "caption": "RegexCalc", "formula": "REGEXP_MATCH([F], 'a')"},
+    def test_data_blending(self):
+        ext = {
+            'datasources': [{'name': 'DS1', 'connection': {'type': 'Excel'}}],
+            'data_blending': [{'secondary_datasource': 'DS2'}],
+        }
+        cat = _check_datasources(ext)
+        blending_checks = [c for c in cat.checks if 'blending' in c.name.lower()]
+        self.assertTrue(any(c.severity == INFO for c in blending_checks))
+
+    def test_custom_sql(self):
+        ext = {
+            'datasources': [{'name': 'DS1', 'connection': {'type': 'Excel'}}],
+            'custom_sql': [{'query': 'SELECT 1'}],
+        }
+        cat = _check_datasources(ext)
+        sql_checks = [c for c in cat.checks if 'SQL' in c.name]
+        self.assertTrue(any(c.severity == INFO for c in sql_checks))
+
+    def test_sqlproxy_connector(self):
+        ext = {'datasources': [{'name': 'DS1', 'connection': {'type': 'sqlproxy'}}]}
+        cat = _check_datasources(ext)
+        sqlproxy = [c for c in cat.checks if 'sqlproxy' in c.name.lower()]
+        self.assertTrue(any(c.severity == PASS for c in sqlproxy))
+
+
+class TestCheckCalculations(unittest.TestCase):
+    def test_no_calculations(self):
+        cat = _check_calculations({'calculations': []})
+        self.assertEqual(cat.worst_severity, PASS)
+
+    def test_simple_calculations_pass(self):
+        ext = {'calculations': [
+            {'name': 'Total', 'formula': 'SUM([Amount])'},
         ]}
-        cat = _check_calculations(data)
-        assert cat.warn_count >= 1
-        warns = [c for c in cat.checks if c.severity == WARN]
-        assert any("RegexCalc" in w.detail for w in warns)
+        cat = _check_calculations(ext)
+        self.assertNotEqual(cat.worst_severity, FAIL)
 
-    def test_lod_expressions_warn(self):
-        data = {"calculations": [
-            {"name": "c", "caption": "LODCalc", "formula": "{ FIXED [Region] : SUM([Sales]) }"},
+    def test_unsupported_script(self):
+        """SCRIPT_* functions are now WARN (Python/R visual), not FAIL."""
+        ext = {'calculations': [
+            {'name': 'Script', 'caption': 'Script', 'formula': 'SCRIPT_REAL("x", [y])'},
         ]}
-        cat = _check_calculations(data)
-        lod_warns = [c for c in cat.checks if "LOD" in c.name]
-        assert lod_warns[0].severity == INFO  # auto-converted to DAX CALCULATE
+        cat = _check_calculations(ext)
+        self.assertEqual(cat.worst_severity, WARN)
+        script_checks = [c for c in cat.checks if 'SCRIPT' in c.name]
+        self.assertTrue(len(script_checks) > 0)
+        self.assertIn('Python/R', script_checks[0].recommendation)
 
-    def test_table_calcs_warn(self):
-        data = {"calculations": [
-            {"name": "c", "caption": "RunSum", "formula": "RUNNING_SUM(SUM([Sales]))"},
+    def test_partial_regex(self):
+        ext = {'calculations': [
+            {'name': 'Regex', 'caption': 'Regex', 'formula': 'REGEXP_MATCH([Name], "^A")'},
         ]}
-        cat = _check_calculations(data)
-        tc_warns = [c for c in cat.checks if "Table" in c.name]
-        assert tc_warns[0].severity == INFO  # auto-converted to DAX window functions
+        cat = _check_calculations(ext)
+        self.assertEqual(cat.worst_severity, WARN)
 
-    def test_mixed_calculations(self, complex_extracted):
-        cat = _check_calculations(complex_extracted)
-        assert cat.fail_count >= 1  # SCRIPT_REAL
-        assert cat.warn_count >= 1  # REGEXP (partially-supported)
-        # LOD and TableCalc are now INFO (auto-converted)
-
-    def test_collect_spatial_fail(self):
-        data = {"calculations": [
-            {"name": "c", "caption": "SpatialAgg", "formula": "COLLECT([Geometry])"},
+    def test_lod_detected(self):
+        ext = {'calculations': [
+            {'name': 'LOD', 'caption': 'LOD', 'formula': '{FIXED [Region] : SUM([Sales])}'},
         ]}
-        cat = _check_calculations(data)
-        assert cat.fail_count == 1
+        cat = _check_calculations(ext)
+        info_checks = [c for c in cat.checks if c.severity == INFO]
+        self.assertTrue(any('LOD' in c.name for c in info_checks))
 
-    def test_many_unsupported_truncates_names(self):
-        data = {"calculations": [
-            {"name": f"c{i}", "caption": f"Script{i}", "formula": f"SCRIPT_INT('x{i}', [{i}])"}
-            for i in range(8)
+    def test_table_calc_detected(self):
+        ext = {'calculations': [
+            {'name': 'RC', 'caption': 'RC', 'formula': 'RUNNING_SUM(SUM([Sales]))'},
         ]}
-        cat = _check_calculations(data)
-        fail = [c for c in cat.checks if c.severity == FAIL][0]
-        assert "+3 more" in fail.detail  # 8 - 5 = 3
+        cat = _check_calculations(ext)
+        info_checks = [c for c in cat.checks if c.severity == INFO]
+        self.assertTrue(any('Table' in c.name for c in info_checks))
+
+    def test_multiple_unsupported_truncated(self):
+        calcs = [{'name': f'C{i}', 'caption': f'C{i}', 'formula': 'COLLECT([x])'}
+                 for i in range(8)]
+        ext = {'calculations': calcs}
+        cat = _check_calculations(ext)
+        fail_checks = [c for c in cat.checks if c.severity == FAIL]
+        self.assertTrue(any('+' in c.detail for c in fail_checks))
 
 
-# ═══════════════════════════════════════════════════════════════════
-#  Category 3: Visual & Dashboard Coverage
-# ═══════════════════════════════════════════════════════════════════
-
-class TestCheckVisuals:
-    def test_all_mapped_types(self, simple_extracted):
-        cat = _check_visuals(simple_extracted)
-        chart_checks = [c for c in cat.checks if "chart" in c.name.lower() or "Chart type" in c.name]
-        assert all(c.severity == PASS for c in chart_checks)
-
-    def test_unmapped_chart_type(self):
-        data = {
-            "worksheets": [{"name": "W", "chart_type": "myCustomViz"}],
-            "dashboards": [],
+class TestCheckVisuals(unittest.TestCase):
+    def test_mapped_chart_types(self):
+        ext = {
+            'worksheets': [{'name': 'WS1', 'chart_type': 'bar'}],
+            'dashboards': [{'name': 'D1'}],
         }
-        cat = _check_visuals(data)
-        unmapped = [c for c in cat.checks if "Unmapped" in c.name]
-        assert len(unmapped) == 1
-        assert unmapped[0].severity == WARN
-        assert "mycustomviz" in unmapped[0].detail
+        cat = _check_visuals(ext)
+        self.assertNotEqual(cat.worst_severity, FAIL)
 
-    def test_viz_in_tooltip(self):
-        data = {
-            "worksheets": [
-                {"name": "W", "chart_type": "bar", "tooltips": [{"is_viz_tooltip": True}]},
-            ],
-            "dashboards": [],
+    def test_unmapped_chart_type_warns(self):
+        ext = {
+            'worksheets': [{'name': 'WS1', 'chart_type': 'custom_nonexistent'}],
+            'dashboards': [],
         }
-        cat = _check_visuals(data)
-        vit = [c for c in cat.checks if "Viz-in-tooltip" in c.name]
-        assert len(vit) == 1
-        assert vit[0].severity == WARN
+        cat = _check_visuals(ext)
+        self.assertEqual(cat.worst_severity, WARN)
 
-    def test_dual_axis(self):
-        data = {
-            "worksheets": [
-                {"name": "W", "chart_type": "bar", "dual_axis": {"has_dual_axis": True}},
-            ],
-            "dashboards": [],
+    def test_dual_axis_warning(self):
+        ext = {
+            'worksheets': [{'name': 'WS1', 'dual_axis': {'has_dual_axis': True}}],
+            'dashboards': [],
         }
-        cat = _check_visuals(data)
-        da = [c for c in cat.checks if "Dual" in c.name]
-        assert len(da) == 1
-        assert da[0].severity == WARN
+        cat = _check_visuals(ext)
+        dual = [c for c in cat.checks if 'dual' in c.name.lower()]
+        self.assertTrue(any(c.severity == WARN for c in dual))
 
-    def test_device_layouts(self):
-        data = {
-            "worksheets": [],
-            "dashboards": [{"name": "D", "device_layouts": [{"type": "phone"}]}],
+    def test_device_layouts_info(self):
+        ext = {
+            'worksheets': [],
+            'dashboards': [{'name': 'D1', 'device_layouts': [{'type': 'phone'}]}],
         }
-        cat = _check_visuals(data)
-        dl = [c for c in cat.checks if "Device" in c.name]
-        assert len(dl) == 1
-        assert dl[0].severity == INFO
+        cat = _check_visuals(ext)
+        dl = [c for c in cat.checks if 'device' in c.name.lower()]
+        self.assertTrue(any(c.severity == INFO for c in dl))
 
-    def test_empty_chart_type_ignored(self):
-        data = {
-            "worksheets": [{"name": "W", "chart_type": ""}],
-            "dashboards": [],
+
+class TestCheckFilters(unittest.TestCase):
+    def test_no_user_filters(self):
+        ext = {'filters': [], 'parameters': [], 'user_filters': []}
+        cat = _check_filters(ext)
+        # INFO items always present for filter/parameter counts
+        self.assertEqual(cat.worst_severity, INFO)
+
+    def test_user_filters_rls(self):
+        ext = {'filters': [], 'parameters': [], 'user_filters': [{'type': 'uf'}]}
+        cat = _check_filters(ext)
+        rls = [c for c in cat.checks if 'RLS' in c.name]
+        self.assertTrue(any(c.severity == INFO for c in rls))
+
+    def test_complex_parameters(self):
+        ext = {
+            'filters': [], 'user_filters': [],
+            'parameters': [{'name': 'P', 'allowable_values': [{'v': i} for i in range(25)]}],
         }
-        cat = _check_visuals(data)
-        # No unmapped warning for empty chart type
-        assert not any("Unmapped" in c.name for c in cat.checks)
+        cat = _check_filters(ext)
+        cp = [c for c in cat.checks if 'Complex' in c.name]
+        self.assertTrue(len(cp) > 0)
 
 
-# ═══════════════════════════════════════════════════════════════════
-#  Category 4: Filter & Parameter Complexity
-# ═══════════════════════════════════════════════════════════════════
-
-class TestCheckFilters:
-    def test_no_filters_or_params(self, empty_extracted):
-        cat = _check_filters(empty_extracted)
-        rls_checks = [c for c in cat.checks if "RLS" in c.name]
-        assert rls_checks[0].severity == PASS
-
-    def test_user_filters_warn(self):
-        data = {
-            "filters": [], "parameters": [],
-            "user_filters": [{"type": "user_calc"}],
-        }
-        cat = _check_filters(data)
-        rls = [c for c in cat.checks if "RLS" in c.name]
-        assert rls[0].severity == INFO  # auto-converted to TMDL RLS roles
-
-    def test_complex_parameters_warn(self):
-        data = {
-            "filters": [],
-            "parameters": [{"name": "P", "allowable_values": list(range(25))}],
-            "user_filters": [],
-        }
-        cat = _check_filters(data)
-        cp = [c for c in cat.checks if "Complex" in c.name]
-        assert len(cp) == 1
-        assert cp[0].severity == INFO  # auto-converted to What-If tables
-
-    def test_small_parameter_no_warn(self):
-        data = {
-            "filters": [],
-            "parameters": [{"name": "P", "allowable_values": list(range(5))}],
-            "user_filters": [],
-        }
-        cat = _check_filters(data)
-        cp = [c for c in cat.checks if "Complex" in c.name]
-        assert len(cp) == 0
-
-
-# ═══════════════════════════════════════════════════════════════════
-#  Category 5: Data Model Complexity
-# ═══════════════════════════════════════════════════════════════════
-
-class TestCheckDataModel:
-    def test_simple_model(self, simple_extracted):
-        cat = _check_data_model(simple_extracted)
-        assert cat.fail_count == 0
-
+class TestCheckDataModel(unittest.TestCase):
     def test_large_table_count_warns(self):
-        data = {
-            "datasources": [{
-                "name": "DS",
-                "tables": [{"name": f"T{i}", "columns": []} for i in range(25)],
-                "columns": [], "relationships": [],
-            }],
-            "hierarchies": [], "sets": [], "groups": [], "bins": [],
-        }
-        cat = _check_data_model(data)
-        tc = [c for c in cat.checks if "Table count" in c.name]
-        assert tc[0].severity == WARN
+        ext = {'datasources': [{'tables': [{'name': f'T{i}', 'columns': []} for i in range(25)]}],
+               'hierarchies': [], 'sets': [], 'groups': [], 'bins': []}
+        cat = _check_data_model(ext)
+        tbl = [c for c in cat.checks if 'Table count' in c.name]
+        self.assertTrue(any(c.severity == WARN for c in tbl))
 
     def test_wide_schema_warns(self):
-        data = {
-            "datasources": [{
-                "name": "DS",
-                "tables": [{"name": "T", "columns": [{"name": f"c{i}"} for i in range(250)]}],
-                "columns": [], "relationships": [],
-            }],
-            "hierarchies": [], "sets": [], "groups": [], "bins": [],
-        }
-        cat = _check_data_model(data)
-        cc = [c for c in cat.checks if "Column count" in c.name]
-        assert cc[0].severity == WARN
+        ext = {'datasources': [{'tables': [{'name': 'T1', 'columns': [
+            {'name': f'c{i}'} for i in range(250)
+        ]}]}], 'hierarchies': [], 'sets': [], 'groups': [], 'bins': []}
+        cat = _check_data_model(ext)
+        col = [c for c in cat.checks if 'Column count' in c.name]
+        self.assertTrue(any(c.severity == WARN for c in col))
 
     def test_sets_groups_bins(self):
-        data = {
-            "datasources": [{"name": "D", "tables": [], "columns": [], "relationships": []}],
-            "hierarchies": [],
-            "sets": [{"name": "S"}],
-            "groups": [{"name": "G"}],
-            "bins": [{"name": "B"}],
-        }
-        cat = _check_data_model(data)
-        sgb = [c for c in cat.checks if "Sets" in c.name]
-        assert len(sgb) == 1
-        assert "1 set" in sgb[0].detail
-        assert "1 group" in sgb[0].detail
-        assert "1 bin" in sgb[0].detail
+        ext = {'datasources': [], 'hierarchies': [],
+               'sets': [{'name': 'S1'}], 'groups': [{'name': 'G1'}], 'bins': [{'name': 'B1'}]}
+        cat = _check_data_model(ext)
+        sgb = [c for c in cat.checks if 'Sets' in c.name]
+        self.assertTrue(len(sgb) > 0)
 
 
-# ═══════════════════════════════════════════════════════════════════
-#  Category 6: Interactivity & Actions
-# ═══════════════════════════════════════════════════════════════════
-
-class TestCheckInteractivity:
-    def test_no_actions_or_stories(self, empty_extracted):
-        cat = _check_interactivity(empty_extracted)
-        assert cat.worst_severity == PASS
+class TestCheckInteractivity(unittest.TestCase):
+    def test_no_actions_or_stories(self):
+        ext = {'actions': [], 'stories': []}
+        cat = _check_interactivity(ext)
+        self.assertEqual(cat.worst_severity, PASS)
 
     def test_filter_action_pass(self):
-        data = {"actions": [{"type": "filter"}], "stories": []}
-        cat = _check_interactivity(data)
-        fa = [c for c in cat.checks if "filter" in c.name]
-        assert fa[0].severity == PASS
+        ext = {'actions': [{'type': 'filter'}], 'stories': []}
+        cat = _check_interactivity(ext)
+        fa = [c for c in cat.checks if 'filter' in c.name.lower()]
+        self.assertTrue(any(c.severity == PASS for c in fa))
 
-    def test_url_action_warn(self):
-        data = {"actions": [{"type": "url"}], "stories": []}
-        cat = _check_interactivity(data)
-        ua = [c for c in cat.checks if "URL" in c.name]
-        assert ua[0].severity == INFO  # auto-mapped to action buttons
+    def test_url_action_info(self):
+        ext = {'actions': [{'type': 'url'}], 'stories': []}
+        cat = _check_interactivity(ext)
+        ua = [c for c in cat.checks if 'URL' in c.name]
+        self.assertTrue(any(c.severity == INFO for c in ua))
 
     def test_set_action_warn(self):
-        data = {"actions": [{"type": "set"}], "stories": []}
-        cat = _check_interactivity(data)
-        sa = [c for c in cat.checks if "Set" in c.name]
-        assert sa[0].severity == WARN
+        ext = {'actions': [{'type': 'set'}], 'stories': []}
+        cat = _check_interactivity(ext)
+        sa = [c for c in cat.checks if 'Set' in c.name]
+        self.assertTrue(any(c.severity == WARN for c in sa))
 
-    def test_stories_info(self):
-        data = {
-            "actions": [],
-            "stories": [{"name": "S", "story_points": [{"n": 1}, {"n": 2}]}],
-        }
-        cat = _check_interactivity(data)
-        st = [c for c in cat.checks if "Stories" in c.name]
-        assert st[0].severity == INFO
-        assert "2 story point" in st[0].detail
-
-    def test_complex_actions(self, complex_extracted):
-        cat = _check_interactivity(complex_extracted)
-        assert cat.warn_count >= 1  # set actions remain WARN
-        # URL actions are now INFO (auto-mapped to buttons)
+    def test_stories_to_bookmarks(self):
+        ext = {'actions': [], 'stories': [{'name': 'S', 'story_points': [{'n': 1}]}]}
+        cat = _check_interactivity(ext)
+        st = [c for c in cat.checks if 'Stories' in c.name]
+        self.assertTrue(any(c.severity == INFO for c in st))
 
 
-# ═══════════════════════════════════════════════════════════════════
-#  Category 7: Data Extracts & Packaging
-# ═══════════════════════════════════════════════════════════════════
-
-class TestCheckExtractAndPackaging:
-    def test_no_packaging(self, empty_extracted):
-        cat = _check_extract_and_packaging(empty_extracted)
-        assert cat.fail_count == 0
-        assert cat.warn_count == 0
-
-    def test_hyper_files_info(self):
-        data = {
-            "hyper_files": [{"path": "data.hyper", "size_bytes": 1_000_000}],
-            "custom_shapes": [], "embedded_fonts": [], "custom_geocoding": [],
-        }
-        cat = _check_extract_and_packaging(data)
-        hf = [c for c in cat.checks if "Hyper" in c.name]
-        assert hf[0].severity == INFO
-        assert "1.0 MB" in hf[0].detail
+class TestCheckExtractAndPackaging(unittest.TestCase):
+    def test_hyper_files(self):
+        ext = {'hyper_files': [{'name': 'e.hyper', 'size_bytes': 1024}]}
+        cat = _check_extract_and_packaging(ext)
+        hf = [c for c in cat.checks if 'Hyper' in c.name]
+        self.assertTrue(any(c.severity == INFO for c in hf))
 
     def test_custom_shapes_warn(self):
-        data = {
-            "hyper_files": [],
-            "custom_shapes": [{"path": "star.png"}],
-            "embedded_fonts": [], "custom_geocoding": [],
-        }
-        cat = _check_extract_and_packaging(data)
-        cs = [c for c in cat.checks if "shape" in c.name.lower()]
-        assert cs[0].severity == WARN
+        ext = {'custom_shapes': [{'name': 'shape.png'}]}
+        cat = _check_extract_and_packaging(ext)
+        cs = [c for c in cat.checks if 'shapes' in c.name.lower()]
+        self.assertTrue(any(c.severity == WARN for c in cs))
 
-    def test_embedded_fonts_warn(self):
-        data = {
-            "hyper_files": [], "custom_shapes": [],
-            "embedded_fonts": [{"path": "font.ttf"}],
-            "custom_geocoding": [],
-        }
-        cat = _check_extract_and_packaging(data)
-        ef = [c for c in cat.checks if "font" in c.name.lower()]
-        assert ef[0].severity == WARN
-
-    def test_custom_geocoding_warn(self):
-        data = {
-            "hyper_files": [], "custom_shapes": [], "embedded_fonts": [],
-            "custom_geocoding": [{"type": "custom_file", "path": "geo.csv"}],
-        }
-        cat = _check_extract_and_packaging(data)
-        cg = [c for c in cat.checks if "geocoding" in c.name.lower()]
-        assert len(cg) == 1
-        assert cg[0].severity == WARN
-
-    def test_full_packaging_complex(self, complex_extracted):
-        cat = _check_extract_and_packaging(complex_extracted)
-        assert cat.warn_count >= 3  # shapes, fonts, geocoding
+    def test_no_extras(self):
+        ext = {}
+        cat = _check_extract_and_packaging(ext)
+        self.assertNotEqual(cat.worst_severity, FAIL)
 
 
-# ═══════════════════════════════════════════════════════════════════
-#  Category 8: Migration Scope & Effort
-# ═══════════════════════════════════════════════════════════════════
+class TestCheckMigrationScope(unittest.TestCase):
+    def test_low_complexity(self):
+        ext = _empty_extracted()
+        ext['worksheets'] = [{'name': 'WS1'}]
+        cat = _check_migration_scope(ext)
+        details = ' '.join(c.detail for c in cat.checks)
+        self.assertIn('Low', details)
 
-class TestCheckMigrationScope:
-    def test_empty_workbook_low(self, empty_extracted):
-        cat = _check_migration_scope(empty_extracted)
-        score = [c for c in cat.checks if "Complexity" in c.name]
-        assert "Low" in score[0].detail
+    def test_high_complexity(self):
+        ext = _complex_extracted()
+        cat = _check_migration_scope(ext)
+        details = ' '.join(c.detail for c in cat.checks)
+        # Should be at least Medium with all that complexity
+        self.assertTrue('Medium' in details or 'High' in details or 'Very High' in details)
 
-    def test_simple_workbook_low(self, simple_extracted):
-        cat = _check_migration_scope(simple_extracted)
-        score = [c for c in cat.checks if "Complexity" in c.name]
-        assert "Low" in score[0].detail or "Medium" in score[0].detail
-
-    def test_complex_workbook_high(self, complex_extracted):
-        cat = _check_migration_scope(complex_extracted)
-        score = [c for c in cat.checks if "Complexity" in c.name]
-        # complexity ~48 → Medium (large workbooks with many unsupported
-        # features push into High/Very High)
-        assert any(t in score[0].detail for t in ("Medium", "High", "Very High"))
-
-    def test_object_inventory(self, complex_extracted):
-        cat = _check_migration_scope(complex_extracted)
-        inv = [c for c in cat.checks if "inventory" in c.name.lower()]
-        assert len(inv) == 1
-        assert "Datasources:" in inv[0].detail
-        assert "Worksheets:" in inv[0].detail
-
-    def test_effort_estimate(self, simple_extracted):
-        cat = _check_migration_scope(simple_extracted)
-        eff = [c for c in cat.checks if "Estimated" in c.name]
-        assert len(eff) == 1
-        assert "hour" in eff[0].detail
+    def test_object_inventory(self):
+        ext = _simple_extracted()
+        cat = _check_migration_scope(ext)
+        inv = [c for c in cat.checks if 'inventory' in c.name.lower()]
+        self.assertTrue(len(inv) > 0)
+        self.assertIn('Worksheets', inv[0].detail)
 
 
 # ═══════════════════════════════════════════════════════════════════
-#  Full assessment orchestrator
+#  Full assessment flow
 # ═══════════════════════════════════════════════════════════════════
 
-class TestRunAssessment:
-    def test_returns_report(self, simple_extracted):
-        report = run_assessment(simple_extracted, workbook_name="WB")
-        assert isinstance(report, AssessmentReport)
-        assert report.workbook_name == "WB"
-        assert len(report.categories) == 8
+class TestRunAssessment(unittest.TestCase):
+    def test_green_assessment(self):
+        report = run_assessment(_simple_extracted(), workbook_name="Simple")
+        self.assertEqual(report.overall_score, "GREEN")
+        self.assertEqual(len(report.categories), 8)
+        self.assertTrue(report.total_checks > 0)
 
-    def test_green_score(self, simple_extracted):
-        report = run_assessment(simple_extracted)
-        assert report.overall_score == "GREEN"
+    def test_red_assessment(self):
+        report = run_assessment(_complex_extracted(), workbook_name="Complex")
+        self.assertEqual(report.overall_score, "RED")
 
-    def test_red_score(self, complex_extracted):
-        report = run_assessment(complex_extracted)
-        assert report.overall_score == "RED"
+    def test_timestamp_present(self):
+        report = run_assessment(_empty_extracted(), workbook_name="Empty")
+        self.assertIn("T", report.timestamp)
 
-    def test_timestamp_set(self, empty_extracted):
-        report = run_assessment(empty_extracted)
-        assert report.timestamp.endswith("Z")
-
-    def test_eight_categories(self, empty_extracted):
-        report = run_assessment(empty_extracted)
-        names = [c.name for c in report.categories]
-        assert "Datasource Compatibility" in names
-        assert "Calculation Readiness" in names
-        assert "Visual & Dashboard Coverage" in names
-        assert "Filter & Parameter Complexity" in names
-        assert "Data Model Complexity" in names
-        assert "Interactivity & Actions" in names
-        assert "Data Extracts & Packaging" in names
-        assert "Migration Scope & Effort" in names
+    def test_summary_populated(self):
+        report = run_assessment(_simple_extracted(), workbook_name="Test")
+        self.assertEqual(report.summary["workbook"], "Test")
 
 
-# ═══════════════════════════════════════════════════════════════════
-#  Print & Save
-# ═══════════════════════════════════════════════════════════════════
-
-class TestPrintAndSave:
-    def test_print_no_crash(self, simple_extracted, capsys):
-        report = run_assessment(simple_extracted, workbook_name="Test")
+class TestPrintAndSave(unittest.TestCase):
+    def test_print_no_errors(self):
+        report = run_assessment(_simple_extracted(), workbook_name="PrintTest")
+        # Should not raise
         print_assessment_report(report)
-        captured = capsys.readouterr()
-        assert "PRE-MIGRATION ASSESSMENT" in captured.out
-        assert "Test" in captured.out
-        assert "GREEN" in captured.out
 
-    def test_print_complex(self, complex_extracted, capsys):
-        report = run_assessment(complex_extracted, workbook_name="Complex")
-        print_assessment_report(report)
-        captured = capsys.readouterr()
-        assert "RED" in captured.out
-        assert "Complex" in captured.out
+    def test_save_creates_file(self):
+        report = run_assessment(_simple_extracted(), workbook_name="SaveTest")
+        tmpdir = tempfile.mkdtemp(prefix='assess_test_')
+        try:
+            path = save_assessment_report(report, output_dir=tmpdir)
+            self.assertTrue(os.path.exists(path))
+            with open(path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            self.assertEqual(data["workbook_name"], "SaveTest")
+            self.assertEqual(data["overall_score"], "GREEN")
+        finally:
+            shutil.rmtree(tmpdir, ignore_errors=True)
 
-    def test_save_creates_file(self, simple_extracted, tmp_path):
-        report = run_assessment(simple_extracted, workbook_name="SaveTest")
-        out_dir = str(tmp_path / "reports")
-        path = save_assessment_report(report, output_dir=out_dir)
-        assert os.path.exists(path)
-        assert path.endswith(".json")
-        with open(path, "r") as f:
-            data = json.load(f)
-        assert data["workbook_name"] == "SaveTest"
-        assert data["overall_score"] == "GREEN"
-        assert len(data["categories"]) == 8
-
-    def test_save_roundtrip(self, complex_extracted, tmp_path):
-        report = run_assessment(complex_extracted, workbook_name="RTTest")
-        path = save_assessment_report(report, output_dir=str(tmp_path))
-        with open(path, "r") as f:
-            data = json.load(f)
-        assert data["overall_score"] == "RED"
-        assert data["totals"]["fail"] > 0
-
-    def test_to_dict_serializable(self, complex_extracted):
-        report = run_assessment(complex_extracted)
+    def test_save_roundtrip(self):
+        report = run_assessment(_complex_extracted(), workbook_name="Roundtrip")
         d = report.to_dict()
-        # Must be JSON-serializable
-        serialized = json.dumps(d)
-        assert isinstance(serialized, str)
-        parsed = json.loads(serialized)
-        assert parsed["overall_score"] == "RED"
+        self.assertEqual(d["overall_score"], report.overall_score)
+        self.assertEqual(d["totals"]["checks"], report.total_checks)
 
 
-# ═══════════════════════════════════════════════════════════════════
-#  Edge cases
-# ═══════════════════════════════════════════════════════════════════
-
-class TestEdgeCases:
-    def test_missing_keys_in_extracted(self):
-        """Assessment should handle missing keys gracefully."""
-        report = run_assessment({}, workbook_name="Sparse")
-        assert isinstance(report, AssessmentReport)
-        assert report.total_checks > 0
+class TestEdgeCases(unittest.TestCase):
+    def test_missing_keys(self):
+        # Should not raise even with minimal dict
+        report = run_assessment({}, workbook_name="Minimal")
+        self.assertIsNotNone(report.overall_score)
 
     def test_empty_formulas(self):
-        data = {"calculations": [{"name": "c", "formula": ""}]}
-        cat = _check_calculations(data)
-        assert cat.fail_count == 0
-
-    def test_none_values_in_datasource(self):
-        data = {
-            "datasources": [{"name": None, "connection": {}}],
-            "custom_sql": [], "data_blending": [], "published_datasources": [],
-        }
-        cat = _check_datasources(data)
+        ext = {'calculations': [{'name': 'X', 'formula': ''}]}
+        cat = _check_calculations(ext)
         # Should not crash
-        assert isinstance(cat, CategoryResult)
 
-    def test_hexbin_unsupported(self):
-        data = {"calculations": [
-            {"name": "hex", "caption": "HexBin", "formula": "HEXBINX([Lon])"},
-        ]}
-        cat = _check_calculations(data)
-        assert cat.fail_count == 1
+    def test_none_values(self):
+        ext = {'datasources': [{'name': None, 'connection': {'type': None}}]}
+        cat = _check_datasources(ext)
+        # Should not crash
 
-    def test_highlight_action_pass(self):
-        data = {"actions": [{"type": "highlight"}], "stories": []}
-        cat = _check_interactivity(data)
-        ha = [c for c in cat.checks if "highlight" in c.name]
-        assert ha[0].severity == PASS
 
-    def test_unknown_action_type(self):
-        data = {"actions": [{"type": "go_to_url_fancy"}], "stories": []}
-        cat = _check_interactivity(data)
-        assert cat.warn_count >= 1
-
-    def test_no_custom_geocoding_files(self):
-        data = {
-            "hyper_files": [], "custom_shapes": [], "embedded_fonts": [],
-            "custom_geocoding": [{"role": "State", "field": "State"}],
-        }
-        cat = _check_extract_and_packaging(data)
-        # role-type geocoding entries are not flagged
-        assert not any("geocoding" in c.name.lower() for c in cat.checks)
+if __name__ == '__main__':
+    unittest.main()

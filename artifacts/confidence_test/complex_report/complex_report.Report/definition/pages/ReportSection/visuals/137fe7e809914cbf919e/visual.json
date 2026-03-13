@@ -1,0 +1,30 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/2.5.0/schema.json",
+  "name": "137fe7e809914cbf919e",
+  "position": {
+    "x": 1780,
+    "y": 5,
+    "z": 1000,
+    "height": 52,
+    "width": 120,
+    "tabOrder": 1000
+  },
+  "visual": {
+    "visualType": "image",
+    "objects": {
+      "general": [
+        {
+          "properties": {
+            "imageUrl": {
+              "expr": {
+                "Literal": {
+                  "Value": "'logo.png'"
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

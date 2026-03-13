@@ -1,8 +1,58 @@
-# Architecture — Tableau to Microsoft Fabric Migration Tool
+# Architecture — Tableau to Fabric Migration Tool
 
 ## Pipeline Overview
 
 The migration follows a **2-step pipeline**: Extraction → Generation.
+
+```mermaid
+flowchart LR
+    subgraph Input
+        TWB[".twb / .twbx"]
+        TFL[".tfl / .tflx<br/>(optional Prep)"]
+    end
+
+    subgraph "Step 1 — Extraction"
+        EXT["extract_tableau_data.py<br/>TableauExtractor"]
+        DSE["datasource_extractor.py<br/>extract_datasource()"]
+        DAX["dax_converter.py<br/>convert_tableau_formula_to_dax()"]
+        MQB["m_query_builder.py<br/>MQueryBuilder"]
+        PFP["prep_flow_parser.py<br/>PrepFlowParser"]
+    end
+
+    subgraph "Intermediate JSON (16 files)"
+        JSON["worksheets.json<br/>dashboards.json<br/>datasources.json<br/>calculations.json<br/>parameters.json<br/>filters.json<br/>stories.json<br/>actions.json<br/>sets.json<br/>groups.json<br/>bins.json<br/>hierarchies.json<br/>sort_orders.json<br/>aliases.json<br/>custom_sql.json<br/>user_filters.json"]
+    end
+
+    subgraph "Step 2 — Generation"
+        IMP["import_to_fabric.py<br/>PowerBIImporter"]
+        PBIP["pbip_generator.py<br/>PBIPGenerator"]
+        TMDL["tmdl_generator.py<br/>generate_tmdl()"]
+        VIS["visual_generator.py<br/>VisualGenerator"]
+        VAL["validator.py<br/>ArtifactValidator"]
+    end
+
+    subgraph Output
+        PROJ[".pbip Project<br/>PBIR v4.0 Report<br/>TMDL Semantic Model"]
+    end
+
+    TWB --> EXT
+    TFL --> PFP
+    EXT --> DSE
+    EXT --> DAX
+    EXT --> MQB
+    PFP -->|merge| EXT
+    EXT --> JSON
+    JSON --> IMP
+    IMP --> PBIP
+    PBIP --> TMDL
+    PBIP --> VIS
+    IMP --> VAL
+    PBIP --> PROJ
+```
+
+### ASCII Pipeline Diagram
+
+For environments without Mermaid rendering:
 
 ```
               +-------------------------------+
@@ -37,47 +87,33 @@ The migration follows a **2-step pipeline**: Extraction → Generation.
               |  sets/groups   bins            |
               |  hierarchies   sort_orders    |
               |  aliases       custom_sql     |
-              |  user_filters  ds_filters     |
+              |  user_filters                 |
               +---------------+---------------+
                               |
                               v
               +-------------------------------+
               |    STEP 2 - GENERATION        |
-              |   fabric_import/              |
+              |   fabric_import/             |
               |                               |
-              |  import_to_fabric.py          |
-              |    +-- lakehouse_generator.py  |
-              |        Lakehouse definition    |
-              |    +-- dataflow_generator.py   |
-              |        Dataflow Gen2 queries   |
-              |    +-- notebook_generator.py   |
-              |        PySpark Notebook        |
-              |    +-- semantic_model_gen.py   |
-              |        TMDL Semantic Model     |
-              |    +-- pipeline_generator.py   |
-              |        Data Pipeline           |
+              |  import_to_fabric.py         |
               |    +-- pbip_generator.py       |
-              |        .pbip + PBIR report     |
+              |        .pbip + PBIR report    |
               |    +-- tmdl_generator.py       |
-              |        tables, columns,        |
-              |        measures, RLS roles     |
+              |        tables, columns,       |
+              |        measures, RLS roles    |
               |    +-- visual_generator.py     |
-              |        60+ visual types        |
+              |        60+ visual types       |
               |    +-- validator.py            |
-              |        JSON + TMDL + DAX       |
+              |        JSON + TMDL + DAX      |
               +---------------+---------------+
                               |
                               v
               +-------------------------------+
               |           OUTPUT              |
               |                               |
-              |  6 Fabric Artifacts:          |
-              |  - Lakehouse definition       |
-              |  - Dataflow Gen2              |
-              |  - PySpark Notebook           |
-              |  - Semantic Model (TMDL)      |
-              |  - Data Pipeline              |
-              |  - Power BI Report (.pbip)    |
+              |  .pbip Project                |
+              |  PBIR v4.0 Report             |
+              |  TMDL Semantic Model          |
               +-------------------------------+
 ```
 
@@ -87,48 +123,42 @@ The migration follows a **2-step pipeline**: Extraction → Generation.
 
 | Module | Responsibility |
 |--------|---------------|
-| `extract_tableau_data.py` | Main orchestrator — parses TWB/TWBX XML, extracts 16+ object types |
+| `extract_tableau_data.py` | Main orchestrator — parses TWB/TWBX XML, extracts 16 object types |
 | `datasource_extractor.py` | Datasource extraction (connections, tables, columns, calculations, relationships) |
 | `dax_converter.py` | 172 Tableau → DAX formula conversions (LOD, table calcs, security, etc.) |
 | `m_query_builder.py` | Power Query M generator (26 connector types + 40+ transformation generators) |
 | `prep_flow_parser.py` | Tableau Prep flow parser (.tfl/.tflx → Power Query M) |
+| `server_client.py` | Tableau Server/Cloud REST API client (PAT/password auth, download, batch) |
 
 ### `fabric_import/` — Generation Layer
 
 | Module | Responsibility |
 |--------|---------------|
 | `import_to_fabric.py` | Generation pipeline orchestrator |
-| `lakehouse_generator.py` | Lakehouse definition (Delta tables) |
-| `dataflow_generator.py` | Dataflow Gen2 with M queries |
-| `notebook_generator.py` | PySpark Notebook for complex ETL |
-| `semantic_model_generator.py` | Standalone Semantic Model (DirectLake) |
-| `pipeline_generator.py` | Data Pipeline (orchestration) |
 | `pbip_generator.py` | .pbip project generator (PBIR v4.0 report, visuals, filters, bookmarks, slicers) |
 | `tmdl_generator.py` | Unified semantic model generator (TMDL: tables, columns, measures, relationships) |
 | `visual_generator.py` | Visual container generator (60+ visual types, data roles, config templates) |
+| `m_query_generator.py` | Sample data M query generator |
 | `validator.py` | Artifact validator (JSON, TMDL, DAX semantic validation) |
+| `migration_report.py` | Per-item fidelity tracking and migration status reporting |
+
+### `fabric_import/deploy/` — Fabric Deployment
+
+| Module | Responsibility |
+|--------|---------------|
 | `auth.py` | Azure AD authentication (Service Principal + Managed Identity) |
 | `client.py` | Fabric REST API client with retry logic |
 | `deployer.py` | Fabric deployment orchestrator |
-| `strategy_advisor.py` | Auto ETL strategy advisor (Dataflow vs Notebook) |
-| `assessment.py` | Pre-migration assessment and scoring |
+| `utils.py` | DeploymentReport, ArtifactCache |
 | `config/settings.py` | Centralized config via env vars |
 | `config/environments.py` | Per-environment configs (dev/staging/production) |
-
-### `conversion/` — High-Level Converters
-
-Per-object-type converters for worksheets, dashboards, calculations, parameters, etc.
-
-### `scripts/` — Automation Scripts
-
-PowerShell and Python scripts for CI/CD, deployment validation, and confidence reporting.
 
 ## Data Flow Detail
 
 ### Step 1: Extraction
 
 ```
-Tableau XML → ET.parse → 16+ extract_*() methods → JSON files
+Tableau XML → ET.parse → 16 extract_*() methods → 16 JSON files
                                     ↓
                         datasource_extractor.py
                           (connections, tables, columns, joins)
@@ -143,33 +173,50 @@ Tableau XML → ET.parse → 16+ extract_*() methods → JSON files
 ### Step 2: Generation
 
 ```
-JSON files → FabricImporter.import_all()
+16 JSON files → PowerBIImporter.import_all()
                         ↓
-              ├── LakehouseGenerator.generate()     → Lakehouse definition
-              ├── DataflowGenerator.generate()      → Dataflow Gen2 M queries
-              ├── NotebookGenerator.generate()      → PySpark Notebook
-              ├── SemanticModelGenerator.generate()  → TMDL files
-              │   └── generate_tmdl()
-              │       ├── model.tmdl                → model config, culture ref
-              │       ├── database.tmdl             → compatibility level
-              │       ├── relationships.tmdl        → table relationships
-              │       ├── expressions.tmdl          → shared M expressions
-              │       ├── roles.tmdl                → RLS roles
-              │       ├── perspectives.tmdl         → auto-generated perspective
-              │       ├── cultures/*.tmdl           → locale config
-              │       ├── tables/*.tmdl             → tables, columns, measures
-              │       └── diagramLayout.json        → empty (PBI auto-fills)
-              ├── PipelineGenerator.generate()      → Data Pipeline
-              └── FabricPBIPGenerator.generate()    → .pbip Report
-                  ├── create_report_structure()     → .pbip, .platform, definition.pbir
-                  ├── create_report_json()          → report.json
-                  ├── create_theme()                → TableauMigrationTheme.json
-                  ├── create_pages()                → pages/*/page.json + visuals/*/visual.json
-                  │   ├── tooltip pages             → pageType: "Tooltip"
-                  │   ├── mobile pages              → 320×568
-                  │   └── drill-through pages       → pageType: "Drillthrough"
-                  └── create_bookmarks()            → bookmarks from stories
+              PBIPGenerator.generate_project()
+              ├── create_report_structure()     → .pbip, .platform, definition.pbir
+              ├── create_report_json()          → report.json
+              ├── create_theme()                → TableauMigrationTheme.json
+              ├── create_pages()                → pages/*/page.json + visuals/*/visual.json
+              │   ├── tooltip pages             → pageType: "Tooltip"
+              │   ├── mobile pages              → 320×568
+              │   └── drill-through pages       → pageType: "Drillthrough"
+              ├── create_bookmarks()            → bookmarks from stories
+              └── generate_tmdl()               → SemanticModel/definition/
+                  ├── model.tmdl                → model config, culture ref
+                  ├── database.tmdl             → compatibility level
+                  ├── relationships.tmdl        → table relationships
+                  ├── expressions.tmdl          → shared M expressions
+                  ├── roles.tmdl                → RLS roles
+                  ├── perspectives.tmdl         → auto-generated perspective
+                  ├── cultures/*.tmdl           → locale config
+                  ├── tables/*.tmdl             → tables, columns, measures
+                  └── diagramLayout.json        → empty (PBI auto-fills)
 ```
+
+## TMDL Generation Phases
+
+The semantic model is built in 14 sequential phases:
+
+1. **Table deduplication** — remove duplicate table definitions
+2. **Main table identification** — identify primary table, build column metadata + DAX context
+3. **Tables with columns** — emit table/column/measure/M-query TMDL
+4. **Relationships** — cross-datasource dedup, validation, type mismatch fixing
+5. **Sets/Groups/Bins** — calculated columns for set membership, grouping, binning
+6. **Auto date table** — M-partition calendar with Date Hierarchy
+7. **Hierarchies** — drill-paths from Tableau
+8. **What-If parameters** — GENERATESERIES/DATATABLE parameter tables
+9. **RLS roles** — user filters → USERPRINCIPALNAME-based role expressions
+9b. **Quick table calc measures** — pcto/running_sum/rank field detection
+10. **Infer missing relationships** — from cross-table DAX references
+10b. **Cardinality detection** — manyToOne vs manyToMany
+10c. **RELATED→LOOKUPVALUE** — fix cross-table refs for M2M relationships
+11. **Deactivate ambiguous paths** — Union-Find cycle detection
+12. **Auto-generate perspectives** — "Full Model" perspective
+13. **Calculation groups** — Tableau param-swap actions → PBI Calculation Group tables
+14. **Field parameters** — Tableau dimension-switching params → PBI Field Parameter tables with NAMEOF
 
 ## Output Structure
 
@@ -178,15 +225,6 @@ JSON files → FabricImporter.import_all()
 ├── {ProjectName}.pbip
 ├── .gitignore
 ├── migration_metadata.json
-├── {ProjectName}.Lakehouse/
-│   └── lakehouse_definition.json
-├── {ProjectName}.Dataflow/
-│   ├── dataflow_definition.json
-│   └── queries/*.m
-├── {ProjectName}.Notebook/
-│   └── etl_pipeline.ipynb
-├── {ProjectName}.Pipeline/
-│   └── pipeline_definition.json
 ├── {ProjectName}.Report/
 │   ├── definition.pbir
 │   ├── report.json
@@ -216,23 +254,3 @@ JSON files → FabricImporter.import_all()
         └── tables/
             └── {TableName}.tmdl
 ```
-
-## TMDL Generation Phases
-
-The semantic model is built in 12 sequential phases:
-
-1. **Table deduplication** — remove duplicate table definitions
-2. **Main table identification** — identify primary table, build column metadata + DAX context
-3. **Tables with columns** — emit table/column/measure/entity-partition TMDL (DirectLake mode)
-4. **Relationships** — cross-datasource dedup, validation, type mismatch fixing
-5. **Sets/Groups/Bins** — calculated columns for set membership, grouping, binning
-6. **Auto date table** — M-partition calendar with Date Hierarchy (configurable range via `--calendar-start`/`--calendar-end`)
-7. **Hierarchies** — drill-paths from Tableau
-8. **What-If parameters** — GENERATESERIES/DATATABLE parameter tables
-9. **RLS roles** — user filters → USERPRINCIPALNAME-based role expressions
-9b. **Quick table calc measures** — pcto/running_sum/rank field detection
-10. **Infer missing relationships** — from cross-table DAX references
-10b. **Cardinality detection** — manyToOne vs manyToMany
-10c. **RELATED→LOOKUPVALUE** — fix cross-table refs for M2M relationships
-11. **Deactivate ambiguous paths** — Union-Find cycle detection
-12. **Auto-generate perspectives** — "Full Model" perspective

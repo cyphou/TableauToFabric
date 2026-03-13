@@ -1,0 +1,14 @@
+{
+  "displayName": "simple_report",
+  "type": "SemanticModel",
+  "mode": "DirectLake",
+  "lakehouse": "simple_report",
+  "stats": {
+    "tables": 1,
+    "columns": 6,
+    "measures": 0,
+    "relationships": 0,
+    "hierarchies": 0,
+    "roles": 0
+  }
+}

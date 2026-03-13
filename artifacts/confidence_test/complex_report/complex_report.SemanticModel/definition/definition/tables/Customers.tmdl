@@ -1,0 +1,53 @@
+table Customers
+	lineageTag: 8b64251c-ca40-4698-9383-c4ebb8697fc3
+
+	column CustomerID
+		dataType: int64
+		lineageTag: d1f588f7-4352-4c62-b311-77507e6c8b4c
+		summarizeBy: sum
+		sourceColumn: CustomerID
+
+		annotation SummarizationSetBy = Automatic
+
+	column CustomerName
+		dataType: string
+		lineageTag: 3ab001fb-361e-456d-ad3e-846096781594
+		summarizeBy: none
+		sourceColumn: CustomerName
+
+		annotation SummarizationSetBy = Automatic
+
+	column Segment
+		dataType: string
+		lineageTag: ccb93a43-5758-48f8-91d6-7ca453ab8879
+		summarizeBy: none
+		sourceColumn: Segment
+
+		annotation SummarizationSetBy = Automatic
+
+	column Email
+		dataType: string
+		lineageTag: d68d80f5-35fa-4d94-b1d5-e340a8994384
+		summarizeBy: none
+		sourceColumn: Email
+
+		annotation SummarizationSetBy = Automatic
+
+	column JoinDate
+		dataType: dateTime
+		formatString: General Date
+		lineageTag: ba755a48-5782-4557-99cc-8570bc814481
+		summarizeBy: none
+		sourceColumn: JoinDate
+		dataCategory: DateTime
+
+		annotation SummarizationSetBy = Automatic
+
+	partition 'Customers-3c6b4b4d-2de0-4a43-9ad6-0aa8421a1471' = entity
+		mode: directLake
+		entityName: customers
+		schemaName: dbo
+		expressionSource: DatabaseQuery
+
+	annotation PBI_ResultType = Table
+

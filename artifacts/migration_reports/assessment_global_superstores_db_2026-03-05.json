@@ -1,0 +1,243 @@
+{
+  "workbook_name": "global_superstores_db",
+  "timestamp": "2026-03-05T09:13:20Z",
+  "overall_score": "YELLOW",
+  "summary": {
+    "workbook": "global_superstores_db",
+    "overall_score": "YELLOW",
+    "total_checks": 29,
+    "passed": 12,
+    "warnings": 2,
+    "failures": 0
+  },
+  "totals": {
+    "checks": 29,
+    "pass": 12,
+    "warn": 2,
+    "fail": 0
+  },
+  "categories": [
+    {
+      "name": "Datasource Compatibility",
+      "worst_severity": "info",
+      "checks": [
+        {
+          "name": "Datasource count",
+          "severity": "info",
+          "detail": "1 datasource(s) detected.",
+          "recommendation": ""
+        },
+        {
+          "name": "Connector: Excel",
+          "severity": "pass",
+          "detail": "Fully supported. Used by: federated.0xaw05p0aczkh61d2uegk0aqxozm.",
+          "recommendation": ""
+        },
+        {
+          "name": "Data blending",
+          "severity": "pass",
+          "detail": "No data blending detected.",
+          "recommendation": ""
+        },
+        {
+          "name": "Published datasources",
+          "severity": "pass",
+          "detail": "No published datasource references.",
+          "recommendation": ""
+        },
+        {
+          "name": "Custom SQL",
+          "severity": "pass",
+          "detail": "No custom SQL queries.",
+          "recommendation": ""
+        }
+      ]
+    },
+    {
+      "name": "Calculation Readiness",
+      "worst_severity": "info",
+      "checks": [
+        {
+          "name": "Calculation count",
+          "severity": "info",
+          "detail": "4 calculated field(s) detected.",
+          "recommendation": ""
+        },
+        {
+          "name": "Unsupported functions",
+          "severity": "pass",
+          "detail": "No calculations use unsupported functions.",
+          "recommendation": ""
+        },
+        {
+          "name": "Partially-supported functions",
+          "severity": "pass",
+          "detail": "No calculations use partially-supported functions.",
+          "recommendation": ""
+        },
+        {
+          "name": "LOD expressions",
+          "severity": "pass",
+          "detail": "No LOD expressions detected.",
+          "recommendation": ""
+        },
+        {
+          "name": "Table calculations",
+          "severity": "pass",
+          "detail": "No table calculations detected.",
+          "recommendation": ""
+        }
+      ]
+    },
+    {
+      "name": "Visual & Dashboard Coverage",
+      "worst_severity": "warn",
+      "checks": [
+        {
+          "name": "Worksheet count",
+          "severity": "info",
+          "detail": "20 worksheet(s) detected.",
+          "recommendation": ""
+        },
+        {
+          "name": "Dashboard count",
+          "severity": "info",
+          "detail": "6 dashboard(s) detected.",
+          "recommendation": ""
+        },
+        {
+          "name": "Unmapped chart types",
+          "severity": "warn",
+          "detail": "1 chart type(s) not in mapping: clusteredbarchart.",
+          "recommendation": "These will fall back to 'table' visual. Consider customising the visual type after migration."
+        },
+        {
+          "name": "Device layouts",
+          "severity": "info",
+          "detail": "5 dashboard(s) have device-specific layouts.",
+          "recommendation": "Power BI mobile layouts must be configured manually in Power BI Desktop."
+        }
+      ]
+    },
+    {
+      "name": "Filter & Parameter Complexity",
+      "worst_severity": "info",
+      "checks": [
+        {
+          "name": "Filter count",
+          "severity": "info",
+          "detail": "17 top-level filter(s) detected.",
+          "recommendation": ""
+        },
+        {
+          "name": "Parameter count",
+          "severity": "info",
+          "detail": "0 parameter(s) detected.",
+          "recommendation": ""
+        },
+        {
+          "name": "User filters (RLS)",
+          "severity": "pass",
+          "detail": "No user filters — no RLS configuration needed.",
+          "recommendation": ""
+        }
+      ]
+    },
+    {
+      "name": "Data Model Complexity",
+      "worst_severity": "info",
+      "checks": [
+        {
+          "name": "Table count",
+          "severity": "info",
+          "detail": "1 table(s) across all datasources.",
+          "recommendation": ""
+        },
+        {
+          "name": "Column count",
+          "severity": "info",
+          "detail": "112 column(s) total.",
+          "recommendation": ""
+        },
+        {
+          "name": "Relationship count",
+          "severity": "info",
+          "detail": "0 relationship(s) detected.",
+          "recommendation": ""
+        },
+        {
+          "name": "Hierarchies",
+          "severity": "info",
+          "detail": "No hierarchies.",
+          "recommendation": ""
+        },
+        {
+          "name": "Sets / Groups / Bins",
+          "severity": "info",
+          "detail": "Advanced data features: 4 group(s), 1 bin(s).",
+          "recommendation": "Sets → calculated columns, Groups → SWITCH measures, Bins → calculated columns with ROUNDDOWN."
+        }
+      ]
+    },
+    {
+      "name": "Interactivity & Actions",
+      "worst_severity": "warn",
+      "checks": [
+        {
+          "name": "Action: ",
+          "severity": "warn",
+          "detail": "4  action(s) — may require manual configuration.",
+          "recommendation": ""
+        }
+      ]
+    },
+    {
+      "name": "Data Extracts & Packaging",
+      "worst_severity": "pass",
+      "checks": [
+        {
+          "name": "Hyper extract files",
+          "severity": "pass",
+          "detail": "No .hyper extract files (live connection or datasource files).",
+          "recommendation": ""
+        },
+        {
+          "name": "Custom shapes",
+          "severity": "pass",
+          "detail": "No custom shapes.",
+          "recommendation": ""
+        },
+        {
+          "name": "Embedded fonts",
+          "severity": "pass",
+          "detail": "No embedded fonts.",
+          "recommendation": ""
+        }
+      ]
+    },
+    {
+      "name": "Migration Scope & Effort",
+      "worst_severity": "info",
+      "checks": [
+        {
+          "name": "Complexity score",
+          "severity": "info",
+          "detail": "Complexity score: 56 (Medium).",
+          "recommendation": ""
+        },
+        {
+          "name": "Estimated effort",
+          "severity": "info",
+          "detail": "Estimated post-migration review effort: 1-4 hours of post-migration review.",
+          "recommendation": ""
+        },
+        {
+          "name": "Object inventory",
+          "severity": "info",
+          "detail": "Objects: Datasources: 1 | Worksheets: 20 | Dashboards: 6 | Calculations: 4 | Filters: 17 | Actions: 4 | Groups: 4 | Bins: 1",
+          "recommendation": ""
+        }
+      ]
+    }
+  ]
+}

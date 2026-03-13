@@ -1,0 +1,39 @@
+table xy
+	lineageTag: 3ddfce21-0164-4d00-98d1-493068d824b6
+
+	measure '[Number of Records]' = 1
+		displayFolder: Measures
+		lineageTag: 4298b775-c4d5-456e-a6a5-700c01420c01
+
+	column a
+		dataType: string
+		lineageTag: dcce89ae-81ab-459b-9bfd-0cc02c28e9c6
+		summarizeBy: none
+		sourceColumn: a
+
+		annotation SummarizationSetBy = Automatic
+
+	column x
+		dataType: int64
+		lineageTag: e9dcbb2f-2eac-4ce5-9fda-a59412bc79b0
+		summarizeBy: sum
+		sourceColumn: x
+
+		annotation SummarizationSetBy = Automatic
+
+	column y
+		dataType: int64
+		lineageTag: f6affb26-4b3c-48f3-9a9c-63fd4266ee77
+		summarizeBy: sum
+		sourceColumn: y
+
+		annotation SummarizationSetBy = Automatic
+
+	partition 'xy-8781976e-5394-4a92-810e-8e4e36576f72' = entity
+		mode: directLake
+		entityName: xy
+		schemaName: dbo
+		expressionSource: DatabaseQuery
+
+	annotation PBI_ResultType = Table
+

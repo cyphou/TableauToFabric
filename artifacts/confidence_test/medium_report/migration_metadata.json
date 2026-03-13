@@ -1,0 +1,22 @@
+{
+  "project_name": "medium_report",
+  "source": "TableauToFabric",
+  "generated_at": "2026-03-05T10:46:40.844245",
+  "artifacts_generated": [
+    "lakehouse",
+    "dataflow",
+    "notebook",
+    "semanticmodel",
+    "pipeline",
+    "pbi"
+  ],
+  "stats": {
+    "lakehouse_tables": 2,
+    "dataflow_queries": 2,
+    "notebook_cells": 20,
+    "semanticmodel_tables": 3,
+    "pipeline_activities": 3,
+    "pbi_pages": 1,
+    "pbi_visuals": 20
+  }
+}

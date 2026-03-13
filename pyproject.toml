@@ -1,73 +1,93 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.backends._legacy:_Backend"
+
 [project]
-name = "tableautofabric"
-version = "3.7.0"
-description = "Automated migration tool for Tableau workbooks to Microsoft Fabric artifacts"
+name = "tableau-to-fabric"
+version = "12.0.0"
+description = "Automated migration of Tableau workbooks to Power BI .pbip projects (PBIR v4.0 + TMDL)"
 readme = "README.md"
-license = "MIT"
+license = {text = "MIT"}
 requires-python = ">=3.8"
 authors = [
-    { name = "Pierre DOUDET", email = "pidoudet@microsoft.com" },
+    {name = "Tableau to Fabric Migration Team"},
 ]
-keywords = ["tableau", "fabric", "migration", "power-bi", "dax", "tmdl"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
+    "Intended Audience :: System Administrators",
     "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.8",
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Topic :: Software Development :: Code Generators",
+    "Topic :: Database :: Front-Ends",
 ]
-dependencies = [
-    "python-dateutil>=2.8",
-]
+keywords = ["tableau", "fabric", "powerbi", "migration", "pbip", "tmdl", "pbir", "dax"]
+
+# No external dependencies — stdlib only
+dependencies = []
 
 [project.optional-dependencies]
 deploy = [
-    "azure-identity>=1.12",
-    "requests>=2.28",
-]
-config = [
-    "pydantic-settings>=2.0",
-]
-tableau-api = [
-    "tableauserverclient>=0.25",
+    "azure-identity>=1.15.0",
+    "requests>=2.31.0",
 ]
 dev = [
     "pytest>=7.0",
+    "pytest-cov>=4.0",
+    "coverage>=7.0",
 ]
 all = [
-    "azure-identity>=1.12",
-    "requests>=2.28",
-    "pydantic-settings>=2.0",
-    "tableauserverclient>=0.25",
-    "pytest>=7.0",
+    "tableau-to-fabric[deploy,dev]",
 ]
 
-[project.scripts]
-tableautofabric = "migrate:main"
-
 [project.urls]
-Repository = "https://github.com/cyphou/TableauToFabric"
-Documentation = "https://github.com/cyphou/TableauToFabric/tree/main/docs"
+Homepage = "https://github.com/tableau-to-fabric/tableau-to-fabric"
+Documentation = "https://tableau-to-fabric.github.io/"
+Repository = "https://github.com/tableau-to-fabric/tableau-to-fabric"
+Changelog = "https://github.com/tableau-to-fabric/tableau-to-fabric/blob/main/CHANGELOG.md"
 
-# ── Tool configuration ──
+[project.scripts]
+tableau-to-fabric = "migrate:main"
+
+[tool.setuptools.packages.find]
+include = ["tableau_export*", "fabric_import*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
-addopts = "-q --tb=short"
+addopts = "-v --tb=short"
+
+[tool.coverage.run]
+source = ["tableau_export", "fabric_import"]
+omit = [
+    "tests/*",
+    "*/__pycache__/*",
+    "fabric_import/deploy/*",
+]
+
+[tool.coverage.report]
+fail_under = 80
+show_missing = true
+exclude_lines = [
+    "pragma: no cover",
+    "if __name__",
+    "raise NotImplementedError",
+    "pass",
+]
 
 [tool.pyright]
+include = ["tableau_export", "fabric_import", "migrate.py"]
 pythonVersion = "3.8"
-include = ["tableau_export", "fabric_import", "conversion", "migrate.py"]
-exclude = ["__pycache__", "artifacts", "output"]
-
-[build-system]
-requires = ["setuptools>=68.0", "wheel"]
-build-backend = "setuptools.backends._legacy:_Backend"
+typeCheckingMode = "basic"
+reportMissingImports = true
+reportMissingTypeStubs = false

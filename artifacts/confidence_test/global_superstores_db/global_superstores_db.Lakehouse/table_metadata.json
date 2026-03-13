@@ -1,0 +1,133 @@
+{
+  "orders": {
+    "original_name": "Orders",
+    "source_type": "Excel",
+    "columns": {
+      "Row_ID": {
+        "type": "INT",
+        "original_name": "Row ID",
+        "original_type": "integer"
+      },
+      "Order_ID": {
+        "type": "STRING",
+        "original_name": "Order ID",
+        "original_type": "string"
+      },
+      "Order_Date": {
+        "type": "DATE",
+        "original_name": "Order Date",
+        "original_type": "date"
+      },
+      "Ship_Date": {
+        "type": "DATE",
+        "original_name": "Ship Date",
+        "original_type": "date"
+      },
+      "Ship_Mode": {
+        "type": "STRING",
+        "original_name": "Ship Mode",
+        "original_type": "string"
+      },
+      "Customer_ID": {
+        "type": "STRING",
+        "original_name": "Customer ID",
+        "original_type": "string"
+      },
+      "Customer_Name": {
+        "type": "STRING",
+        "original_name": "Customer Name",
+        "original_type": "string"
+      },
+      "Segment": {
+        "type": "STRING",
+        "original_name": "Segment",
+        "original_type": "string"
+      },
+      "City": {
+        "type": "STRING",
+        "original_name": "City",
+        "original_type": "string"
+      },
+      "State": {
+        "type": "STRING",
+        "original_name": "State",
+        "original_type": "string"
+      },
+      "Country": {
+        "type": "STRING",
+        "original_name": "Country",
+        "original_type": "string"
+      },
+      "Postal_Code": {
+        "type": "STRING",
+        "original_name": "Postal Code",
+        "original_type": "string"
+      },
+      "Market": {
+        "type": "STRING",
+        "original_name": "Market",
+        "original_type": "string"
+      },
+      "Region": {
+        "type": "STRING",
+        "original_name": "Region",
+        "original_type": "string"
+      },
+      "Product_ID": {
+        "type": "STRING",
+        "original_name": "Product ID",
+        "original_type": "string"
+      },
+      "Category": {
+        "type": "STRING",
+        "original_name": "Category",
+        "original_type": "string"
+      },
+      "Sub_Category": {
+        "type": "STRING",
+        "original_name": "Sub-Category",
+        "original_type": "string"
+      },
+      "Product_Name": {
+        "type": "STRING",
+        "original_name": "Product Name",
+        "original_type": "string"
+      },
+      "Sales": {
+        "type": "DOUBLE",
+        "original_name": "Sales",
+        "original_type": "real"
+      },
+      "Quantity": {
+        "type": "INT",
+        "original_name": "Quantity",
+        "original_type": "integer"
+      },
+      "Discount": {
+        "type": "DOUBLE",
+        "original_name": "Discount",
+        "original_type": "real"
+      },
+      "Profit": {
+        "type": "DOUBLE",
+        "original_name": "Profit",
+        "original_type": "real"
+      },
+      "Shipping_Cost": {
+        "type": "DOUBLE",
+        "original_name": "Shipping Cost",
+        "original_type": "real"
+      },
+      "Order_Priority": {
+        "type": "STRING",
+        "original_name": "Order Priority",
+        "original_type": "string"
+      },
+      "discount_bin": {
+        "type": "INT",
+        "original_name": "[Discount (bin)]",
+        "original_type": "integer"
+      }
+    }
+  }
+}

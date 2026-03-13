@@ -1,0 +1,6 @@
+perspective 'Full Model'
+	perspectiveTable Orders
+	perspectiveTable People
+	perspectiveTable Returns
+	perspectiveTable 'Top Customers'
+	perspectiveTable 'Profit Bin Size'

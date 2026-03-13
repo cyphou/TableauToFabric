@@ -1,0 +1,365 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/lakehouse/definition/lakehouse/1.0.0/schema.json",
+  "properties": {
+    "displayName": "superstore_sales_dashboard_Lakehouse",
+    "description": "Lakehouse generated from Tableau workbook: superstore_sales_dashboard",
+    "created": "2026-03-05T10:47:38.137132",
+    "defaultSchema": "dbo"
+  },
+  "tables": [
+    {
+      "name": "orders",
+      "original_name": "Orders",
+      "columns": [
+        {
+          "name": "Row_ID",
+          "datatype": "INT",
+          "nullable": true,
+          "original_name": "Row ID",
+          "original_type": "integer"
+        },
+        {
+          "name": "Order_ID",
+          "datatype": "INT",
+          "nullable": true,
+          "original_name": "Order ID",
+          "original_type": "integer"
+        },
+        {
+          "name": "Order_Date",
+          "datatype": "DATE",
+          "nullable": true,
+          "original_name": "Order Date",
+          "original_type": "date"
+        },
+        {
+          "name": "Order_Priority",
+          "datatype": "STRING",
+          "nullable": true,
+          "original_name": "Order Priority",
+          "original_type": "string"
+        },
+        {
+          "name": "Order_Quantity",
+          "datatype": "INT",
+          "nullable": true,
+          "original_name": "Order Quantity",
+          "original_type": "integer"
+        },
+        {
+          "name": "Sales",
+          "datatype": "DOUBLE",
+          "nullable": true,
+          "original_name": "Sales",
+          "original_type": "real"
+        },
+        {
+          "name": "Discount",
+          "datatype": "DOUBLE",
+          "nullable": true,
+          "original_name": "Discount",
+          "original_type": "real"
+        },
+        {
+          "name": "Ship_Mode",
+          "datatype": "STRING",
+          "nullable": true,
+          "original_name": "Ship Mode",
+          "original_type": "string"
+        },
+        {
+          "name": "Profit",
+          "datatype": "DOUBLE",
+          "nullable": true,
+          "original_name": "Profit",
+          "original_type": "real"
+        },
+        {
+          "name": "Unit_Price",
+          "datatype": "DOUBLE",
+          "nullable": true,
+          "original_name": "Unit Price",
+          "original_type": "real"
+        },
+        {
+          "name": "Shipping_Cost",
+          "datatype": "DOUBLE",
+          "nullable": true,
+          "original_name": "Shipping Cost",
+          "original_type": "real"
+        },
+        {
+          "name": "Customer_Name",
+          "datatype": "STRING",
+          "nullable": true,
+          "original_name": "Customer Name",
+          "original_type": "string"
+        },
+        {
+          "name": "City",
+          "datatype": "STRING",
+          "nullable": true,
+          "original_name": "City",
+          "original_type": "string"
+        },
+        {
+          "name": "Zip_Code",
+          "datatype": "STRING",
+          "nullable": true,
+          "original_name": "Zip Code",
+          "original_type": "string"
+        },
+        {
+          "name": "State",
+          "datatype": "STRING",
+          "nullable": true,
+          "original_name": "State",
+          "original_type": "string"
+        },
+        {
+          "name": "Region",
+          "datatype": "STRING",
+          "nullable": true,
+          "original_name": "Region",
+          "original_type": "string"
+        },
+        {
+          "name": "Customer_Segment",
+          "datatype": "STRING",
+          "nullable": true,
+          "original_name": "Customer Segment",
+          "original_type": "string"
+        },
+        {
+          "name": "Product_Category",
+          "datatype": "STRING",
+          "nullable": true,
+          "original_name": "Product Category",
+          "original_type": "string"
+        },
+        {
+          "name": "Product_Sub_Category",
+          "datatype": "STRING",
+          "nullable": true,
+          "original_name": "Product Sub-Category",
+          "original_type": "string"
+        },
+        {
+          "name": "Product_Name",
+          "datatype": "STRING",
+          "nullable": true,
+          "original_name": "Product Name",
+          "original_type": "string"
+        },
+        {
+          "name": "Product_Container",
+          "datatype": "STRING",
+          "nullable": true,
+          "original_name": "Product Container",
+          "original_type": "string"
+        },
+        {
+          "name": "Product_Base_Margin",
+          "datatype": "DOUBLE",
+          "nullable": true,
+          "original_name": "Product Base Margin",
+          "original_type": "real"
+        },
+        {
+          "name": "Ship_Date",
+          "datatype": "DATE",
+          "nullable": true,
+          "original_name": "Ship Date",
+          "original_type": "date"
+        },
+        {
+          "name": "grouping_based_on_unit_price",
+          "datatype": "STRING",
+          "nullable": true,
+          "original_name": "Grouping Based on Unit Price",
+          "original_type": "string",
+          "is_calculated": true,
+          "formula": "IF [Unit Price] <= 2500 then 'A'\r\nELSEIF [Unit Price] <=5000 then 'B'\r\nELSE 'C' END"
+        }
+      ],
+      "source_type": "Excel",
+      "source_connection": {
+        "filename": "",
+        "caption": "Sample+-+Superstore+Sales+(Excel)",
+        "cleaning": "no",
+        "compat": "no"
+      },
+      "format": "delta"
+    },
+    {
+      "name": "extract",
+      "original_name": "Extract",
+      "columns": [
+        {
+          "name": "Row_ID",
+          "datatype": "INT",
+          "nullable": true,
+          "original_name": "Row ID",
+          "original_type": "integer"
+        },
+        {
+          "name": "Order_ID",
+          "datatype": "INT",
+          "nullable": true,
+          "original_name": "Order ID",
+          "original_type": "integer"
+        },
+        {
+          "name": "Order_Date",
+          "datatype": "DATE",
+          "nullable": true,
+          "original_name": "Order Date",
+          "original_type": "date"
+        },
+        {
+          "name": "Order_Priority",
+          "datatype": "STRING",
+          "nullable": true,
+          "original_name": "Order Priority",
+          "original_type": "string"
+        },
+        {
+          "name": "Order_Quantity",
+          "datatype": "INT",
+          "nullable": true,
+          "original_name": "Order Quantity",
+          "original_type": "integer"
+        },
+        {
+          "name": "Sales",
+          "datatype": "DOUBLE",
+          "nullable": true,
+          "original_name": "Sales",
+          "original_type": "real"
+        },
+        {
+          "name": "Discount",
+          "datatype": "DOUBLE",
+          "nullable": true,
+          "original_name": "Discount",
+          "original_type": "real"
+        },
+        {
+          "name": "Ship_Mode",
+          "datatype": "STRING",
+          "nullable": true,
+          "original_name": "Ship Mode",
+          "original_type": "string"
+        },
+        {
+          "name": "Profit",
+          "datatype": "DOUBLE",
+          "nullable": true,
+          "original_name": "Profit",
+          "original_type": "real"
+        },
+        {
+          "name": "Unit_Price",
+          "datatype": "DOUBLE",
+          "nullable": true,
+          "original_name": "Unit Price",
+          "original_type": "real"
+        },
+        {
+          "name": "Shipping_Cost",
+          "datatype": "DOUBLE",
+          "nullable": true,
+          "original_name": "Shipping Cost",
+          "original_type": "real"
+        },
+        {
+          "name": "Customer_Name",
+          "datatype": "STRING",
+          "nullable": true,
+          "original_name": "Customer Name",
+          "original_type": "string"
+        },
+        {
+          "name": "City",
+          "datatype": "STRING",
+          "nullable": true,
+          "original_name": "City",
+          "original_type": "string"
+        },
+        {
+          "name": "Zip_Code",
+          "datatype": "STRING",
+          "nullable": true,
+          "original_name": "Zip Code",
+          "original_type": "string"
+        },
+        {
+          "name": "State",
+          "datatype": "STRING",
+          "nullable": true,
+          "original_name": "State",
+          "original_type": "string"
+        },
+        {
+          "name": "Region",
+          "datatype": "STRING",
+          "nullable": true,
+          "original_name": "Region",
+          "original_type": "string"
+        },
+        {
+          "name": "Customer_Segment",
+          "datatype": "STRING",
+          "nullable": true,
+          "original_name": "Customer Segment",
+          "original_type": "string"
+        },
+        {
+          "name": "Product_Category",
+          "datatype": "STRING",
+          "nullable": true,
+          "original_name": "Product Category",
+          "original_type": "string"
+        },
+        {
+          "name": "Product_Sub_Category",
+          "datatype": "STRING",
+          "nullable": true,
+          "original_name": "Product Sub-Category",
+          "original_type": "string"
+        },
+        {
+          "name": "Product_Name",
+          "datatype": "STRING",
+          "nullable": true,
+          "original_name": "Product Name",
+          "original_type": "string"
+        },
+        {
+          "name": "Product_Container",
+          "datatype": "STRING",
+          "nullable": true,
+          "original_name": "Product Container",
+          "original_type": "string"
+        },
+        {
+          "name": "Product_Base_Margin",
+          "datatype": "DOUBLE",
+          "nullable": true,
+          "original_name": "Product Base Margin",
+          "original_type": "real"
+        },
+        {
+          "name": "Ship_Date",
+          "datatype": "DATE",
+          "nullable": true,
+          "original_name": "Ship Date",
+          "original_type": "date"
+        }
+      ],
+      "source_type": "Excel",
+      "source_connection": {},
+      "format": "delta"
+    }
+  ]
+}

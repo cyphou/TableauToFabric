@@ -1,0 +1,104 @@
+{
+  "orders": {
+    "original_name": "Orders",
+    "source_type": "PostgreSQL",
+    "columns": {
+      "OrderID": {
+        "type": "INT",
+        "original_name": "OrderID",
+        "original_type": "integer"
+      },
+      "CustomerID": {
+        "type": "INT",
+        "original_name": "CustomerID",
+        "original_type": "integer"
+      },
+      "OrderDate": {
+        "type": "DATE",
+        "original_name": "OrderDate",
+        "original_type": "date"
+      },
+      "Category": {
+        "type": "STRING",
+        "original_name": "Category",
+        "original_type": "string"
+      },
+      "Product": {
+        "type": "STRING",
+        "original_name": "Product",
+        "original_type": "string"
+      },
+      "Sales": {
+        "type": "DOUBLE",
+        "original_name": "Sales",
+        "original_type": "real"
+      },
+      "Profit": {
+        "type": "DOUBLE",
+        "original_name": "Profit",
+        "original_type": "real"
+      },
+      "Quantity": {
+        "type": "INT",
+        "original_name": "Quantity",
+        "original_type": "integer"
+      },
+      "Discount": {
+        "type": "DOUBLE",
+        "original_name": "Discount",
+        "original_type": "real"
+      },
+      "Region": {
+        "type": "STRING",
+        "original_name": "Region",
+        "original_type": "string"
+      },
+      "Country": {
+        "type": "STRING",
+        "original_name": "Country",
+        "original_type": "string"
+      },
+      "State": {
+        "type": "STRING",
+        "original_name": "State",
+        "original_type": "string"
+      },
+      "City": {
+        "type": "STRING",
+        "original_name": "City",
+        "original_type": "string"
+      },
+      "revenue_tier": {
+        "type": "STRING",
+        "original_name": "Revenue Tier",
+        "original_type": "string"
+      }
+    }
+  },
+  "customers": {
+    "original_name": "Customers",
+    "source_type": "PostgreSQL",
+    "columns": {
+      "CustomerID": {
+        "type": "INT",
+        "original_name": "CustomerID",
+        "original_type": "integer"
+      },
+      "CustomerName": {
+        "type": "STRING",
+        "original_name": "CustomerName",
+        "original_type": "string"
+      },
+      "Segment": {
+        "type": "STRING",
+        "original_name": "Segment",
+        "original_type": "string"
+      },
+      "Email": {
+        "type": "STRING",
+        "original_name": "Email",
+        "original_type": "string"
+      }
+    }
+  }
+}

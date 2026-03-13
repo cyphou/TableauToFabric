@@ -1,0 +1,17 @@
+{
+  "sqlproxy": {
+    "original_name": "sqlproxy",
+    "source_type": "Unknown",
+    "columns": {}
+  },
+  "xy": {
+    "original_name": "xy",
+    "source_type": "MySQL",
+    "columns": {}
+  },
+  "xy1": {
+    "original_name": "xy1",
+    "source_type": "SQL Server",
+    "columns": {}
+  }
+}

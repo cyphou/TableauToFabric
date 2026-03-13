@@ -1,0 +1,8 @@
+{
+  "displayName": "global_superstores_db",
+  "type": "Pipeline",
+  "generated_at": "2026-03-06T14:49:13.125797",
+  "activities": 3,
+  "stages": 3,
+  "lakehouse": "global_superstores_db"
+}

@@ -1,0 +1,14 @@
+{
+  "displayName": "superstore_sales_dashboard",
+  "type": "SemanticModel",
+  "mode": "DirectLake",
+  "lakehouse": "superstore_sales_dashboard",
+  "stats": {
+    "tables": 2,
+    "columns": 48,
+    "measures": 0,
+    "relationships": 0,
+    "hierarchies": 0,
+    "roles": 0
+  }
+}

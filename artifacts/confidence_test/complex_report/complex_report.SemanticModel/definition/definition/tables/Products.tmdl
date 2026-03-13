@@ -1,0 +1,71 @@
+table Products
+	lineageTag: 3cd1c1e8-97fc-4f1a-973c-1ef0d588a49c
+
+	column ProductID
+		dataType: int64
+		lineageTag: 0919666f-f54b-453a-aa12-b2caf0b30153
+		summarizeBy: sum
+		sourceColumn: ProductID
+
+		annotation SummarizationSetBy = Automatic
+
+	column ProductName
+		dataType: string
+		lineageTag: 8e734df6-1b72-471c-bea7-684ab6c009bb
+		summarizeBy: none
+		sourceColumn: ProductName
+
+		annotation SummarizationSetBy = Automatic
+
+	column Category
+		dataType: string
+		lineageTag: 99100739-f061-4b24-a373-f7ee52f81dc1
+		summarizeBy: none
+		sourceColumn: Category
+
+		annotation SummarizationSetBy = Automatic
+
+	column SubCategory
+		dataType: string
+		lineageTag: a0881207-aaa2-4a39-9fbb-538dea44cced
+		summarizeBy: none
+		sourceColumn: SubCategory
+
+		annotation SummarizationSetBy = Automatic
+
+	column UnitPrice
+		dataType: double
+		formatString: #,0.00
+		lineageTag: ce3871b0-9e4d-4e6b-b3b2-d72b3274d2e3
+		summarizeBy: sum
+		sourceColumn: UnitPrice
+
+		annotation SummarizationSetBy = Automatic
+
+	hierarchy 'Product Hierarchy'
+		lineageTag: 0416be98-1592-4ffc-b51c-c7938b366610
+
+		level Category
+			ordinal: 0
+			column: Category
+			lineageTag: 9ffa9d39-d112-4b77-b407-16d89f0a77d6
+
+		level SubCategory
+			ordinal: 1
+			column: SubCategory
+			lineageTag: 6c70dff7-93ac-4940-982e-e7f60ea87ab4
+
+		level ProductName
+			ordinal: 2
+			column: ProductName
+			lineageTag: 9e558b76-790a-4e78-9ea0-05b9a3357be4
+
+
+	partition 'Products-ed7d8e87-a75a-4737-be78-320689bb95a3' = entity
+		mode: directLake
+		entityName: products
+		schemaName: dbo
+		expressionSource: DatabaseQuery
+
+	annotation PBI_ResultType = Table
+

@@ -1,6 +1,6 @@
-# Deployment Guide — Microsoft Fabric
+# Deployment Guide — Fabric REST API
 
-This guide covers deploying generated artifacts to Microsoft Fabric workspaces using the tool's built-in deployment pipeline.
+This guide covers deploying generated Power BI projects to Microsoft Fabric workspaces using the tool's built-in deployment pipeline.
 
 ---
 
@@ -27,40 +27,15 @@ FABRIC_CLIENT_SECRET=<your-client-secret>
 
 # Optional
 FABRIC_API_BASE_URL=https://api.fabric.microsoft.com/v1
-USE_MANAGED_IDENTITY=false
-LOG_LEVEL=INFO
-LOG_FORMAT=text
-DEPLOYMENT_TIMEOUT=300
-RETRY_ATTEMPTS=3
-RETRY_DELAY=5
+FABRIC_USE_MANAGED_IDENTITY=false
+FABRIC_LOG_LEVEL=INFO
+FABRIC_LOG_FORMAT=text
+FABRIC_DEPLOYMENT_TIMEOUT=300
+FABRIC_RETRY_ATTEMPTS=3
+FABRIC_RETRY_DELAY=5
 ```
 
 ## Authentication Methods
-
-```
-  ┌───────────────────────────────────────────────────┐
-  │                Authentication Flow                │
-  ├───────────────────────────────────────────────────┤
-  │                                                   │
-  │  ┌─────────────────┐    ┌──────────────────────┐  │
-  │  │ Service         │    │ Azure AD             │  │
-  │  │ Principal       ├───>│ Token Endpoint       │  │
-  │  │ (CI/CD)         │    │ oauth2/v2.0/token    │  │
-  │  └─────────────────┘    └──────────┬───────────┘  │
-  │                                    │              │
-  │  ┌─────────────────┐               v              │
-  │  │ Managed         │    ┌──────────────────────┐  │
-  │  │ Identity        ├───>│ Bearer Token         │  │
-  │  │ (Azure-hosted)  │    └──────────┬───────────┘  │
-  │  └─────────────────┘               │              │
-  │                                    v              │
-  │                         ┌──────────────────────┐  │
-  │                         │ Fabric REST API      │  │
-  │                         │ api.fabric.microsoft │  │
-  │                         │ .com/v1              │  │
-  │                         └──────────────────────┘  │
-  └───────────────────────────────────────────────────┘
-```
 
 ### Service Principal (Recommended for CI/CD)
 
@@ -72,11 +47,11 @@ pip install azure-identity
 
 ### Managed Identity (For Azure-hosted runners)
 
-Set `USE_MANAGED_IDENTITY=true`. Uses `DefaultAzureCredential` which automatically picks up managed identity credentials.
+Set `FABRIC_USE_MANAGED_IDENTITY=true`. Uses `DefaultAzureCredential` which automatically picks up managed identity credentials.
 
 ### No Authentication (Local Dev)
 
-Skip the deployment step and open generated `.pbip` files directly in Power BI Desktop, or manually import artifacts into a Fabric workspace.
+Skip the deployment step and open generated `.pbip` files directly in Power BI Desktop.
 
 ## Deployment Pipeline
 
@@ -99,22 +74,8 @@ print(report.summary())
 
 The project includes a 5-stage CI/CD pipeline in `.github/workflows/ci.yml`:
 
-```
-  ┌──────────┐    ┌──────────┐    ┌──────────┐    ┌───────────┐    ┌───────────┐
-  │  1.Lint  │───>│  2.Test  │───>│3.Validate│───>│ 4.Deploy  │───>│ 5.Deploy  │
-  │          │    │          │    │          │    │  Staging  │    │Production │
-  │ flake8   │    │ pytest   │    │ migrate  │    │           │    │           │
-  │ ruff     │    │ 3.9-3.12 │    │ + verify │    │ develop   │    │ main      │
-  │          │    │          │    │ samples  │    │ branch    │    │ branch    │
-  └──────────┘    └──────────┘    └──────────┘    └───────────┘    └───────────┘
-       │               │               │                │                │
-       v               v               v                v                v
-   Code quality    All 1840+      Artifact gen      Auto-deploy      Auto-deploy
-   checks          tests pass    + validation      on push           on push
-```
-
 1. **Lint** — flake8 + ruff
-2. **Test** — pytest on Python 3.9–3.12+
+2. **Test** — unittest on Python 3.9–3.12
 3. **Validate** — migrate all sample .twb files, validate artifacts
 4. **Deploy Staging** — auto-deploys on `develop` branch push
 5. **Deploy Production** — auto-deploys on `main` branch push
@@ -129,13 +90,10 @@ The project includes a 5-stage CI/CD pipeline in `.github/workflows/ci.yml`:
 | `FABRIC_CLIENT_SECRET` | App registration client secret |
 | `STAGING_WORKSPACE_ID` | Staging workspace GUID (for staging deploy) |
 
-### PowerShell Deployment Scripts
+#### Staging vs Production
 
-The `scripts/` directory contains PowerShell automation:
-
-- **`Deploy-TableauMigration.ps1`** — End-to-end deployment script
-- **`New-MigrationWorkspace.ps1`** — Create a migration workspace
-- **`Validate-Deployment.ps1`** — Validate deployment results
+- **Staging** (`deploy-staging` job): Triggered on pushes to `develop` branch. Deploys to the staging workspace.
+- **Production** (`deploy-production` job): Triggered on pushes to `main` branch. Deploys to the production workspace with environment approval.
 
 ## Environment Configurations
 
@@ -148,29 +106,6 @@ Three pre-configured environments in `fabric_import/config/environments.py`:
 | Retry attempts | 1 | 3 | 5 |
 | Retry delay (s) | 1 | 5 | 10 |
 | Approval required | No | No | Yes |
-
-## Fabric Artifact Deployment Order
-
-Deploy artifacts in this order:
-
-```
-  ┌────────────┐     ┌────────────┐     ┌────────────┐     ┌────────────┐     ┌────────────┐     ┌────────────┐
-  │ 1.Lakehouse│────>│ 2.Dataflow │────>│ 3.Notebook │────>│ 4.Semantic │────>│ 5.Report   │────>│ 6.Pipeline │
-  │            │     │    Gen2    │     │  (PySpark) │     │   Model    │     │   (.pbip)  │     │  (orch.)   │
-  └────────────┘     └────────────┘     └────────────┘     └────────────┘     └────────────┘     └────────────┘
-        │                  │                  │                  │                  │                  │
-        v                  v                  v                  v                  v                  v
-   Create Delta       Load data          Transform &       Point to            Bind visuals      Wire Dataflow
-   table storage      from sources       compute calc      Lakehouse via       to Semantic       + Notebook +
-                      into Lakehouse     columns           DirectLake          Model             Refresh
-```
-
-1. **Lakehouse** — Create the Lakehouse first (it holds your data)
-2. **Dataflow Gen2** — Import data into Lakehouse Delta tables
-3. **Notebook** — Run PySpark transformations (optional, depends on ETL strategy)
-4. **Semantic Model** — Deploy TMDL model pointing to Lakehouse
-5. **Data Pipeline** — Orchestrate Dataflow + Notebook
-6. **Power BI Report** — Deploy .pbip report referencing the Semantic Model
 
 ## Retry & Error Handling
 

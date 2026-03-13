@@ -1,0 +1,19 @@
+model Model
+	culture: fr-FR
+	defaultPowerBIDataSourceVersion: powerBI_V3
+	defaultMode: directLake
+	sourceQueryCulture: en-US
+	dataAccessOptions
+		legacyRedirects
+		returnErrorValuesAsNull
+
+annotation PBI_QueryOrder = ["Sales"]
+
+ref table Sales
+
+ref expression DatabaseQuery
+
+ref perspective 'Full Model'
+
+ref culture 'fr-FR'
+

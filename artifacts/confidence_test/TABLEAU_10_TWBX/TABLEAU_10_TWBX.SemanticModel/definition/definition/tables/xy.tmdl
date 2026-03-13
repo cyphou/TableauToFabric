@@ -1,0 +1,35 @@
+table xy
+	lineageTag: 6637a6c0-e983-4a27-a8e0-762d198bcdb4
+
+	column a
+		dataType: string
+		lineageTag: b4cf3e00-a414-44d6-b32f-669dba57988e
+		summarizeBy: none
+		sourceColumn: a
+
+		annotation SummarizationSetBy = Automatic
+
+	column x
+		dataType: int64
+		lineageTag: 26c54f1a-e07c-4bf2-81cf-0c5ac09e8ea8
+		summarizeBy: sum
+		sourceColumn: x
+
+		annotation SummarizationSetBy = Automatic
+
+	column y
+		dataType: int64
+		lineageTag: cf0a5c6d-6664-4f44-a074-45c39cbe2cad
+		summarizeBy: sum
+		sourceColumn: y
+
+		annotation SummarizationSetBy = Automatic
+
+	partition 'xy-19f890b8-01ba-4110-be40-d14f080524b4' = entity
+		mode: directLake
+		entityName: xy
+		schemaName: dbo
+		expressionSource: DatabaseQuery
+
+	annotation PBI_ResultType = Table
+

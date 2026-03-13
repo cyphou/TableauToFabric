@@ -1,0 +1,14 @@
+{
+  "displayName": "nba_player_stats",
+  "type": "SemanticModel",
+  "mode": "DirectLake",
+  "lakehouse": "nba_player_stats",
+  "stats": {
+    "tables": 2,
+    "columns": 21,
+    "measures": 2,
+    "relationships": 0,
+    "hierarchies": 0,
+    "roles": 0
+  }
+}

@@ -1,0 +1,95 @@
+table Regions
+	lineageTag: 2ae3eb4b-3117-4505-89f6-b4e4073d8c8e
+
+	column RegionID
+		dataType: int64
+		lineageTag: dea01021-b32e-4758-9594-45f10fb3b01f
+		summarizeBy: sum
+		sourceColumn: RegionID
+		dataCategory: StateOrProvince
+
+		annotation SummarizationSetBy = Automatic
+
+	column RegionName
+		dataType: string
+		lineageTag: 8da3c8a5-54b7-451e-b7ef-06d95ec62e0c
+		summarizeBy: none
+		sourceColumn: RegionName
+		dataCategory: StateOrProvince
+
+		annotation SummarizationSetBy = Automatic
+
+	column Country
+		dataType: string
+		lineageTag: faaee7a1-ed2d-40cf-89ad-6d061c2da083
+		summarizeBy: none
+		sourceColumn: Country
+		dataCategory: Country
+
+		annotation SummarizationSetBy = Automatic
+
+	column State
+		dataType: string
+		lineageTag: 9889f6c3-c148-4b6b-937b-3a4fb3c30f8f
+		summarizeBy: none
+		sourceColumn: State
+		dataCategory: StateOrProvince
+
+		annotation SummarizationSetBy = Automatic
+
+	column City
+		dataType: string
+		lineageTag: 8564191f-73c7-4187-8355-f37fd7b7b0c6
+		summarizeBy: none
+		sourceColumn: City
+		dataCategory: City
+
+		annotation SummarizationSetBy = Automatic
+
+	column Latitude
+		dataType: double
+		formatString: #,0.00
+		lineageTag: 42178cb7-2423-49c2-8545-3e9db7de448f
+		summarizeBy: sum
+		sourceColumn: Latitude
+		dataCategory: Latitude
+
+		annotation SummarizationSetBy = Automatic
+
+	column Longitude
+		dataType: double
+		formatString: #,0.00
+		lineageTag: e3cc791a-af6d-49d7-95af-dc5c01a67dc3
+		summarizeBy: sum
+		sourceColumn: Longitude
+		dataCategory: Longitude
+
+		annotation SummarizationSetBy = Automatic
+
+	hierarchy Geography
+		lineageTag: b89b98fa-a574-4a07-9926-b235a30f1a91
+
+		level Country
+			ordinal: 0
+			column: Country
+			lineageTag: cc94191e-0e73-4b35-93de-220116b24860
+
+		level State
+			ordinal: 1
+			column: State
+			lineageTag: 979f3446-27dc-46c6-8ac8-abcdecc704f3
+
+		level City
+			ordinal: 2
+			column: City
+			lineageTag: be318343-e6ca-4a59-98eb-4b14c64246cb
+
+
+	partition 'Regions-c670ade8-a1cc-4456-83f8-d528911bfae2' = entity
+		mode: directLake
+		entityName: regions
+		schemaName: dbo
+		expressionSource: DatabaseQuery
+
+	annotation PBI_ResultType = Table
+

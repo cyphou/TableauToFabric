@@ -1,0 +1,5 @@
+relationship cf75c82b-b3d6-479c-85a0-d60bcde362cb
+	fromColumn: Orders.CustomerID
+	toColumn: Customers.CustomerID
+	crossFilteringBehavior: oneDirection
+

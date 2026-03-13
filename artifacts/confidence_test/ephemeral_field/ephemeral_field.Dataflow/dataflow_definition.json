@@ -1,0 +1,25 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/dataflow/definition/dataflowGen2/1.0.0/schema.json",
+  "properties": {
+    "displayName": "ephemeral_field_Dataflow",
+    "description": "Dataflow Gen2 generated from Tableau workbook: ephemeral_field",
+    "type": "DataflowGen2",
+    "created": "2026-03-05T10:46:58.644068"
+  },
+  "mashupDocument": "\nsection Section1;\n\nshared xy = let\n    // TODO: Configure the source for Unknown\n    // Connection type not automatically supported\n    Source = #table(\n        {\"a\", \"x\", \"y\"},\n        {\n            {\"Sample 1\", 2, 3},\n            {\"Sample 2\", 3, 4}\n        }\n    )\nin\n    Source;",
+  "queries": [
+    {
+      "name": "xy",
+      "description": "Ingests data from xy",
+      "queryId": "xy",
+      "resultType": "Table",
+      "loadEnabled": true,
+      "destination": {
+        "type": "Lakehouse",
+        "tableName": "xy",
+        "updateMethod": "Replace",
+        "schemaMapping": "Auto"
+      }
+    }
+  ]
+}

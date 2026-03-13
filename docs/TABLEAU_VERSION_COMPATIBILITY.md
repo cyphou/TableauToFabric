@@ -51,7 +51,7 @@ This document describes which Tableau Desktop versions and features are supporte
 | FIXED LOD expressions | 2015.x | ✅ → CALCULATE(AGG, ALLEXCEPT) |
 | INCLUDE LOD expressions | 2015.x | ✅ → CALCULATE(AGG) |
 | EXCLUDE LOD expressions | 2015.x | ✅ → CALCULATE(AGG, REMOVEFILTERS) |
-| Nested LOD | All | ✅ Balanced brace parser handles nesting |
+| Nested LOD | All | ⚠️ Approximated |
 | Table calculations (RUNNING, RANK, WINDOW) | All | ⚠️ Approximated |
 
 ### Data Sources
@@ -109,10 +109,3 @@ This document describes which Tableau Desktop versions and features are supporte
 - **Recommended**: Latest Power BI Desktop release
 - **PBIR format**: Must be enabled (default in recent versions)
 - **TMDL format**: Must be supported (default in Power BI Desktop)
-
-## Microsoft Fabric Requirements
-
-- **Fabric capacity**: F2 or higher for workspace deployment
-- **Lakehouse**: Required for DirectLake semantic models
-- **Dataflow Gen2**: Supported in all Fabric capacities
-- **Notebook**: PySpark notebook support in Fabric workspace

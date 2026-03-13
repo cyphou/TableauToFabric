@@ -1,0 +1,11 @@
+table sqlproxy
+	lineageTag: 7d82b4f6-4c73-4658-9b1c-fac3a20562fe
+
+	partition 'sqlproxy-f6ed4d7b-b6b1-42a2-9478-3982ddf6c413' = entity
+		mode: directLake
+		entityName: sqlproxy
+		schemaName: dbo
+		expressionSource: DatabaseQuery
+
+	annotation PBI_ResultType = Table
+

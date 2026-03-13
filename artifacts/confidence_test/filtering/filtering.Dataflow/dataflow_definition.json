@@ -1,0 +1,25 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/dataflow/definition/dataflowGen2/1.0.0/schema.json",
+  "properties": {
+    "displayName": "filtering_Dataflow",
+    "description": "Dataflow Gen2 generated from Tableau workbook: filtering",
+    "type": "DataflowGen2",
+    "created": "2026-03-05T10:47:04.705835"
+  },
+  "mashupDocument": "\nsection Section1;\n\nshared TestData = let\n    // Source SQL Server\n    Source = Sql.Database(\"b5dpm3ihhu.database.windows.net\", \"EmptyDB\"),\n    #\"TestData Table\" = Source{[Schema=\"dbo\", Item=\"TestData\"]}[Data],\n    Result = #\"TestData Table\"\n,\n    CalcCol_show = Table.AddColumn(Result, \"SHOW\", each if [BurstoutSet] then \"Selected\" else \"not Selected\")\nin\n    CalcCol_show;",
+  "queries": [
+    {
+      "name": "TestData",
+      "description": "Ingests data from TestData + 1 calculated column(s)",
+      "queryId": "testdata",
+      "resultType": "Table",
+      "loadEnabled": true,
+      "destination": {
+        "type": "Lakehouse",
+        "tableName": "testdata",
+        "updateMethod": "Replace",
+        "schemaMapping": "Auto"
+      }
+    }
+  ]
+}

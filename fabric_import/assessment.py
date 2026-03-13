@@ -1,5 +1,5 @@
 """
-Pre-Migration Assessment Module for Tableau → Microsoft Fabric.
+Pre-Migration Assessment Module for Tableau → Power BI.
 
 Runs a comprehensive checklist against an extracted Tableau workbook
 and produces a structured readiness report with:
@@ -67,8 +67,7 @@ _UNSUPPORTED_CONNECTORS = frozenset({
 
 _UNSUPPORTED_FUNCTIONS = re.compile(
     r'\b('
-    r'SCRIPT_BOOL|SCRIPT_INT|SCRIPT_REAL|SCRIPT_STR'
-    r'|COLLECT'
+    r'COLLECT'
     r'|BUFFER|AREA|INTERSECTION|MAKELINE|MAKEPOINT'
     r'|HEXBINX|HEXBINY'
     r'|USERDOMAIN'
@@ -76,13 +75,18 @@ _UNSUPPORTED_FUNCTIONS = re.compile(
     re.IGNORECASE,
 )
 
+# SCRIPT_* functions: supported via Python/R visuals (warn, not fail)
+_SCRIPT_FUNCTIONS = re.compile(
+    r'\b(SCRIPT_BOOL|SCRIPT_INT|SCRIPT_REAL|SCRIPT_STR)\s*\(',
+    re.IGNORECASE,
+)
+
 _PARTIAL_FUNCTIONS = re.compile(
     r'\b('
     r'REGEXP_EXTRACT|REGEXP_EXTRACT_NTH|REGEXP_MATCH|REGEXP_REPLACE'
     r'|RAWSQL_BOOL|RAWSQL_INT|RAWSQL_REAL|RAWSQL_STR|RAWSQL_DATE|RAWSQL_DATETIME|RAWSQL_SPATIAL'
-    r'|PREVIOUS_VALUE|LOOKUP|INDEX'
+    r'|PREVIOUS_VALUE|LOOKUP'
     r'|RANK\b|RANK_UNIQUE|RANK_DENSE|RANK_MODIFIED|RANK_PERCENTILE'
-    r'|WINDOW_CORR|WINDOW_COVAR|WINDOW_COVARP'
     r')\s*\(',
     re.IGNORECASE,
 )
@@ -272,13 +276,11 @@ def _check_datasources(extracted: Dict) -> CategoryResult:
         conn = ds.get("connection", {})
         conn_type = conn.get("type") or "Unknown"
         # If type is Unknown, try to infer from datasource name prefix
-        # (Tableau names like "sqlserver.187abc..." embed the connector type)
         if conn_type == "Unknown" and "." in ds_name:
             prefix = ds_name.split(".")[0].lower()
             if prefix in _FULLY_SUPPORTED_CONNECTORS:
                 conn_type = prefix
             elif prefix in ("sqlproxy",):
-                # sqlproxy = Tableau Bridge / Cloud relay — treat as pass-through
                 conn_type = "sqlproxy"
         connector_types.setdefault(conn_type, []).append(ds_name)
 
@@ -286,23 +288,23 @@ def _check_datasources(extracted: Dict) -> CategoryResult:
         if conn_type in _FULLY_SUPPORTED_CONNECTORS:
             cat.checks.append(CheckItem(
                 cat.name, f"Connector: {conn_type}", PASS,
-                f"Fully supported. Used by: {', '.join(ds_names)}.",
+                f"Fully supported in Power BI. Used by: {', '.join(ds_names)}.",
             ))
         elif conn_type in _PARTIALLY_SUPPORTED_CONNECTORS:
             cat.checks.append(CheckItem(
                 cat.name, f"Connector: {conn_type}", WARN,
-                f"Partially supported (PySpark Notebook recommended). "
-                f"Used by: {', '.join(ds_names)}.",
-                "Use PySpark Notebook with JDBC for this connector. "
-                "Run with --auto to auto-select ETL strategy.",
+                f"Partially supported (may require a Power BI gateway or "
+                f"custom connector). Used by: {', '.join(ds_names)}.",
+                "Configure an on-premises data gateway or use a certified "
+                "Power BI connector for this data source.",
             ))
         elif conn_type in _UNSUPPORTED_CONNECTORS:
             cat.checks.append(CheckItem(
                 cat.name, f"Connector: {conn_type}", FAIL,
-                f"Not natively supported in Fabric. "
+                f"Not natively supported in Power BI. "
                 f"Used by: {', '.join(ds_names)}.",
                 "Consider migrating data to a supported source (e.g. Azure SQL, "
-                "ADLS) or use a custom Spark connector.",
+                "Excel, CSV) or use a custom Power Query connector.",
             ))
         elif conn_type == "sqlproxy":
             cat.checks.append(CheckItem(
@@ -320,7 +322,7 @@ def _check_datasources(extracted: Dict) -> CategoryResult:
             cat.checks.append(CheckItem(
                 cat.name, f"Connector: {conn_type}", WARN,
                 f"Unrecognised connector. Used by: {', '.join(ds_names)}.",
-                "Verify manually whether Fabric supports this connector type.",
+                "Verify manually whether Power BI supports this connector type.",
             ))
 
     # Data blending — filter out virtual "Parameters" datasource links
@@ -350,9 +352,9 @@ def _check_datasources(extracted: Dict) -> CategoryResult:
         cat.checks.append(CheckItem(
             cat.name, "Published datasources", INFO,
             f"{len(published)} published datasource reference(s): {pub_names}. "
-            "Auto-handled: connection is re-pointed to Fabric Lakehouse/Semantic Model.",
+            "Connection will need to be re-pointed to the actual data source in Power BI.",
             "Verify that the published datasource schema matches "
-            "the generated Lakehouse tables.",
+            "the data source configured in the Power BI Semantic Model.",
         ))
     else:
         cat.checks.append(CheckItem(
@@ -367,8 +369,8 @@ def _check_datasources(extracted: Dict) -> CategoryResult:
             cat.name, "Custom SQL", INFO,
             f"{len(custom_sql)} custom SQL query/queries detected. "
             "Auto-converted: embedded as native SQL passthrough in Power Query M.",
-            "The original SQL is preserved as a native query in the Dataflow. "
-            "Review for compatibility with the target database.",
+            "Review the generated Power Query M for SQL compatibility "
+            "with the target database.",
         ))
     else:
         cat.checks.append(CheckItem(
@@ -399,6 +401,7 @@ def _check_calculations(extracted: Dict) -> CategoryResult:
     # Classify
     unsupported = []
     partial = []
+    script_calcs = []
     lod_calcs = []
     table_calcs = []
 
@@ -408,6 +411,8 @@ def _check_calculations(extracted: Dict) -> CategoryResult:
 
         if _UNSUPPORTED_FUNCTIONS.search(formula):
             unsupported.append(name)
+        if _SCRIPT_FUNCTIONS.search(formula):
+            script_calcs.append(name)
         if _PARTIAL_FUNCTIONS.search(formula):
             partial.append(name)
         if _LOD_PATTERN.search(formula):
@@ -423,7 +428,7 @@ def _check_calculations(extracted: Dict) -> CategoryResult:
             cat.name, "Unsupported functions", FAIL,
             f"{len(unsupported)} calculation(s) use functions with no DAX equivalent: "
             f"{names_preview}{extra}.",
-            "SCRIPT_* (R/Python), COLLECT (spatial aggregate), HEXBIN, "
+            "COLLECT (spatial aggregate), HEXBIN, "
             "BUFFER/AREA/INTERSECTION (spatial ops) have no Power BI equivalent. "
             "Manual rewrite or removal is required.",
         ))
@@ -431,6 +436,23 @@ def _check_calculations(extracted: Dict) -> CategoryResult:
         cat.checks.append(CheckItem(
             cat.name, "Unsupported functions", PASS,
             "No calculations use unsupported functions.",
+        ))
+
+    if script_calcs:
+        names_preview = ", ".join(script_calcs[:5])
+        extra = f" (+{len(script_calcs) - 5} more)" if len(script_calcs) > 5 else ""
+        cat.checks.append(CheckItem(
+            cat.name, "SCRIPT_* analytics extensions", WARN,
+            f"{len(script_calcs)} calculation(s) use R/Python analytics extensions: "
+            f"{names_preview}{extra}.",
+            "SCRIPT_* functions are migrated to Power BI Python/R script visuals. "
+            "Requires Python or R runtime configured in PBI Desktop "
+            "(File → Options → Python/R scripting). Scripts may need manual adaptation.",
+        ))
+    else:
+        cat.checks.append(CheckItem(
+            cat.name, "SCRIPT_* analytics extensions", PASS,
+            "No calculations use R/Python analytics extensions.",
         ))
 
     if partial:
@@ -589,7 +611,7 @@ def _check_filters(extracted: Dict) -> CategoryResult:
             f"{len(user_filters)} user filter(s) / security calculation(s) detected. "
             "Auto-converted to TMDL RLS roles in roles.tmdl.",
             "Assign users/groups to the generated RLS roles in "
-            "Fabric workspace security settings.",
+            "Power BI workspace security settings.",
         ))
     else:
         cat.checks.append(CheckItem(
@@ -632,12 +654,12 @@ def _check_data_model(extracted: Dict) -> CategoryResult:
     cat.checks.append(CheckItem(
         cat.name, "Table count", INFO if total_tables <= 20 else WARN,
         f"{total_tables} table(s) across all datasources.",
-        "Large table counts increase Lakehouse complexity." if total_tables > 20 else "",
+        "Large table counts increase model complexity." if total_tables > 20 else "",
     ))
     cat.checks.append(CheckItem(
         cat.name, "Column count", INFO if total_columns <= 200 else WARN,
         f"{total_columns} column(s) total.",
-        "Wide schemas may benefit from PySpark Notebook for schema mapping." if total_columns > 200 else "",
+        "Wide schemas may benefit from selective column import via Power Query." if total_columns > 200 else "",
     ))
 
     # Relationships
@@ -689,7 +711,19 @@ def _check_interactivity(extracted: Dict) -> CategoryResult:
     actions = extracted.get("actions", [])
     stories = extracted.get("stories", [])
 
-    if not actions and not stories:
+    # Check for pages shelf / dynamic zones before early return
+    worksheets = extracted.get("worksheets", [])
+    dashboards = extracted.get("dashboards", [])
+    has_pages_shelf = any(
+        ws.get("pages_shelf") and ws["pages_shelf"].get("field")
+        for ws in worksheets
+    )
+    dz_count = sum(
+        len(db.get("dynamic_zone_visibility", []))
+        for db in dashboards
+    )
+
+    if not actions and not stories and not has_pages_shelf and not dz_count:
         cat.checks.append(CheckItem(
             cat.name, "No actions or stories", PASS,
             "No interactivity features detected.",
@@ -699,7 +733,7 @@ def _check_interactivity(extracted: Dict) -> CategoryResult:
     # Action types
     action_types: Dict[str, int] = {}
     for a in actions:
-        atype = a.get("type", "").strip() or "filter"  # empty type = auto filter action
+        atype = a.get("type", "").strip() or "filter"
         action_types[atype] = action_types.get(atype, 0) + 1
 
     for atype, count in action_types.items():
@@ -736,6 +770,30 @@ def _check_interactivity(extracted: Dict) -> CategoryResult:
             "and navigator after migration.",
         ))
 
+    # Pages shelf / motion charts (animation)
+    pages_worksheets = [
+        ws.get("name", "?") for ws in worksheets
+        if ws.get("pages_shelf") and ws["pages_shelf"].get("field")
+    ]
+    if pages_worksheets:
+        cat.checks.append(CheckItem(
+            cat.name, "Pages Shelf / Animation", WARN,
+            f"{len(pages_worksheets)} worksheet(s) use Pages shelf (animation): "
+            f"{', '.join(pages_worksheets[:5])}.",
+            "Tableau Pages shelf animates through dimension values. "
+            "Converted to a slicer. Power BI Play Axis (preview) may "
+            "offer similar animation — enable it manually if needed.",
+        ))
+
+    # Dynamic zone visibility (sheet-swap)
+    if dz_count:
+        cat.checks.append(CheckItem(
+            cat.name, "Dynamic Zone Visibility", INFO,
+            f"{dz_count} dynamic zone(s) detected → converted to bookmarks.",
+            "Dynamic zone visibility (sheet-swap) is approximated via "
+            "bookmarks. Configure visual visibility toggles in PBI Desktop.",
+        ))
+
     return cat
 
 
@@ -753,8 +811,8 @@ def _check_extract_and_packaging(extracted: Dict) -> CategoryResult:
         cat.checks.append(CheckItem(
             cat.name, "Hyper extract files", INFO,
             f"{len(hyper_files)} .hyper file(s) detected ({total_size_mb:.1f} MB total).",
-            "Hyper extracts indicate embedded data. Data will be loaded "
-            "into the Fabric Lakehouse via Dataflow or Notebook.",
+            "Hyper extracts indicate embedded data. Data will need to be "
+            "imported via Power Query or connected to a live data source.",
         ))
     else:
         cat.checks.append(CheckItem(
@@ -797,8 +855,8 @@ def _check_extract_and_packaging(extracted: Dict) -> CategoryResult:
         cat.checks.append(CheckItem(
             cat.name, "Custom geocoding", WARN,
             f"{len(custom_geo_files)} custom geocoding file(s) detected.",
-            "Import custom geocoding CSVs into the Lakehouse and join "
-            "as a lookup table.",
+            "Import custom geocoding CSVs into a lookup table and join "
+            "in Power Query or the Semantic Model.",
         ))
 
     return cat
@@ -903,6 +961,50 @@ def _check_migration_scope(extracted: Dict) -> CategoryResult:
         "Objects: " + " | ".join(inventory_lines) if inventory_lines else "Empty workbook.",
     ))
 
+    # ── Tableau 2024.3+ feature detection ──
+    _modern_features = []
+
+    # Dynamic zone visibility (worksheets with visibility rules)
+    for ws in worksheets:
+        if ws.get('dynamic_visibility') or ws.get('zone_visibility'):
+            _modern_features.append('Dynamic Zone Visibility')
+            break
+
+    # Dynamic parameters with DB queries
+    for param in parameters:
+        if param.get('query') or param.get('domain_type') == 'database':
+            _modern_features.append('Dynamic Parameters (DB query)')
+            break
+
+    # Dynamic axis formatting / combined axis
+    for ws in worksheets:
+        axes = ws.get('axes', {})
+        if isinstance(axes, dict):
+            for ax in axes.values():
+                if isinstance(ax, dict) and (ax.get('combined_axis') or ax.get('synchronized')):
+                    _modern_features.append('Combined/Synchronized Axes')
+                    break
+
+    # Data-driven alert calculations
+    for calc in calculations:
+        formula = calc.get('formula', '')
+        if 'RAWSQL_' in formula.upper():
+            _modern_features.append('RAWSQL Functions')
+            break
+
+    if _modern_features:
+        cat.checks.append(CheckItem(
+            cat.name, "Modern Tableau features", WARN,
+            f"Detected Tableau 2024.3+ features: {', '.join(_modern_features)}. "
+            "These require manual review after migration.",
+            recommendation="Review each modern feature and map to Power BI equivalents manually.",
+        ))
+    else:
+        cat.checks.append(CheckItem(
+            cat.name, "Modern Tableau features", PASS,
+            "No Tableau 2024.3+ specific features detected.",
+        ))
+
     return cat
 
 
@@ -918,7 +1020,7 @@ def run_assessment(
     """Run the full pre-migration assessment against extracted data.
 
     Args:
-        extracted: dict from ``FabricImporter._load_extracted_objects()``
+        extracted: dict from ``FabricImporter._load_converted_objects()``
         workbook_name: display name for the report header
 
     Returns:

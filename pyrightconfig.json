@@ -1,0 +1,8 @@
+{
+    "extraPaths": [
+        "tableau_export",
+        "fabric_import"
+    ],
+    "pythonVersion": "3.8",
+    "reportMissingModuleSource": "none"
+}

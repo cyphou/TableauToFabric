@@ -1,55 +1,11 @@
 # Documentation
 
-## Project Architecture
-
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                           TableauToFabric                                      │
-│                                                                                 │
-│  ┌─────────────────┐     ┌──────────────────┐     ┌──────────────────────────┐  │
-│  │  migrate.py      │────>│  tableau_export/  │────>│  fabric_import/          │  │
-│  │  (CLI entry)     │     │  (16 JSON files)  │     │  (6 artifact generators) │  │
-│  └─────────────────┘     └──────────────────┘     └──────────────────────────┘  │
-│           │                   │                       │                          │
-│           │              extraction layer          generation layer              │
-│           │                   │                       │                          │
-│           │               ┌───┘                       └───┐                     │
-│           │               ▼                               ▼                     │
-│           │   ┌──────────────────────┐   ┌──────────────────────────────┐       │
-│           │   │  dax_converter.py     │   │  lakehouse_generator.py      │       │
-│           │   │  m_query_builder.py   │   │  dataflow_generator.py       │       │
-│           │   │  prep_flow_parser.py  │   │  notebook_generator.py       │       │
-│           │   │  datasource_extractor │   │  semantic_model_generator.py  │       │
-│           │   └──────────────────────┘   │  pipeline_generator.py        │       │
-│           │                              │  pbip_generator.py            │       │
-│           │                              │  tmdl_generator.py            │       │
-│           │                              │  visual_generator.py          │       │
-│           │                              │  assessment.py                │       │
-│           │                              │  strategy_advisor.py          │       │
-│           │                              │  constants.py / naming.py     │       │
-│           │                              └──────────────────────────────┘       │
-│           │                                                                     │
-│           └───────────── conversion/ ──────────────────────────────────────     │
-│               ┌──────────────────────────────────────────────────────┐          │
-│               │  worksheet_converter    dashboard_converter          │          │
-│               │  datasource_converter   filter_converter             │          │
-│               │  parameter_converter    calculation_converter         │          │
-│               │  story_converter                                     │          │
-│               └──────────────────────────────────────────────────────┘          │
-│                                                                                 │
-│  tests/  ─── 961 tests, 25 files, 0 failures                                  │
-│  scripts/ ── PowerShell deployment (New-Workspace, Deploy, Validate)           │
-│  docs/   ─── 7 guides + FAQ                                                   │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
-
 ## Guides
 
-- [FABRIC_PROJECT_GUIDE.md](FABRIC_PROJECT_GUIDE.md) — Understanding Fabric artifacts and DirectLake projects
-- [MAPPING_REFERENCE.md](MAPPING_REFERENCE.md) — Tableau ↔ Fabric mappings (60+ visuals, formulas, interactions)
-- [CALCULATED_COLUMNS_GUIDE.md](CALCULATED_COLUMNS_GUIDE.md) — Calculated column materialisation in Lakehouse
-- [TABLEAU_TO_DAX_REFERENCE.md](TABLEAU_TO_DAX_REFERENCE.md) — 172 Tableau functions catalogued (~130 conversion points)
-- [TABLEAU_TO_POWERQUERY_REFERENCE.md](TABLEAU_TO_POWERQUERY_REFERENCE.md) — Complete 108-property Tableau → Power Query M mapping (31 connectors)
+- [POWERBI_PROJECT_GUIDE.md](POWERBI_PROJECT_GUIDE.md) — Understanding and using `.pbip` projects
+- [MAPPING_REFERENCE.md](MAPPING_REFERENCE.md) — Tableau ↔ Power BI mappings (60+ visuals, formulas, interactions)
+- [TABLEAU_TO_DAX_REFERENCE.md](TABLEAU_TO_DAX_REFERENCE.md) — Complete 172-function Tableau → DAX mapping
+- [TABLEAU_TO_POWERQUERY_REFERENCE.md](TABLEAU_TO_POWERQUERY_REFERENCE.md) — Complete 108-property Tableau → Power Query M mapping (25 connectors)
 - [TABLEAU_PREP_TO_POWERQUERY_REFERENCE.md](TABLEAU_PREP_TO_POWERQUERY_REFERENCE.md) — Complete 165-operation Tableau Prep → Power Query M transformation mapping
 - [FAQ.md](FAQ.md) — Frequently asked questions
 
@@ -58,13 +14,12 @@
 ### CLI Options
 
 ```bash
-python migrate.py file.twbx                                        # All artifacts
-python migrate.py file.twbx --assess                                # Pre-migration assessment
-python migrate.py file.twbx --auto                                  # Auto ETL strategy
-python migrate.py file.twbx -o output/                              # Custom output
-python migrate.py file.twbx --artifacts lakehouse notebook pipeline  # Specific artifacts
-python migrate.py "path/to/folder/" -o output/                      # Batch migration
-python migrate.py file.twbx --verbose --log-file m.log              # Verbose + log file
+python migrate.py file.twbx                          # Basic migration
+python migrate.py file.twbx --prep flow.tfl           # With Prep flow
+python migrate.py file.twbx --output-dir /tmp/output  # Custom output
+python migrate.py file.twbx --verbose --log-file m.log # Verbose + log file
+python migrate.py --batch dir/ --output-dir /tmp/out   # Batch migration
+python migrate.py --skip-conversion                    # Re-generate only
 ```
 
 ### Project Structure
@@ -73,7 +28,7 @@ python migrate.py file.twbx --verbose --log-file m.log              # Verbose + 
 |--------|---------|
 | `migrate.py` | CLI entry point, batch support, logging |
 | `tableau_export/` | Tableau XML parsing, DAX conversion, Power Query M generation |
-| `fabric_import/` | Fabric artifact generation (6 types), assessment, strategy, validation, deployment |
-| `tests/` | 961 tests (25 files), 0 failures |
-| `artifacts/` | Generated Fabric artifacts |
-| `docs/` | Documentation (7 guides + FAQ) |
+| `fabric_import/` | .pbip generation, TMDL, visuals, validation, deployment |
+| `tests/` | 2,057 tests (40 files), 0 failures |
+| `artifacts/` | Generated .pbip projects |
+| `.github/workflows/` | CI/CD pipeline (lint, test, validate, deploy) |

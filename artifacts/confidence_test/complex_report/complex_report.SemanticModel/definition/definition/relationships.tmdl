@@ -1,0 +1,20 @@
+relationship 2545a624-0418-4693-b9f5-fcee335dd89e
+	fromColumn: Orders.RegionID
+	toColumn: Regions.RegionID
+	crossFilteringBehavior: oneDirection
+
+relationship 206fafcd-de5e-47a1-967a-d16f06515740
+	fromColumn: Orders.ProductID
+	toColumn: Products.ProductID
+	crossFilteringBehavior: oneDirection
+
+relationship ecb0e7c7-b54c-4efc-a18c-a5b62f447e4b
+	fromColumn: Orders.CustomerID
+	toColumn: Customers.CustomerID
+	crossFilteringBehavior: oneDirection
+
+relationship 198df1fe-5518-41f5-863e-aea1a92e607f
+	fromColumn: Orders.RegionID
+	toColumn: Targets.Region
+	crossFilteringBehavior: oneDirection
+

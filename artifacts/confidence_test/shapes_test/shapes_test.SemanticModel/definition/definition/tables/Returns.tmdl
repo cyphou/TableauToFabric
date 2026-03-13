@@ -1,0 +1,27 @@
+table Returns
+	lineageTag: ff919762-a58c-4368-9d7a-44f8fa28ef5c
+
+	column Returned
+		dataType: string
+		lineageTag: 90f6878b-d274-4202-b452-dbb9740ed298
+		summarizeBy: none
+		sourceColumn: Returned
+
+		annotation SummarizationSetBy = Automatic
+
+	column 'Order ID'
+		dataType: string
+		lineageTag: bb46cffc-44c2-4de2-b606-b2233119c23e
+		summarizeBy: none
+		sourceColumn: 'Order ID'
+
+		annotation SummarizationSetBy = Automatic
+
+	partition 'Returns-d72e7f23-b14d-45d1-8c77-e63ab7c52a53' = entity
+		mode: directLake
+		entityName: returns
+		schemaName: dbo
+		expressionSource: DatabaseQuery
+
+	annotation PBI_ResultType = Table
+

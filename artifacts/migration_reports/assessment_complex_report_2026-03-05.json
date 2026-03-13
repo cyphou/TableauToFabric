@@ -1,0 +1,255 @@
+{
+  "workbook_name": "complex_report",
+  "timestamp": "2026-03-05T09:13:24Z",
+  "overall_score": "YELLOW",
+  "summary": {
+    "workbook": "complex_report",
+    "overall_score": "YELLOW",
+    "total_checks": 31,
+    "passed": 11,
+    "warnings": 6,
+    "failures": 0
+  },
+  "totals": {
+    "checks": 31,
+    "pass": 11,
+    "warn": 6,
+    "fail": 0
+  },
+  "categories": [
+    {
+      "name": "Datasource Compatibility",
+      "worst_severity": "warn",
+      "checks": [
+        {
+          "name": "Datasource count",
+          "severity": "info",
+          "detail": "2 datasource(s) detected.",
+          "recommendation": ""
+        },
+        {
+          "name": "Connector: SQL Server",
+          "severity": "pass",
+          "detail": "Fully supported. Used by: FinanceDS.",
+          "recommendation": ""
+        },
+        {
+          "name": "Connector: Excel",
+          "severity": "pass",
+          "detail": "Fully supported. Used by: BudgetDS.",
+          "recommendation": ""
+        },
+        {
+          "name": "Data blending",
+          "severity": "pass",
+          "detail": "No data blending detected.",
+          "recommendation": ""
+        },
+        {
+          "name": "Published datasources",
+          "severity": "pass",
+          "detail": "No published datasource references.",
+          "recommendation": ""
+        },
+        {
+          "name": "Custom SQL",
+          "severity": "warn",
+          "detail": "1 custom SQL query/queries detected.",
+          "recommendation": "Custom SQL requires manual review. Translate to Power Query M (Dataflow) or embed in PySpark Notebook. Run with --auto for auto ETL selection."
+        }
+      ]
+    },
+    {
+      "name": "Calculation Readiness",
+      "worst_severity": "warn",
+      "checks": [
+        {
+          "name": "Calculation count",
+          "severity": "info",
+          "detail": "11 calculated field(s) detected.",
+          "recommendation": ""
+        },
+        {
+          "name": "Unsupported functions",
+          "severity": "pass",
+          "detail": "No calculations use unsupported functions.",
+          "recommendation": ""
+        },
+        {
+          "name": "Partially-supported functions",
+          "severity": "pass",
+          "detail": "No calculations use partially-supported functions.",
+          "recommendation": ""
+        },
+        {
+          "name": "LOD expressions",
+          "severity": "warn",
+          "detail": "2 LOD expression(s) (FIXED/INCLUDE/EXCLUDE): Customer LTV, Avg Sales excl Region.",
+          "recommendation": "LOD expressions are converted to DAX CALCULATE + ALLEXCEPT patterns. Review generated DAX for correctness."
+        },
+        {
+          "name": "Table calculations",
+          "severity": "warn",
+          "detail": "1 table calculation(s) (RUNNING/WINDOW): Running Revenue.",
+          "recommendation": "Table calculations are translated to DAX window functions. Verify sort order and partitioning match Tableau behavior."
+        }
+      ]
+    },
+    {
+      "name": "Visual & Dashboard Coverage",
+      "worst_severity": "warn",
+      "checks": [
+        {
+          "name": "Worksheet count",
+          "severity": "info",
+          "detail": "7 worksheet(s) detected.",
+          "recommendation": ""
+        },
+        {
+          "name": "Dashboard count",
+          "severity": "info",
+          "detail": "2 dashboard(s) detected.",
+          "recommendation": ""
+        },
+        {
+          "name": "Unmapped chart types",
+          "severity": "warn",
+          "detail": "1 chart type(s) not in mapping: clusteredbarchart.",
+          "recommendation": "These will fall back to 'table' visual. Consider customising the visual type after migration."
+        }
+      ]
+    },
+    {
+      "name": "Filter & Parameter Complexity",
+      "worst_severity": "warn",
+      "checks": [
+        {
+          "name": "Filter count",
+          "severity": "info",
+          "detail": "3 top-level filter(s) detected.",
+          "recommendation": ""
+        },
+        {
+          "name": "Parameter count",
+          "severity": "info",
+          "detail": "2 parameter(s) detected.",
+          "recommendation": ""
+        },
+        {
+          "name": "User filters (RLS)",
+          "severity": "warn",
+          "detail": "1 user filter(s) / security calculation(s) detected.",
+          "recommendation": "User filters are converted to TMDL RLS roles. Review the generated roles.tmdl and configure workspace-level security in Fabric."
+        }
+      ]
+    },
+    {
+      "name": "Data Model Complexity",
+      "worst_severity": "info",
+      "checks": [
+        {
+          "name": "Table count",
+          "severity": "info",
+          "detail": "5 table(s) across all datasources.",
+          "recommendation": ""
+        },
+        {
+          "name": "Column count",
+          "severity": "info",
+          "detail": "85 column(s) total.",
+          "recommendation": ""
+        },
+        {
+          "name": "Relationship count",
+          "severity": "info",
+          "detail": "3 relationship(s) detected.",
+          "recommendation": ""
+        },
+        {
+          "name": "Hierarchies",
+          "severity": "pass",
+          "detail": "2 hierarchy/hierarchies detected.",
+          "recommendation": ""
+        },
+        {
+          "name": "Sets / Groups / Bins",
+          "severity": "info",
+          "detail": "Advanced data features: 1 set(s), 1 group(s), 1 bin(s).",
+          "recommendation": "Sets → calculated columns, Groups → SWITCH measures, Bins → calculated columns with ROUNDDOWN."
+        }
+      ]
+    },
+    {
+      "name": "Interactivity & Actions",
+      "worst_severity": "warn",
+      "checks": [
+        {
+          "name": "Action: filter",
+          "severity": "pass",
+          "detail": "1 filter action(s) — natively supported in Power BI.",
+          "recommendation": ""
+        },
+        {
+          "name": "Action: URL",
+          "severity": "warn",
+          "detail": "1 URL action(s) — mapped to action buttons.",
+          "recommendation": "Verify URL patterns and parameterization after migration."
+        },
+        {
+          "name": "Stories",
+          "severity": "info",
+          "detail": "1 story/stories with 3 story point(s) → bookmarks.",
+          "recommendation": "Stories are converted to bookmarks. Review bookmark state and navigator after migration."
+        }
+      ]
+    },
+    {
+      "name": "Data Extracts & Packaging",
+      "worst_severity": "pass",
+      "checks": [
+        {
+          "name": "Hyper extract files",
+          "severity": "pass",
+          "detail": "No .hyper extract files (live connection or datasource files).",
+          "recommendation": ""
+        },
+        {
+          "name": "Custom shapes",
+          "severity": "pass",
+          "detail": "No custom shapes.",
+          "recommendation": ""
+        },
+        {
+          "name": "Embedded fonts",
+          "severity": "pass",
+          "detail": "No embedded fonts.",
+          "recommendation": ""
+        }
+      ]
+    },
+    {
+      "name": "Migration Scope & Effort",
+      "worst_severity": "info",
+      "checks": [
+        {
+          "name": "Complexity score",
+          "severity": "info",
+          "detail": "Complexity score: 46 (Medium).",
+          "recommendation": ""
+        },
+        {
+          "name": "Estimated effort",
+          "severity": "info",
+          "detail": "Estimated post-migration review effort: 1-4 hours of post-migration review.",
+          "recommendation": ""
+        },
+        {
+          "name": "Object inventory",
+          "severity": "info",
+          "detail": "Objects: Datasources: 2 | Worksheets: 7 | Dashboards: 2 | Calculations: 11 | Parameters: 2 | Filters: 3 | User Filters / RLS: 1 | Actions: 2 | Stories: 1 | Sets: 1 | Groups: 1 | Bins: 1 | Hierarchies: 2 | Custom SQL: 1",
+          "recommendation": ""
+        }
+      ]
+    }
+  ]
+}

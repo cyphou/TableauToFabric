@@ -1,0 +1,22 @@
+{
+  "project_name": "complex_report",
+  "source": "TableauToFabric",
+  "generated_at": "2026-03-05T10:46:35.273775",
+  "artifacts_generated": [
+    "lakehouse",
+    "dataflow",
+    "notebook",
+    "semanticmodel",
+    "pipeline",
+    "pbi"
+  ],
+  "stats": {
+    "lakehouse_tables": 6,
+    "dataflow_queries": 6,
+    "notebook_cells": 42,
+    "semanticmodel_tables": 7,
+    "pipeline_activities": 4,
+    "pbi_pages": 5,
+    "pbi_visuals": 48
+  }
+}

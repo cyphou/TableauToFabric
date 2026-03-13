@@ -1,0 +1,14 @@
+{
+  "displayName": "shapes_test",
+  "type": "SemanticModel",
+  "mode": "DirectLake",
+  "lakehouse": "shapes_test",
+  "stats": {
+    "tables": 5,
+    "columns": 30,
+    "measures": 4,
+    "relationships": 0,
+    "hierarchies": 0,
+    "roles": 0
+  }
+}

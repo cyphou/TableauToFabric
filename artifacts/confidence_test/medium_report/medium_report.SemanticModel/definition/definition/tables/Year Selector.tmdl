@@ -1,0 +1,20 @@
+table 'Year Selector'
+	lineageTag: 433330b0-f56c-4481-9a41-2c7055805378
+
+	measure 'Year Selector' = SELECTEDVALUE('Year Selector'[Value], 2024)
+		lineageTag: 0d5a6602-ca4f-454b-9dd3-8e7ddcefa01a
+
+	column Value
+		dataType: int64
+		lineageTag: bb251505-103a-4362-a346-4c2b4e2620ae
+		summarizeBy: none
+		sourceColumn: Value
+
+		annotation SummarizationSetBy = Automatic
+
+	partition 'Year Selector-a95f652a-8dc5-4884-9363-8c698473cc86' = calculated
+		mode: import
+		source = GENERATESERIES(2020, 2026, 1)
+
+	annotation PBI_ResultType = Table
+

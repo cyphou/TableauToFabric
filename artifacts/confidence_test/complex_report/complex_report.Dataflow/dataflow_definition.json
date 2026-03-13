@@ -1,0 +1,90 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/dataflow/definition/dataflowGen2/1.0.0/schema.json",
+  "properties": {
+    "displayName": "complex_report_Dataflow",
+    "description": "Dataflow Gen2 generated from Tableau workbook: complex_report",
+    "type": "DataflowGen2",
+    "created": "2026-03-05T10:46:29.855303"
+  },
+  "mashupDocument": "\nsection Section1;\n\nshared Orders = let\n    // Source SQL Server\n    Source = Sql.Database(\"sql-finance.contoso.com\", \"FinanceDB\"),\n    #\"Orders Table\" = Source{[Schema=\"dbo\", Item=\"Orders\"]}[Data],\n    Result = #\"Orders Table\"\n,\n    CalcCol_profit = Table.AddColumn(Result, \"Profit\", each [Revenue] - [Cost]),\n    CalcCol_priority_label = Table.AddColumn(CalcCol_profit, \"Priority Label\", each CASE [Priority] WHEN \"Critical\" then \"🔴 Critical\" WHEN \"High\" then \"🟠 High\" WHEN \"Medium\" then \"🟡 Medium\" WHEN \"Low\" then \"🟢 Low\" else \"⚪ Unknown\"),\n    CalcCol_revenue_tier = Table.AddColumn(CalcCol_priority_label, \"Revenue Tier\", each if [Revenue] > 10000 then \"Platinum\" ELSEIF [Revenue] > 5000 then \"Gold\" ELSEIF [Revenue] > 1000 then \"Silver\" else \"Bronze\"),\n    CalcCol_days_to_ship = Table.AddColumn(CalcCol_revenue_tier, \"Days to Ship\", each DATEDIFF('day', [OrderDate], [ShipDate])),\n    CalcCol_has_discount = Table.AddColumn(CalcCol_days_to_ship, \"Has Discount\", each if ZN([Discount]) > 0 then \"Yes\" else \"No\")\nin\n    CalcCol_has_discount;\n\nshared Customers = let\n    // Source SQL Server\n    Source = Sql.Database(\"sql-finance.contoso.com\", \"FinanceDB\"),\n    #\"Customers Table\" = Source{[Schema=\"dbo\", Item=\"Customers\"]}[Data],\n    Result = #\"Customers Table\"\nin\n    Result;\n\nshared Products = let\n    // Source SQL Server\n    Source = Sql.Database(\"sql-finance.contoso.com\", \"FinanceDB\"),\n    #\"Products Table\" = Source{[Schema=\"dbo\", Item=\"Products\"]}[Data],\n    Result = #\"Products Table\"\nin\n    Result;\n\nshared Regions = let\n    // Source SQL Server\n    Source = Sql.Database(\"sql-finance.contoso.com\", \"FinanceDB\"),\n    #\"Regions Table\" = Source{[Schema=\"dbo\", Item=\"Regions\"]}[Data],\n    Result = #\"Regions Table\"\nin\n    Result;\n\nshared Targets = let\n    // Source Excel: \\\\\\\\fileserver\\\\data\\\\Budget_2024.xlsx\n    Source = Excel.Workbook(File.Contents(DataFolder & \"\\\\\\\\\\fileserver\\\\data\\\\Budget_2024.xlsx\"), null, true),\n    #\"Targets Sheet\" = Source{[Item=\"Targets\",Kind=\"Sheet\"]}[Data],\n    #\"Promoted Headers\" = Table.PromoteHeaders(#\"Targets Sheet\", [PromoteAllScalars=true]),\n    #\"Changed Types\" = Table.TransformColumnTypes(#\"Promoted Headers\", {\n        {\"Category\", type text},\n        {\"Region\", type text},\n        {\"TargetRevenue\", type number},\n        {\"TargetProfit\", type number},\n        {\"FiscalYear\", Int64.Type}\n    }),\n    Result = #\"Changed Types\"\nin\n    Result;\n\nshared MonthlySummary = let\n    // Custom SQL Query\n    Source = Sql.Database(\"localhost\", \"MyDB\", [Query=\"SELECT\n              YEAR(OrderDate)  AS OrderYear,\n              MONTH(OrderDate) AS OrderMonth,\n              Category,\n              SUM(Revenue)     AS TotalRevenue,\n              SUM(Cost)        AS TotalCost,\n              COUNT(*)         AS OrderCount\n          FROM Orders\n          GROUP BY YEAR(OrderDate), MONTH(OrderDate), Category\"]),\n    Result = Source\nin\n    Result;",
+  "queries": [
+    {
+      "name": "Orders",
+      "description": "Ingests data from Orders + 5 calculated column(s)",
+      "queryId": "orders",
+      "resultType": "Table",
+      "loadEnabled": true,
+      "destination": {
+        "type": "Lakehouse",
+        "tableName": "orders",
+        "updateMethod": "Replace",
+        "schemaMapping": "Auto"
+      }
+    },
+    {
+      "name": "Customers",
+      "description": "Ingests data from Customers",
+      "queryId": "customers",
+      "resultType": "Table",
+      "loadEnabled": true,
+      "destination": {
+        "type": "Lakehouse",
+        "tableName": "customers",
+        "updateMethod": "Replace",
+        "schemaMapping": "Auto"
+      }
+    },
+    {
+      "name": "Products",
+      "description": "Ingests data from Products",
+      "queryId": "products",
+      "resultType": "Table",
+      "loadEnabled": true,
+      "destination": {
+        "type": "Lakehouse",
+        "tableName": "products",
+        "updateMethod": "Replace",
+        "schemaMapping": "Auto"
+      }
+    },
+    {
+      "name": "Regions",
+      "description": "Ingests data from Regions",
+      "queryId": "regions",
+      "resultType": "Table",
+      "loadEnabled": true,
+      "destination": {
+        "type": "Lakehouse",
+        "tableName": "regions",
+        "updateMethod": "Replace",
+        "schemaMapping": "Auto"
+      }
+    },
+    {
+      "name": "Targets",
+      "description": "Ingests data from Targets",
+      "queryId": "targets",
+      "resultType": "Table",
+      "loadEnabled": true,
+      "destination": {
+        "type": "Lakehouse",
+        "tableName": "targets",
+        "updateMethod": "Replace",
+        "schemaMapping": "Auto"
+      }
+    },
+    {
+      "name": "MonthlySummary",
+      "description": "Custom SQL: MonthlySummary",
+      "queryId": "monthlysummary",
+      "resultType": "Table",
+      "loadEnabled": true,
+      "destination": {
+        "type": "Lakehouse",
+        "tableName": "monthlysummary",
+        "updateMethod": "Replace",
+        "schemaMapping": "Auto"
+      }
+    }
+  ]
+}

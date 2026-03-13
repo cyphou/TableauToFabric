@@ -1,0 +1,11 @@
+table xy1
+	lineageTag: 4ed2452b-f3fc-45a6-b390-416f38814d27
+
+	partition 'xy1-2fc97c77-66e8-4ced-9eff-efb5046f19a1' = entity
+		mode: directLake
+		entityName: xy1
+		schemaName: dbo
+		expressionSource: DatabaseQuery
+
+	annotation PBI_ResultType = Table
+

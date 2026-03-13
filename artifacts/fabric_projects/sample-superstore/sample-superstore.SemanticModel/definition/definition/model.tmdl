@@ -1,0 +1,20 @@
+model Model
+	culture: fr-FR
+	defaultPowerBIDataSourceVersion: powerBI_V3
+	defaultMode: directLake
+	sourceQueryCulture: en-US
+	dataAccessOptions
+		legacyRedirects
+		returnErrorValuesAsNull
+
+annotation PBI_QueryOrder = ["Orders","Calendar"]
+
+ref table Orders
+ref table Calendar
+
+ref expression DatabaseQuery
+
+ref perspective 'Full Model'
+
+ref culture 'fr-FR'
+

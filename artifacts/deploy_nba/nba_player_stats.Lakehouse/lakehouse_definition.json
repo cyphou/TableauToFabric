@@ -1,0 +1,158 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/lakehouse/definition/lakehouse/1.0.0/schema.json",
+  "properties": {
+    "displayName": "nba_player_stats_Lakehouse",
+    "description": "Lakehouse generated from Tableau workbook: nba_player_stats",
+    "created": "2026-03-05T13:30:04.171473",
+    "defaultSchema": "dbo"
+  },
+  "tables": [
+    {
+      "name": "sheet1",
+      "original_name": "Sheet1",
+      "columns": [
+        {
+          "name": "Player",
+          "datatype": "STRING",
+          "nullable": true,
+          "original_name": "Player",
+          "original_type": "string"
+        },
+        {
+          "name": "YR",
+          "datatype": "INT",
+          "nullable": true,
+          "original_name": "YR",
+          "original_type": "integer"
+        },
+        {
+          "name": "TM",
+          "datatype": "STRING",
+          "nullable": true,
+          "original_name": "TM",
+          "original_type": "string"
+        },
+        {
+          "name": "GP",
+          "datatype": "INT",
+          "nullable": true,
+          "original_name": "GP",
+          "original_type": "integer"
+        },
+        {
+          "name": "MIN",
+          "datatype": "DOUBLE",
+          "nullable": true,
+          "original_name": "MIN",
+          "original_type": "real"
+        },
+        {
+          "name": "FGM",
+          "datatype": "DOUBLE",
+          "nullable": true,
+          "original_name": "FGM",
+          "original_type": "real"
+        },
+        {
+          "name": "FGA",
+          "datatype": "DOUBLE",
+          "nullable": true,
+          "original_name": "FGA",
+          "original_type": "real"
+        },
+        {
+          "name": "FG",
+          "datatype": "DOUBLE",
+          "nullable": true,
+          "original_name": "FG%",
+          "original_type": "real"
+        },
+        {
+          "name": "PT",
+          "datatype": "DOUBLE",
+          "nullable": true,
+          "original_name": "3PT%",
+          "original_type": "real"
+        },
+        {
+          "name": "FT",
+          "datatype": "DOUBLE",
+          "nullable": true,
+          "original_name": "FT%",
+          "original_type": "real"
+        },
+        {
+          "name": "OFF",
+          "datatype": "DOUBLE",
+          "nullable": true,
+          "original_name": "OFF",
+          "original_type": "real"
+        },
+        {
+          "name": "DEF",
+          "datatype": "DOUBLE",
+          "nullable": true,
+          "original_name": "DEF",
+          "original_type": "real"
+        },
+        {
+          "name": "REB",
+          "datatype": "DOUBLE",
+          "nullable": true,
+          "original_name": "REB",
+          "original_type": "real"
+        },
+        {
+          "name": "ASST",
+          "datatype": "DOUBLE",
+          "nullable": true,
+          "original_name": "ASST",
+          "original_type": "real"
+        },
+        {
+          "name": "STL",
+          "datatype": "DOUBLE",
+          "nullable": true,
+          "original_name": "STL",
+          "original_type": "real"
+        },
+        {
+          "name": "BLK",
+          "datatype": "DOUBLE",
+          "nullable": true,
+          "original_name": "BLK",
+          "original_type": "real"
+        },
+        {
+          "name": "TO",
+          "datatype": "DOUBLE",
+          "nullable": true,
+          "original_name": "TO",
+          "original_type": "real"
+        },
+        {
+          "name": "PF",
+          "datatype": "DOUBLE",
+          "nullable": true,
+          "original_name": "PF",
+          "original_type": "real"
+        },
+        {
+          "name": "PTS",
+          "datatype": "DOUBLE",
+          "nullable": true,
+          "original_name": "PTS",
+          "original_type": "real"
+        }
+      ],
+      "source_type": "Excel",
+      "source_connection": {
+        "filename": "Data/Datasets/nba_players.xlsx",
+        "caption": "nba_players",
+        "cleaning": "no",
+        "compat": "no"
+      },
+      "format": "delta"
+    }
+  ]
+}

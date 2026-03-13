@@ -1,0 +1,33 @@
+{
+  "extract": {
+    "original_name": "Extract",
+    "source_type": "DATAENGINE",
+    "columns": {
+      "Category": {
+        "type": "STRING",
+        "original_name": "Category",
+        "original_type": "string"
+      },
+      "Number_of_Records": {
+        "type": "INT",
+        "original_name": "Number of Records",
+        "original_type": "integer"
+      },
+      "Order_Date": {
+        "type": "DATE",
+        "original_name": "Order Date",
+        "original_type": "date"
+      },
+      "Sales_Target": {
+        "type": "INT",
+        "original_name": "Sales Target",
+        "original_type": "integer"
+      },
+      "Segment": {
+        "type": "STRING",
+        "original_name": "Segment",
+        "original_type": "string"
+      }
+    }
+  }
+}

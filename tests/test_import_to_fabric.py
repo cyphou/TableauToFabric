@@ -1,85 +1,216 @@
-"""Tests for fabric_import.import_to_fabric (orchestrator)"""
+"""Tests for fabric_import.import_to_fabric — import orchestrator.
+
+Covers FabricImporter._load_converted_objects(), import_all() paths,
+generate_fabric_project() error handling, and main() CLI.
+"""
 
 import json
 import os
-import shutil
+import sys
 import tempfile
 import unittest
 from unittest.mock import patch, MagicMock
 
-from fabric_import.import_to_fabric import FabricImporter
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'fabric_import'))
+
+from import_to_fabric import FabricImporter, main
 
 
-class TestFabricImporterSanitizeName(unittest.TestCase):
-    """Tests for FabricImporter._sanitize_name()."""
+class TestFabricImporterInit(unittest.TestCase):
+    """Test constructor defaults."""
 
-    def test_removes_special_chars(self):
-        self.assertEqual(FabricImporter._sanitize_name('a<b>c'), 'a_b_c')
+    def test_default_source_dir(self):
+        imp = FabricImporter()
+        self.assertEqual(imp.source_dir, 'tableau_export/')
 
-    def test_removes_colon(self):
-        self.assertEqual(FabricImporter._sanitize_name('C:file'), 'C_file')
-
-    def test_removes_quotes(self):
-        self.assertEqual(FabricImporter._sanitize_name('"my"report'), '_my_report')
-
-    def test_strips_dots(self):
-        result = FabricImporter._sanitize_name('report...')
-        self.assertFalse(result.endswith('.'))
-
-    def test_normal_name_unchanged(self):
-        self.assertEqual(FabricImporter._sanitize_name('SalesReport'), 'SalesReport')
+    def test_custom_source_dir(self):
+        imp = FabricImporter('/custom/dir')
+        self.assertEqual(imp.source_dir, '/custom/dir')
 
 
-class TestFabricImporterLoadObjects(unittest.TestCase):
-    """Tests for FabricImporter._load_extracted_objects()."""
-
-    def test_missing_files_return_empty(self):
-        tmpdir = tempfile.mkdtemp(prefix='ttf_imp_')
-        original_cwd = os.getcwd()
-        try:
-            os.chdir(tmpdir)
-            importer = FabricImporter(converted_dir=tmpdir, output_dir=tmpdir)
-            data = importer._load_extracted_objects()
-            self.assertEqual(data['datasources'], [])
-            self.assertEqual(data['worksheets'], [])
-            self.assertEqual(data['calculations'], [])
-            self.assertIsInstance(data['aliases'], dict)
-        finally:
-            os.chdir(original_cwd)
-            shutil.rmtree(tmpdir, ignore_errors=True)
-
-
-class TestFabricImporterImportAll(unittest.TestCase):
-    """Tests for FabricImporter.import_all() with mocked generators."""
+class TestLoadConvertedObjects(unittest.TestCase):
+    """Test _load_converted_objects() file loading."""
 
     def setUp(self):
-        self.tmpdir = tempfile.mkdtemp(prefix='ttf_imp2_')
+        self.tmpdir = tempfile.mkdtemp()
 
     def tearDown(self):
+        import shutil
         shutil.rmtree(self.tmpdir, ignore_errors=True)
 
-    @patch('fabric_import.import_to_fabric.FabricImporter._load_extracted_objects')
-    def test_no_datasources_returns_empty(self, mock_load):
-        mock_load.return_value = {'datasources': []}
-        importer = FabricImporter(output_dir=self.tmpdir)
-        result = importer.import_all(report_name='Test')
-        self.assertEqual(result, {})
+    def test_loads_existing_json(self):
+        ds = [{'name': 'src', 'tables': []}]
+        with open(os.path.join(self.tmpdir, 'datasources.json'), 'w') as f:
+            json.dump(ds, f)
+        imp = FabricImporter(self.tmpdir)
+        data = imp._load_converted_objects()
+        self.assertEqual(data['datasources'], ds)
 
-    @patch('fabric_import.import_to_fabric.FabricImporter._load_extracted_objects')
-    def test_generates_metadata_file(self, mock_load):
-        from tests.conftest import SAMPLE_EXTRACTED
-        mock_load.return_value = SAMPLE_EXTRACTED
+    def test_missing_files_default_to_empty(self):
+        imp = FabricImporter(self.tmpdir)
+        data = imp._load_converted_objects()
+        self.assertEqual(data['datasources'], [])
+        self.assertEqual(data['worksheets'], [])
+        self.assertIsInstance(data['aliases'], dict)
 
-        # We need to mock the generators to avoid dependency issues
-        with patch('fabric_import.import_to_fabric.FabricImporter.import_all') as mock_import:
-            mock_import.return_value = {'lakehouse_tables': 2}
-            importer = FabricImporter(output_dir=self.tmpdir)
-            result = importer.import_all(report_name='TestReport')
-            self.assertIsInstance(result, dict)
+    def test_invalid_json_defaults(self):
+        with open(os.path.join(self.tmpdir, 'datasources.json'), 'w') as f:
+            f.write('not json')
+        imp = FabricImporter(self.tmpdir)
+        data = imp._load_converted_objects()
+        self.assertEqual(data['datasources'], [])
 
-    def test_default_output_dir(self):
-        importer = FabricImporter()
-        self.assertEqual(importer.output_dir, 'artifacts/fabric_projects/')
+    def test_loads_all_16_keys(self):
+        imp = FabricImporter(self.tmpdir)
+        data = imp._load_converted_objects()
+        expected_keys = {
+            'datasources', 'worksheets', 'dashboards', 'calculations',
+            'parameters', 'filters', 'stories', 'actions', 'sets',
+            'groups', 'bins', 'hierarchies', 'sort_orders', 'aliases',
+            'custom_sql', 'user_filters',
+        }
+        self.assertEqual(set(data.keys()), expected_keys)
+
+    def test_aliases_default_is_dict(self):
+        imp = FabricImporter(self.tmpdir)
+        data = imp._load_converted_objects()
+        self.assertIsInstance(data['aliases'], dict)
+
+    def test_other_keys_default_is_list(self):
+        imp = FabricImporter(self.tmpdir)
+        data = imp._load_converted_objects()
+        for key in ['datasources', 'worksheets', 'filters', 'stories']:
+            self.assertIsInstance(data[key], list, f"{key} should default to list")
+
+
+class TestImportAll(unittest.TestCase):
+    """Test import_all() orchestration."""
+
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+        self.imp = FabricImporter(self.tmpdir)
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def test_no_datasources_prints_error(self):
+        """import_all with no datasources should print error and return early."""
+        with patch('builtins.print') as mock_print:
+            self.imp.import_all()
+        calls = [str(c) for c in mock_print.call_args_list]
+        error_found = any('[ERROR]' in c for c in calls)
+        self.assertTrue(error_found)
+
+    def test_report_name_from_dashboard(self):
+        ds = [{'name': 'src', 'tables': []}]
+        with open(os.path.join(self.tmpdir, 'datasources.json'), 'w') as f:
+            json.dump(ds, f)
+        dash = [{'name': 'Sales Dashboard'}]
+        with open(os.path.join(self.tmpdir, 'dashboards.json'), 'w') as f:
+            json.dump(dash, f)
+        with patch.object(self.imp, 'generate_fabric_project') as mock_gen:
+            self.imp.import_all()
+        mock_gen.assert_called_once()
+        args = mock_gen.call_args
+        self.assertEqual(args[0][0], 'Sales Dashboard')
+
+    def test_default_report_name(self):
+        ds = [{'name': 'src'}]
+        with open(os.path.join(self.tmpdir, 'datasources.json'), 'w') as f:
+            json.dump(ds, f)
+        with patch.object(self.imp, 'generate_fabric_project') as mock_gen:
+            self.imp.import_all()
+        args = mock_gen.call_args
+        self.assertEqual(args[0][0], 'Report')
+
+    def test_custom_report_name(self):
+        ds = [{'name': 'src'}]
+        with open(os.path.join(self.tmpdir, 'datasources.json'), 'w') as f:
+            json.dump(ds, f)
+        with patch.object(self.imp, 'generate_fabric_project') as mock_gen:
+            self.imp.import_all(report_name='Custom')
+        args = mock_gen.call_args
+        self.assertEqual(args[0][0], 'Custom')
+
+    def test_skip_pbip_generation(self):
+        ds = [{'name': 'src'}]
+        with open(os.path.join(self.tmpdir, 'datasources.json'), 'w') as f:
+            json.dump(ds, f)
+        with patch.object(self.imp, 'generate_fabric_project') as mock_gen:
+            self.imp.import_all(generate_pbip=False)
+        mock_gen.assert_not_called()
+
+
+class TestGeneratePowerBIProject(unittest.TestCase):
+    """Test generate_fabric_project() method."""
+
+    def test_calls_generator(self):
+        imp = FabricImporter()
+        converted = {'datasources': [{'name': 'ds'}], 'worksheets': []}
+        with patch('import_to_fabric.PowerBIProjectGenerator') as MockGen:
+            mock_instance = MagicMock()
+            mock_instance.generate_project.return_value = '/out/report'
+            MockGen.return_value = mock_instance
+            imp.generate_fabric_project('Report', converted)
+        MockGen.assert_called_once()
+        mock_instance.generate_project.assert_called_once()
+
+    def test_custom_output_dir(self):
+        imp = FabricImporter()
+        converted = {'datasources': [{'name': 'ds'}]}
+        with patch('import_to_fabric.PowerBIProjectGenerator') as MockGen:
+            mock_instance = MagicMock()
+            mock_instance.generate_project.return_value = '/out/path'
+            MockGen.return_value = mock_instance
+            imp.generate_fabric_project('Report', converted, output_dir='/custom/out')
+        call_kwargs = MockGen.call_args
+        # On Windows, os.path.abspath('/custom/out') adds drive letter
+        self.assertIn('custom', str(call_kwargs).lower())
+
+    def test_exception_handled_gracefully(self):
+        imp = FabricImporter()
+        converted = {'datasources': [{'name': 'ds'}]}
+        with patch('import_to_fabric.PowerBIProjectGenerator') as MockGen:
+            MockGen.side_effect = Exception('test error')
+            with patch('builtins.print') as mock_print:
+                imp.generate_fabric_project('Report', converted)
+            calls = [str(c) for c in mock_print.call_args_list]
+            warn_found = any('WARN' in c for c in calls)
+            self.assertTrue(warn_found)
+
+    def test_passes_calendar_params(self):
+        imp = FabricImporter()
+        converted = {'datasources': [{'name': 'ds'}]}
+        with patch('import_to_fabric.PowerBIProjectGenerator') as MockGen:
+            mock_instance = MagicMock()
+            mock_instance.generate_project.return_value = '/path'
+            MockGen.return_value = mock_instance
+            imp.generate_fabric_project('R', converted,
+                                         calendar_start=2018, calendar_end=2028,
+                                         culture='fr-FR', model_mode='directquery')
+        gen_call = mock_instance.generate_project.call_args
+        self.assertEqual(gen_call.kwargs.get('calendar_start', gen_call[1].get('calendar_start')), 2018)
+
+
+class TestMain(unittest.TestCase):
+    """Test main() CLI entry point."""
+
+    @patch('import_to_fabric.FabricImporter')
+    def test_main_default(self, MockImporter):
+        mock_inst = MagicMock()
+        MockImporter.return_value = mock_inst
+        with patch('sys.argv', ['import_to_fabric.py']):
+            main()
+        mock_inst.import_all.assert_called_once_with(generate_pbip=True)
+
+    @patch('import_to_fabric.FabricImporter')
+    def test_main_no_pbip(self, MockImporter):
+        mock_inst = MagicMock()
+        MockImporter.return_value = mock_inst
+        with patch('sys.argv', ['import_to_fabric.py', '--no-pbip']):
+            main()
+        mock_inst.import_all.assert_called_once_with(generate_pbip=False)
 
 
 if __name__ == '__main__':

@@ -1,0 +1,30 @@
+{
+  "metadata": {
+    "conversion_date": "2026-03-06T17:50:29.745968",
+    "duration": "0:00:00.001075"
+  },
+  "summary": {
+    "total_objects": 0,
+    "objects_by_type": {
+      "worksheets": 0,
+      "dashboards": 0,
+      "datasources": 0,
+      "calculations": 0,
+      "parameters": 0,
+      "filters": 0,
+      "stories": 0
+    },
+    "error_count": 0,
+    "warning_count": 7
+  },
+  "errors": [],
+  "warnings": [
+    "Fichier non trouvé : C:\\Users\\pidoudet\\AppData\\Local\\Temp\\ttf_main_rmwasdk_\\e\\worksheets.json",
+    "Fichier non trouvé : C:\\Users\\pidoudet\\AppData\\Local\\Temp\\ttf_main_rmwasdk_\\e\\dashboards.json",
+    "Fichier non trouvé : C:\\Users\\pidoudet\\AppData\\Local\\Temp\\ttf_main_rmwasdk_\\e\\datasources.json",
+    "Fichier non trouvé : C:\\Users\\pidoudet\\AppData\\Local\\Temp\\ttf_main_rmwasdk_\\e\\calculations.json",
+    "Fichier non trouvé : C:\\Users\\pidoudet\\AppData\\Local\\Temp\\ttf_main_rmwasdk_\\e\\parameters.json",
+    "Fichier non trouvé : C:\\Users\\pidoudet\\AppData\\Local\\Temp\\ttf_main_rmwasdk_\\e\\filters.json",
+    "Fichier non trouvé : C:\\Users\\pidoudet\\AppData\\Local\\Temp\\ttf_main_rmwasdk_\\e\\stories.json"
+  ]
+}

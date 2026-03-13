@@ -1,55 +1,11 @@
 # Tableau Prep Transformations → Power Query M Complete Reference
 
 Complete mapping of **every Tableau Prep Builder transformation** to its Power Query M equivalent.
-Power Query M is used in **Dataflow Gen2** artifacts that ingest data into Lakehouse Delta tables.
 Covers both Tableau Prep (.tfl/.tflx) operations and Tableau Desktop data-source-level transformations embedded in .twb files.
-
-## Prep Flow Migration Pipeline
-
-```
-  ┌───────────────────────────────────────────────────────────────────────────────────┐
-  │                     TABLEAU PREP FLOW MIGRATION                                   │
-  │                                                                                   │
-  │  ┌───────────┐   ┌───────────┐   ┌───────────┐   ┌───────────┐   ┌───────────┐  │
-  │  │  Input    │──>│  Clean    │──>│  Filter   │──>│  Join /   │──>│  Output   │  │
-  │  │  Steps   │   │  Steps   │   │  Steps   │   │  Union    │   │  Steps   │  │
-  │  └─────┬─────┘   └─────┬─────┘   └─────┬─────┘   └─────┬─────┘   └─────┬─────┘  │
-  │        │               │               │               │               │          │
-  │        v               v               v               v               v          │
-  │  ┌───────────┐   ┌───────────┐   ┌───────────┐   ┌───────────┐   ┌───────────┐  │
-  │  │ Connector │   │ Transform │   │ SelectRows│   │ Table     │   │ Lakehouse │  │
-  │  │ functions │   │ Columns   │   │ Remove    │   │ .Join()   │   │ Delta     │  │
-  │  │ (31 types)│   │ Replace   │   │ FirstN    │   │ .Combine  │   │ table     │  │
-  │  │           │   │ Rename    │   │ LastN     │   │ .Expand   │   │ output    │  │
-  │  └───────────┘   └───────────┘   └───────────┘   └───────────┘   └───────────┘  │
-  │                                                                                   │
-  │  Tableau Prep                                     Power Query M                   │
-  │  (.tfl / .tflx)              ───────────>         (Dataflow Gen2)                 │
-  │                                                                                   │
-  │      165 operation mappings implemented                                           │
-  └───────────────────────────────────────────────────────────────────────────────────┘
-```
-
-### Prep Step Types → M Function Categories
-
-```
-  Tableau Prep Step          Power Query M Equivalent
-  ─────────────────          ────────────────────────
-  Input (connect)      ───>  Source connectors (Sql.Database, Excel.Workbook, ...)
-  Clean (transform)    ───>  Table.TransformColumns, Table.RenameColumns, ...
-  Filter (rows)        ───>  Table.SelectRows, Table.FirstN, Table.LastN
-  Calculated field     ───>  Table.AddColumn (custom column)
-  Aggregate (group by) ───>  Table.Group
-  Pivot                ───>  Table.Pivot / Table.Unpivot
-  Join                 ───>  Table.NestedJoin + Table.ExpandTableColumn
-  Union                ───>  Table.Combine
-  Script (R/Python)    ───>  Manual (no M equivalent)
-  Output               ───>  Lakehouse Delta table destination
-```
 
 > **Legend**  
 > ✅ Implemented — generated automatically by the migration tool  
-> 🆕 New — added via `m_query_builder.py` transformation helpers  
+> 🆕 New — added in v3.1 via `m_query_builder.py` transformation helpers  
 > 🔧 Manual — reference provided, requires manual setup in Power Query Editor  
 > ❌ No equivalent — not available in Power Query
 
@@ -59,16 +15,16 @@ Covers both Tableau Prep (.tfl/.tflx) operations and Tableau Desktop data-source
 
 | # | Tableau Prep Step | Power Query M Equivalent | Status | Notes |
 |---|------------------|-------------------------|--------|-------|
-| 1 | Connect to Database | `Sql.Database()`, `PostgreSQL.Database()`, etc. | ✅ | 31 connector types supported |
+| 1 | Connect to Database | `Sql.Database()`, `PostgreSQL.Database()`, etc. | ✅ | 25 connector types supported |
 | 2 | Connect to File (Excel) | `Excel.Workbook(File.Contents())` | ✅ | Sheet selection, headers |
 | 3 | Connect to File (CSV) | `Csv.Document(File.Contents())` | ✅ | Delimiter, encoding |
 | 4 | Connect to File (JSON) | `Json.Document(File.Contents())` | ✅ | List/record handling |
 | 5 | Connect to File (PDF) | `Pdf.Tables(File.Contents())` | ✅ | Table extraction |
 | 6 | Connect to Cloud (Snowflake) | `Snowflake.Databases()` | ✅ | Warehouse/schema navigation |
 | 7 | Connect to Cloud (BigQuery) | `GoogleBigQuery.Database()` | ✅ | Project/dataset navigation |
-| 8 | Connect to Published Data Source | Fabric Dataflow / Shared Dataset | 🔧 | Manual Fabric dataflow setup |
+| 8 | Connect to Published Data Source | Dataflow / Shared Dataset | 🔧 | Manual Power BI dataflow setup |
 | 9 | Connect to Tableau Extract (.hyper) | Reconnect to original source | 🔧 | .hyper not readable by Power Query |
-| 10 | Data Interpreter | Automatic in Excel connector | ✅ | Fabric auto-detects tables |
+| 10 | Data Interpreter | Automatic in Excel connector | ✅ | Power BI auto-detects tables |
 | 11 | Wildcard Union (file pattern) | `Folder.Files()` + filter | 🆕 | Pattern-based file loading |
 
 ---
@@ -313,13 +269,13 @@ Covers both Tableau Prep (.tfl/.tflx) operations and Tableau Desktop data-source
 
 ## 13. Output Step
 
-| # | Tableau Prep Operation | Fabric Equivalent | Status | Notes |
-|---|----------------------|-------------------|--------|-------|
-| 1 | Save to .hyper extract | Dataflow Gen2 → Lakehouse (Delta) | ✅ | Data loaded into Delta tables |
-| 2 | Publish to Tableau Server | Fabric workspace deployment | 🔧 | Via deployer.py |
-| 3 | Save to CSV | Fabric notebook export | 🔧 | |
-| 4 | Save to Database | Lakehouse Delta table | 🔧 | |
-| 5 | Incremental refresh | Fabric incremental refresh policy | 🔧 | Manual configuration |
+| # | Tableau Prep Operation | Power Query M Equivalent | Status | Notes |
+|---|----------------------|-------------------------|--------|-------|
+| 1 | Save to .hyper extract | Power BI Import mode | ✅ | Data loaded into model |
+| 2 | Publish to Tableau Server | Power BI dataflow / dataset | 🔧 | Manual publish setup |
+| 3 | Save to CSV | Power BI export / dataflow | 🔧 | |
+| 4 | Save to Database | DirectQuery or dataflow | 🔧 | |
+| 5 | Incremental refresh | Power BI incremental refresh policy | 🔧 | Manual configuration |
 
 ---
 
@@ -372,10 +328,10 @@ These transformations can appear inside `.twb` files (Tableau Desktop Data Sourc
 
 ## Quick-Reference: Common Tableau Prep → Power Query Patterns
 
-### Pattern A: Clean & Filter → Lakehouse
+### Pattern A: Clean & Filter
 ```
 Tableau Prep:  Input → Clean (rename, type, trim, nulls) → Filter (keep active) → Output
-Dataflow Gen2 (M):
+Power Query M:
     let
         Source = Sql.Database("server", "db"),
         Data = Source{[Schema="dbo", Item="Orders"]}[Data],
@@ -391,7 +347,7 @@ Dataflow Gen2 (M):
 ### Pattern B: Join & Aggregate
 ```
 Tableau Prep:  Orders Input → Join(Customers) → Aggregate(Region, SUM Sales) → Output
-Dataflow Gen2 (M):
+Power Query M:
     let
         Orders = ...,
         Customers = ...,
@@ -405,7 +361,7 @@ Dataflow Gen2 (M):
 ### Pattern C: Pivot (Columns to Rows)
 ```
 Tableau Prep:  Input → Pivot(Q1,Q2,Q3,Q4 to rows) → Output
-Dataflow Gen2 (M):
+Power Query M:
     let
         Source = ...,
         #"Unpivoted" = Table.Unpivot(Source, {"Q1", "Q2", "Q3", "Q4"}, "Quarter", "Revenue")
@@ -416,7 +372,7 @@ Dataflow Gen2 (M):
 ### Pattern D: Union Multiple Files
 ```
 Tableau Prep:  File1 + File2 + File3 → Union → Clean → Output
-Dataflow Gen2 (M):
+Power Query M:
     let
         Files = Folder.Files("C:\Data\Monthly"),
         #"Filtered CSVs" = Table.SelectRows(Files, each Text.EndsWith([Name], ".csv")),

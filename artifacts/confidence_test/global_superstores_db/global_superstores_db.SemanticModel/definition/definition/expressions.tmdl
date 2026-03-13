@@ -1,0 +1,7 @@
+expression DatabaseQuery =
+	let
+		database = Sql.Database("{{YOUR_LAKEHOUSE_SQL_ENDPOINT}}", "{{YOUR_LAKEHOUSE_NAME}}")
+	in
+		database
+	meta [IsParameterQuery=false]
+

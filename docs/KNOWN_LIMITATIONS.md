@@ -1,6 +1,8 @@
 # Known Limitations
 
-This document lists known limitations and approximations in the Tableau to Microsoft Fabric migration tool.
+This document lists known limitations and approximations in the Tableau to Fabric migration tool.
+
+> **Last updated:** v12.0.0 (Sprint 39) — many previous limitations have been addressed in Sprints 27-39. See below for current status.
 
 ---
 
@@ -8,26 +10,20 @@ This document lists known limitations and approximations in the Tableau to Micro
 
 | Area | Limitation | Impact |
 |------|-----------|--------|
-| **Hyper files** | `.hyper` extract data is not parsed — only XML metadata is read | Tables from Hyper extracts will have structure but no inline data |
-| **Tableau Server/Cloud** | Live connections to Tableau Server are not reconnected | Connection strings reference the original server; must be reconfigured |
-| **Tableau 2024.3+** | Dynamic zone visibility extracted and mapped to bookmarks (v3.7.0); some newer container features may still be ignored | Most 2024.3 features now handled |
+| **Hyper files** | ✅ `.hyper` file column metadata AND row-level data are now loaded via SQLite interface (`hyper_reader.py`). Some `.hyper` v2+ files may use a proprietary format that SQLite cannot read — falls back to metadata-only extraction | Tables from unsupported Hyper formats will have structure but no inline data |
+| **Tableau Server/Cloud** | ✅ `--server` CLI flag enables direct extraction from Tableau Server/Cloud via REST API (PAT or password auth). Live connections still need reconfiguration in PBI |
+| **Tableau 2024.3+** | ✅ Dynamic parameters with database queries are now fully extracted and converted to M partition with `Value.NativeQuery()`. Dynamic zone visibility may still be partially handled | Newer dynamic zone features may need manual adjustment |
 | **Custom shapes** | Shape encoding extracts the field reference only — actual image files are not migrated | Custom shape visuals will show default markers |
-| **OAuth credentials** | Credential metadata is stripped by design | Data source connections need re-authentication |
+| **OAuth credentials** | Credential metadata is stripped by design | Data source connections need re-authentication in Power BI |
 | **Nested layout containers** | Deeply nested containers may lose relative positioning | Some dashboard layouts may need manual adjustment |
-| **Rich tooltips** | Styled tooltip text runs are now converted to PBI tooltip pages with formatted textbox visuals (v3.7.0) | Most formatting preserved |
-| **Multiple data sources** | All calculations are placed on the "main" table | Multi-datasource worksheets may lose datasource context |
+| **Rich tooltips** | HTML/custom layout tooltips are converted to run-level text (bold, color, font_size extracted) | Complex HTML tooltip layouts are not preserved |
 
 ## Generation Limitations
 
 | Area | Limitation | Impact |
 |------|-----------|--------|
-| **No incremental migration** | Re-running regenerates everything from scratch | Manual edits to the project are overwritten |
-| **DirectLake mode** | Semantic model uses DirectLake with entity partitions referencing a Lakehouse | Import/DirectQuery tables cannot coexist with DirectLake partitions |
-| **No paginated reports** | Only interactive .pbip reports are generated | Paginated report layouts are not supported |
-| **Data bars** | Now generated for table/matrix visuals with quantitative color encoding (v3.7.0) | |
-| **Small Multiples** | Now auto-generated when `small_multiples` or `pages_shelf` field is present (v3.7.0) | Grid layouts configured automatically |
-| **Visual positioning** | Dashboard objects are scaled proportionally from Tableau canvas to PBI page size | Not pixel-perfect; overlapping is possible |
-| **Textbox/Image** | Rich text with bold/italic/color/font_size/url now preserved via PBI text runs (v3.7.0) | Most formatting migrated |
+| **Visual positioning** | Dashboard objects are scaled proportionally with overlap detection, but not pixel-perfect | Some manual layout adjustment may be needed |
+| **Sparklines** | Table/matrix sparkline columns are generated as lineChart sparkline configs | Limited to basic line sparklines; area/bar sparklines not supported |
 
 ## DAX Conversion Limitations
 
@@ -38,78 +34,80 @@ This document lists known limitations and approximations in the Tableau to Micro
 | MAKEPOINT, MAKELINE, DISTANCE, BUFFER, AREA, INTERSECTION | `0` + comment | No spatial functions in DAX |
 | HEXBINX, HEXBINY | `0` + comment | No hex-binning in DAX |
 | COLLECT | `0` + comment | No spatial collection |
-| SCRIPT_BOOL/INT/REAL/STR | `BLANK()` + comment | R/Python scripting has no DAX equivalent |
+| SCRIPT_BOOL/INT/REAL/STR | ✅ `scriptVisual` (Python or R) + `BLANK()` DAX fallback | R/Python scripting → PBI Python/R visual containers with script text and input columns. `BLANK()` DAX measure generated for non-visual contexts. Requires Python/R runtime configured in PBI Desktop |
 | SPLIT | `BLANK()` + comment | No string split to array in DAX |
-| `PREVIOUS_VALUE` | `OFFSET(-1, ...)` | ✅ Converted to DAX OFFSET function (v3.7.0) |
 
 ### Approximated Functions
 
 | Tableau Function | DAX Output | Accuracy |
 |-----------------|------------|----------|
-| REGEXP_MATCH | `CONTAINSSTRING()` | Substring only, not true regex |
-| REGEXP_REPLACE | `SUBSTITUTE()` | Literal replacement, no regex groups |
-| REGEXP_EXTRACT | `BLANK()` | Placeholder |
+| REGEXP_MATCH | Smart pattern detection: `LEFT`/`RIGHT`/`CONTAINSSTRING`/`OR` | Handles `^literal`, `literal$`, `pat1\|pat2`, simple substrings; complex regex falls back to `CONTAINSSTRING` |
+| REGEXP_REPLACE | Chained `SUBSTITUTE()` for common patterns; `CONTAINSSTRING`+`SUBSTITUTE` for character classes | No true regex groups or backreferences |
+| REGEXP_EXTRACT | `MID(field, SEARCH("prefix", field) + len, LEN(field))` for fixed-prefix patterns | Falls back to `BLANK()` for complex patterns |
+| REGEXP_EXTRACT_NTH | Delimiter→PATHITEM, prefix→MID/SEARCH, alternation→IF/CONTAINSSTRING | Falls back to `BLANK()` for complex patterns (v5.3.0) |
 | RANK_PERCENTILE | `DIVIDE(RANKX()-1, COUNTROWS()-1)` | Edge cases with ties |
-| RUNNING_SUM/AVG/COUNT | `CALCULATE(AGG, ...)` | No window frame specification |
-| WINDOW_SUM/AVG/MAX/MIN | `CALCULATE(inner, ALL/ALLEXCEPT)` | Loses window frame boundaries |
-| LTRIM/RTRIM | `TRIM()` | Removes all leading/trailing spaces |
-| `LOOKUP` | `OFFSET(n, ...)` | ✅ Converted to DAX OFFSET with signed offset (v3.7.0) |
-| String `+` → `&` | Only at depth 0 | Arithmetic `+` in string contexts may be preserved |
+| RUNNING_SUM/AVG/COUNT | `CALCULATE(AGG, FILTER(ALLSELECTED(...)))` | Proper window semantics with partition support |
+| WINDOW_SUM/AVG/MAX/MIN | `CALCULATE(inner, ALL/ALLEXCEPT)` with OFFSET-based frame boundaries | Frame start/end positions approximated via OFFSET for specific patterns |
+| LTRIM/RTRIM | `TRIM()` | DAX TRIM removes all leading/trailing spaces |
+| String `+` → `&` | All expression depths | Converted at all nesting levels since v4.0 |
 
 ## Visual Mapping Approximations
 
-| Tableau Visual | Fabric PBI Mapping | Gap |
+| Tableau Visual | PBI Mapping | Gap |
 |---------------|------------|-----|
-| Sankey / Chord / Network | decompositionTree | Structurally different — hierarchical vs flow |
-| Gantt Bar / Lollipop | clusteredBarChart | Loses time-axis semantics |
-| Butterfly / Waffle | hundredPercentStackedBarChart | Loses symmetry |
-| Calendar Heat Map | matrix | Lacks calendar grid structure |
-| Packed Bubble / Strip Plot | scatterChart | Size encoding may not transfer |
-| Bump Chart / Slope / Sparkline | lineChart | Ranking semantics lost |
+| Sankey / Chord / Network | ✅ Custom visual GUID (`sankeyDiagram`, `chordChart`, `networkNavigator`) or `decompositionTree` fallback | Custom visuals require AppSource installation in PBI Desktop |
+| Gantt Bar / Lollipop | ✅ `ganttChart` (custom visual GUID) | Custom visual; time-axis semantics preserved |
+| Butterfly / Waffle | hundredPercentStackedBarChart | ✅ IMPROVED — negate-one-measure hint in approximation note |
+| Calendar Heat Map | matrix | ✅ IMPROVED — auto-enables conditional formatting properties + migration note |
+| Packed Bubble / Strip Plot | scatterChart | ✅ FIXED — size encoding from `mark_encoding` auto-injected into Size data role |
+| Bump Chart / Slope | lineChart | Ranking semantics lost |
 | Motion chart (animated) | Not handled | No PBI play-axis animation |
-| Violin plot | Not handled | No standard PBI visual |
-| Parallel coordinates | Not handled | No standard PBI visual |
+| Violin plot | ✅ `boxAndWhisker` + custom visual (`ViolinPlot1.0.0`) | Maps to Box & Whisker; AppSource custom visual GUID available |
+| Parallel coordinates | ✅ `lineChart` + custom visual (`ParallelCoordinates1.0.0`) | Maps to Line Chart; AppSource custom visual GUID available |
 
 ## Power Query M Limitations
 
 | Area | Limitation |
 |------|-----------|
-| **OAuth/SSO** | M queries use hardcoded connection strings; no OAuth configuration |
-| **Data gateway** | No on-premises data gateway configuration generated |
-| **Incremental refresh** | Auto-generated for tables with date/datetime columns (v3.7.0) — 30-day rolling + 1-day incremental |
-| **Parameterized sources** | M parameters (ServerName/DatabaseName) now emitted for 12 connector types (v3.7.0) |
-| **Hyper data** | `.hyper` files referenced in Prep flows produce empty `#table` |
-| **Custom SQL params** | `Value.NativeQuery()` generated but parameter binding not supported |
-
-## Fabric-Specific Limitations
-
-| Area | Limitation |
-|------|-----------|
-| **DirectLake** | Calendar table uses import partition; cannot coexist with DirectLake entity partitions |
-| **Lakehouse** | Generated lakehouse definition requires manual deployment to workspace |
-| **Pipeline** | Generated pipeline is a template; connections must be configured post-deployment |
-| **Dataflow Gen2** | M queries may need gateway configuration for on-premises sources |
-| **Notebook** | PySpark notebook assumes Lakehouse is mounted; requires workspace setup |
+| **Custom SQL params** | ✅ IMPLEMENTED — `Value.NativeQuery()` with parameter record binding and `[EnableFolding=true]` |
+| **Hyper data** | ✅ `.hyper` files are now loaded via SQLite interface — row data injected into M `#table()` expressions. Some proprietary `.hyper` v2+ formats may fall back to metadata-only |
+| **Query folding** | ✅ IMPLEMENTED — `m_transform_buffer()` + `m_transform_join(buffer_right=True)` for `Table.Buffer()` folding boundaries |
 
 ## Deployment Limitations
 
 | Area | Limitation |
 |------|-----------|
-| **No rollback** | If deployment fails mid-batch, there's no automatic undo |
-| **No integration tests** | Deployment code is structurally tested but never against a real Fabric workspace |
-| **PBIR schema** | Generated JSON isn't validated against Microsoft's published JSON schemas |
+| **PBI Service deployment** | ✅ `--deploy WORKSPACE_ID` deploys via REST API (Azure AD auth required). Integration tests are opt-in (`@pytest.mark.integration`) — not run in standard CI |
+| **Fabric deployment** | Fabric deployment is structurally tested but not against a real workspace |
 | **Windows paths** | OneDrive file locks may leave stale artifacts (handled via try/except) |
+
+## Plugin System Limitations
+
+| Area | Limitation |
+|------|------------|
+| **Plugin API stability** | The plugin hook interface (`plugins.py`) is functional but the API is not yet frozen — custom plugins may need updates across major versions |
+| **Plugin discovery** | Plugins are auto-discovered from `examples/plugins/` via `importlib` — only `.py` files with a `register(hooks)` function are loaded |
+
+## Schema Compatibility
+
+| Area | Limitation |
+|------|------------|
+| **PBIR schema versions** | Generated output targets PBIR v4.0 schemas. Use `--check-schema` to verify forward-compatibility with newer Power BI Desktop versions |
 
 ## Workarounds
 
 For most limitations, the recommended workflow is:
 
-1. Run the migration to generate the Fabric artifacts
-2. Import the Lakehouse definition and configure data connections
-3. Run the Dataflow Gen2 or PySpark Notebook for data ingestion
-4. Deploy the Semantic Model to the workspace
-5. Open the .pbip file in Power BI Desktop (Developer Mode)
-6. Review the migration metadata JSON for conversion notes
-7. Manually adjust unsupported features (spatial, custom shapes, advanced formatting)
-8. Re-authenticate data source connections
-9. Validate measures and relationships in Model view
+1. Run the migration to generate the .pbip project
+2. Open in Power BI Desktop (December 2025+)
+3. Review the migration metadata JSON for conversion notes
+4. Manually adjust unsupported features (spatial, custom shapes, advanced formatting)
+5. Re-authenticate data source connections
+6. Validate measures and relationships in Model view
+7. Use `--assess` flag for pre-migration readiness analysis
+8. Use `--incremental` for iterative refinement without losing manual edits
+9. Use `--deploy WORKSPACE_ID` to publish directly to Power BI Service
+10. Use `--server` to extract workbooks directly from Tableau Server/Cloud
+11. Use `--languages fr-FR,de-DE` to generate multi-language culture TMDL files with translated display folders
+12. Use `--goals` to convert Tableau Pulse metrics to Power BI Goals/Scorecard artifacts
+13. Use `--check-schema` to verify PBIR schema forward-compatibility before opening in newer PBI Desktop versions

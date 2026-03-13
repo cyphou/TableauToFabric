@@ -1,0 +1,14 @@
+{
+  "displayName": "multiple_connections",
+  "type": "SemanticModel",
+  "mode": "DirectLake",
+  "lakehouse": "multiple_connections",
+  "stats": {
+    "tables": 3,
+    "columns": 0,
+    "measures": 0,
+    "relationships": 0,
+    "hierarchies": 0,
+    "roles": 0
+  }
+}

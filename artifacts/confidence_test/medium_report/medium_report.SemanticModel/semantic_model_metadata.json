@@ -1,0 +1,14 @@
+{
+  "displayName": "medium_report",
+  "type": "SemanticModel",
+  "mode": "DirectLake",
+  "lakehouse": "medium_report",
+  "stats": {
+    "tables": 3,
+    "columns": 19,
+    "measures": 2,
+    "relationships": 1,
+    "hierarchies": 1,
+    "roles": 0
+  }
+}

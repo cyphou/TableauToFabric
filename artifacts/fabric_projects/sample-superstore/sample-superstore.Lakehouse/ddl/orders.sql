@@ -1,0 +1,29 @@
+-- Create table: orders
+-- Source: Orders (Unknown)
+CREATE TABLE IF NOT EXISTS orders (
+    Row_ID DOUBLE,
+    Order_ID STRING,
+    Order_Date TIMESTAMP,
+    Ship_Date TIMESTAMP,
+    Ship_Mode STRING,
+    Customer_ID STRING,
+    Customer_Name STRING,
+    Segment STRING,
+    City STRING,
+    State STRING,
+    Country STRING,
+    Postal_Code DOUBLE,
+    Market STRING,
+    Region STRING,
+    Product_ID STRING,
+    Category STRING,
+    Sub_Category STRING,
+    Product_Name STRING,
+    Sales DOUBLE,
+    Quantity DOUBLE,
+    Discount DOUBLE,
+    Profit DOUBLE,
+    Shipping_Cost DOUBLE,
+    Order_Priority STRING
+)
+USING DELTA;

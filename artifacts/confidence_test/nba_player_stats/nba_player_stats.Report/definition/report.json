@@ -1,0 +1,189 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/report/3.1.0/schema.json",
+  "themeCollection": {
+    "baseTheme": {
+      "name": "CY24SU06",
+      "reportVersionAtImport": {
+        "visual": "1.8.50",
+        "report": "2.0.50",
+        "page": "1.3.50"
+      },
+      "type": "SharedResources"
+    }
+  },
+  "resourcePackages": [
+    {
+      "name": "SharedResources",
+      "type": "SharedResources",
+      "items": [
+        {
+          "name": "CY24SU06",
+          "path": "BaseThemes/CY24SU06.json",
+          "type": "BaseTheme"
+        }
+      ]
+    }
+  ],
+  "settings": {
+    "hideVisualContainerHeader": true,
+    "useStylableVisualContainerHeader": true,
+    "exportDataMode": "None",
+    "defaultDrillFilterOtherVisuals": true,
+    "allowChangeFilterTypes": true,
+    "useEnhancedTooltips": true
+  },
+  "filterConfig": {
+    "filters": [
+      {
+        "name": "Filter_4ac7ba554392",
+        "type": "Categorical",
+        "field": {
+          "Column": {
+            "Expression": {
+              "SourceRef": {
+                "Entity": "Sheet1"
+              }
+            },
+            "Property": "federated.10vks1203pgcxf1bkw5yk1bwzy2f.none:YR:qk"
+          }
+        },
+        "filter": {
+          "Version": 2,
+          "From": [
+            {
+              "Name": "t",
+              "Entity": "Sheet1",
+              "Type": 0
+            }
+          ],
+          "Where": []
+        }
+      },
+      {
+        "name": "Filter_a14d08e4f30d",
+        "type": "Categorical",
+        "field": {
+          "Column": {
+            "Expression": {
+              "SourceRef": {
+                "Entity": "Sheet1"
+              }
+            },
+            "Property": "federated.10vks1203pgcxf1bkw5yk1bwzy2f.Action (Player)"
+          }
+        },
+        "filter": {
+          "Version": 2,
+          "From": [
+            {
+              "Name": "t",
+              "Entity": "Sheet1",
+              "Type": 0
+            }
+          ],
+          "Where": []
+        }
+      },
+      {
+        "name": "Filter_5b8f9584d109",
+        "type": "Categorical",
+        "field": {
+          "Column": {
+            "Expression": {
+              "SourceRef": {
+                "Entity": "Sheet1"
+              }
+            },
+            "Property": "federated.10vks1203pgcxf1bkw5yk1bwzy2f.:Measure Names"
+          }
+        },
+        "filter": {
+          "Version": 2,
+          "From": [
+            {
+              "Name": "t",
+              "Entity": "Sheet1",
+              "Type": 0
+            }
+          ],
+          "Where": []
+        }
+      },
+      {
+        "name": "Filter_ec64555ccc2c",
+        "type": "Categorical",
+        "field": {
+          "Column": {
+            "Expression": {
+              "SourceRef": {
+                "Entity": "Sheet1"
+              }
+            },
+            "Property": "federated.10vks1203pgcxf1bkw5yk1bwzy2f.Action (Player)"
+          }
+        },
+        "filter": {
+          "Version": 2,
+          "From": [
+            {
+              "Name": "t",
+              "Entity": "Sheet1",
+              "Type": 0
+            }
+          ],
+          "Where": []
+        }
+      },
+      {
+        "name": "Filter_70b7470efbd7",
+        "type": "Categorical",
+        "field": {
+          "Column": {
+            "Expression": {
+              "SourceRef": {
+                "Entity": "Sheet1"
+              }
+            },
+            "Property": "federated.10vks1203pgcxf1bkw5yk1bwzy2f.Action (Player)"
+          }
+        },
+        "filter": {
+          "Version": 2,
+          "From": [
+            {
+              "Name": "t",
+              "Entity": "Sheet1",
+              "Type": 0
+            }
+          ],
+          "Where": []
+        }
+      },
+      {
+        "name": "Filter_0c0c6485ab9a",
+        "type": "Categorical",
+        "field": {
+          "Column": {
+            "Expression": {
+              "SourceRef": {
+                "Entity": "Sheet1"
+              }
+            },
+            "Property": "federated.10vks1203pgcxf1bkw5yk1bwzy2f.Action (Player)"
+          }
+        },
+        "filter": {
+          "Version": 2,
+          "From": [
+            {
+              "Name": "t",
+              "Entity": "Sheet1",
+              "Type": 0
+            }
+          ],
+          "Where": []
+        }
+      }
+    ]
+  }
+}

@@ -1,4 +1,4 @@
-# Contributing to Tableau to Microsoft Fabric Migration Tool
+# Contributing to Tableau to Fabric Migration Tool
 
 Thank you for your interest in contributing! This guide covers the development setup, coding standards, and contribution workflow.
 
@@ -8,16 +8,15 @@ Thank you for your interest in contributing! This guide covers the development s
 
 ### Prerequisites
 
-- Python 3.8+ (tested on 3.9–3.14)
-- Power BI Desktop (December 2025+) for validating report output
-- Microsoft Fabric workspace (for deployment testing)
+- Python 3.9+ (tested on 3.9–3.14)
+- Power BI Desktop (December 2025+) for validating output
 - Git
 
 ### Getting Started
 
 ```bash
 # Clone the repository
-git clone https://github.com/cyphou/TableauToFabric.git
+git clone <repo-url>
 cd TableauToFabric
 
 # Create a virtual environment
@@ -38,12 +37,10 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for a detailed architecture ove
 
 ```
 tableau_export/   → Extraction layer (Tableau XML → JSON)
-fabric_import/    → Generation layer (JSON → 6 Fabric artifacts)
-conversion/       → High-level per-object converters
-tests/            → Unit and integration tests (960+ tests)
+fabric_import/   → Generation layer (JSON → .pbip project)
+tests/            → Unit and integration tests (2,057 tests across 40 files)
 docs/             → Documentation
 examples/         → Sample Tableau workbooks
-scripts/          → PowerShell and Python automation scripts
 artifacts/        → Migration output
 ```
 
@@ -63,12 +60,12 @@ If your change requires a new dependency, it must be behind a `try/except Import
 - Follow PEP 8 with `flake8` (errors only: E9, F63, F7, F82)
 - `ruff` is also configured in CI
 - Maximum line length: 120 characters (soft limit)
-- Use type hints where practical
+- Use type hints where practical (validated with pyrightconfig.json)
 
 ### Naming Conventions
 
 - Module-level functions for `tmdl_generator.py` (not a class)
-- Class-based for `FabricPBIPGenerator`, `TableauExtractor`, `ArtifactValidator`
+- Class-based for `PBIPGenerator`, `TableauExtractor`, `ArtifactValidator`
 - Private methods prefixed with `_`
 - Constants as `UPPER_SNAKE_CASE`
 
@@ -79,30 +76,19 @@ If your change requires a new dependency, it must be behind a `try/except Import
 - Use `SELECTEDVALUE()` for scalar references (not `VALUES()`)
 - Cross-table refs use `RELATED()` for manyToOne, `LOOKUPVALUE()` for manyToMany
 
-### Fabric Artifacts
-
-All 6 artifact types must remain consistent:
-
-1. **Lakehouse** — Delta table definitions
-2. **Dataflow Gen2** — Power Query M ingestion
-3. **Notebook** — PySpark ETL alternative
-4. **Semantic Model** — TMDL with DirectLake mode
-5. **Pipeline** — Orchestration of Dataflow/Notebook
-6. **Power BI Report** — PBIR v4.0 interactive report
-
 ## Testing
 
 ### Running Tests
 
 ```bash
 # All tests
-python -m unittest discover -s tests -v
+python -m pytest tests/ -v
 
 # Single test file
-python -m unittest tests.test_dax_converter -v
+python -m pytest tests/test_dax_converter.py -v
 
 # Single test method
-python -m unittest tests.test_dax_converter.TestDaxConverter.test_isnull_to_isblank -v
+python -m pytest tests/test_dax_converter.py::TestDaxConverter::test_isnull_to_isblank -v
 ```
 
 ### Test Structure
@@ -110,20 +96,19 @@ python -m unittest tests.test_dax_converter.TestDaxConverter.test_isnull_to_isbl
 | File | Focus |
 |------|-------|
 | `test_dax_converter.py` | DAX formula conversion |
+| `test_dax_coverage.py` | DAX edge cases across all categories |
 | `test_m_query_builder.py` | M query generation |
 | `test_tmdl_generator.py` | TMDL semantic model |
 | `test_visual_generator.py` | Visual container generation |
 | `test_pbip_generator.py` | .pbip project structure |
-| `test_conversion_modules.py` | Per-object conversion |
+| `test_feature_gaps.py` | Specific feature implementations |
+| `test_infrastructure.py` | Validator, deployer, config |
+| `test_extraction.py` | Tableau XML extraction |
+| `test_prep_flow_parser.py` | Prep flow parsing |
+| `test_non_regression.py` | Per-sample project regression |
+| `test_integration.py` | End-to-end pipeline tests |
 | `test_assessment.py` | Pre-migration assessment |
-| `test_deployer.py` | Fabric deployer |
-| `test_config.py` | Configuration validation |
-| `test_lakehouse_generator.py` | Lakehouse generation |
-| `test_dataflow_generator.py` | Dataflow generation |
-| `test_notebook_generator.py` | Notebook generation |
-| `test_pipeline_generator.py` | Pipeline generation |
-| `test_end_to_end.py` | End-to-end migration |
-| `test_migrate.py` | CLI and main flow |
+| ... | 39 test files total — see [README](README.md) for full list |
 
 ### Writing Tests
 
@@ -171,17 +156,15 @@ python migrate.py --batch examples/tableau_samples/ --output-dir /tmp/test_outpu
 
 ### High Priority
 
-- Additional DAX conversion patterns
+- Additional DAX conversion patterns (see GAP_ANALYSIS.md §5)
 - Additional connector types for M queries
 - Performance optimization for large workbooks
-- Fabric REST API deployment improvements
 
 ### Medium Priority
 
-- New visual type mappings
+- New visual type mappings (see GAP_ANALYSIS.md §4)
 - Enhanced formatting migration
 - Integration tests with Fabric workspace
-- DirectLake optimization
 
 ### Low Priority
 

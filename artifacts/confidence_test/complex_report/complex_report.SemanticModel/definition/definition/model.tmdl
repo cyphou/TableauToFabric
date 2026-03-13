@@ -1,0 +1,27 @@
+model Model
+	culture: fr-FR
+	defaultPowerBIDataSourceVersion: powerBI_V3
+	defaultMode: directLake
+	sourceQueryCulture: en-US
+	dataAccessOptions
+		legacyRedirects
+		returnErrorValuesAsNull
+
+annotation PBI_QueryOrder = ["Orders","Customers","Products","Regions","Targets","Year Selector","Segment Filter"]
+
+ref table Orders
+ref table Customers
+ref table Products
+ref table Regions
+ref table Targets
+ref table 'Year Selector'
+ref table 'Segment Filter'
+
+ref expression DatabaseQuery
+
+ref role RegionSecurity
+
+ref perspective 'Full Model'
+
+ref culture 'fr-FR'
+

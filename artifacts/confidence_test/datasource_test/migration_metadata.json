@@ -1,0 +1,22 @@
+{
+  "project_name": "datasource_test",
+  "source": "TableauToFabric",
+  "generated_at": "2026-03-05T10:46:57.760265",
+  "artifacts_generated": [
+    "lakehouse",
+    "dataflow",
+    "notebook",
+    "semanticmodel",
+    "pipeline",
+    "pbi"
+  ],
+  "stats": {
+    "lakehouse_tables": 1,
+    "dataflow_queries": 1,
+    "notebook_cells": 13,
+    "semanticmodel_tables": 1,
+    "pipeline_activities": 3,
+    "pbi_pages": 1,
+    "pbi_visuals": 10
+  }
+}

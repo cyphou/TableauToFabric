@@ -1,0 +1,21 @@
+model Model
+	culture: fr-FR
+	defaultPowerBIDataSourceVersion: powerBI_V3
+	defaultMode: directLake
+	sourceQueryCulture: en-US
+	dataAccessOptions
+		legacyRedirects
+		returnErrorValuesAsNull
+
+annotation PBI_QueryOrder = ["sqlproxy","xy","xy1"]
+
+ref table sqlproxy
+ref table xy
+ref table xy1
+
+ref expression DatabaseQuery
+
+ref perspective 'Full Model'
+
+ref culture 'fr-FR'
+

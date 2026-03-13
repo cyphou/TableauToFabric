@@ -1,0 +1,41 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/lakehouse/definition/lakehouse/1.0.0/schema.json",
+  "properties": {
+    "displayName": "datasource_test_Lakehouse",
+    "description": "Lakehouse generated from Tableau workbook: datasource_test",
+    "created": "2026-03-05T10:46:52.385978",
+    "defaultSchema": "dbo"
+  },
+  "tables": [
+    {
+      "name": "xy",
+      "original_name": "xy",
+      "columns": [
+        {
+          "name": "a",
+          "datatype": "STRING",
+          "nullable": true,
+          "original_name": "a",
+          "original_type": "string"
+        },
+        {
+          "name": "x",
+          "datatype": "INT",
+          "nullable": true,
+          "original_name": "x",
+          "original_type": "integer"
+        },
+        {
+          "name": "y",
+          "datatype": "INT",
+          "nullable": true,
+          "original_name": "y",
+          "original_type": "integer"
+        }
+      ],
+      "source_type": "Unknown",
+      "source_connection": {},
+      "format": "delta"
+    }
+  ]
+}

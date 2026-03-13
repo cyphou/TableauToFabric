@@ -1,0 +1,8 @@
+{
+  "displayName": "datasource_test",
+  "type": "Pipeline",
+  "generated_at": "2026-03-05T10:46:52.476488",
+  "activities": 3,
+  "stages": 3,
+  "lakehouse": "datasource_test"
+}

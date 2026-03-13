@@ -1,0 +1,14 @@
+{
+  "displayName": "TABLEAU_10_TWBX",
+  "type": "SemanticModel",
+  "mode": "DirectLake",
+  "lakehouse": "TABLEAU_10_TWBX",
+  "stats": {
+    "tables": 2,
+    "columns": 7,
+    "measures": 1,
+    "relationships": 0,
+    "hierarchies": 0,
+    "roles": 0
+  }
+}

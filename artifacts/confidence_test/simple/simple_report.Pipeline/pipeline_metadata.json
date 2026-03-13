@@ -1,0 +1,8 @@
+{
+  "displayName": "simple_report",
+  "type": "Pipeline",
+  "generated_at": "2026-03-05T10:12:00.515286",
+  "activities": 3,
+  "stages": 3,
+  "lakehouse": "simple_report"
+}

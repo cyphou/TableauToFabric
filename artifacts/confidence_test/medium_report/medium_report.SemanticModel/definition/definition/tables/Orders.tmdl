@@ -1,0 +1,156 @@
+table Orders
+	lineageTag: 90d520f1-a3f2-4fb5-8700-62834c094edf
+
+	measure 'Profit Ratio' = SUM('Orders'[Profit]) / SUM('Orders'[Sales])
+		formatString: #,0.00
+		displayFolder: Measures
+		lineageTag: eb2a0afd-8d3d-47ae-96d7-0aa7306fd347
+
+	column OrderID
+		dataType: int64
+		lineageTag: 03f132cd-7855-4691-b295-2f2b3b10f7b5
+		summarizeBy: sum
+		sourceColumn: OrderID
+
+		annotation SummarizationSetBy = Automatic
+
+	column CustomerID
+		dataType: int64
+		lineageTag: cd24bc33-8994-47bd-9b65-3e6e6f4b0976
+		summarizeBy: sum
+		sourceColumn: CustomerID
+
+		annotation SummarizationSetBy = Automatic
+
+	column OrderDate
+		dataType: dateTime
+		formatString: General Date
+		lineageTag: 1e5b77f7-3fab-4c66-9858-5cd80eb4e979
+		summarizeBy: none
+		sourceColumn: OrderDate
+		dataCategory: DateTime
+
+		annotation SummarizationSetBy = Automatic
+
+	column Category
+		dataType: string
+		lineageTag: 21776d9b-1d64-46dc-85c3-b500d958380e
+		summarizeBy: none
+		sourceColumn: Category
+
+		annotation SummarizationSetBy = Automatic
+
+	column Product
+		dataType: string
+		lineageTag: 10371661-48ed-4b89-bd1c-7f3682d9e034
+		summarizeBy: none
+		sourceColumn: Product
+
+		annotation SummarizationSetBy = Automatic
+
+	column Sales
+		dataType: double
+		formatString: #,0.00
+		lineageTag: 36f5dc7c-fec2-43ce-b8b0-f21b85047113
+		summarizeBy: sum
+		sourceColumn: Sales
+
+		annotation SummarizationSetBy = Automatic
+
+	column Profit
+		dataType: double
+		formatString: #,0.00
+		lineageTag: e755b4c3-4ba3-4af8-a2cb-ea15020dc2b1
+		summarizeBy: sum
+		sourceColumn: Profit
+
+		annotation SummarizationSetBy = Automatic
+
+	column Quantity
+		dataType: int64
+		lineageTag: c8641a5b-1b8a-47bd-a540-6f45f720cf33
+		summarizeBy: sum
+		sourceColumn: Quantity
+
+		annotation SummarizationSetBy = Automatic
+
+	column Discount
+		dataType: double
+		formatString: #,0.00
+		lineageTag: 97006ddc-106b-455d-80f8-5038d4e5b850
+		summarizeBy: sum
+		sourceColumn: Discount
+
+		annotation SummarizationSetBy = Automatic
+
+	column Region
+		dataType: string
+		lineageTag: 84e287c7-2ed2-4fb7-8807-7fd5441f313b
+		summarizeBy: none
+		sourceColumn: Region
+		dataCategory: StateOrProvince
+
+		annotation SummarizationSetBy = Automatic
+
+	column Country
+		dataType: string
+		lineageTag: 38b371bd-4888-44a3-bed7-46dca8d7f6a0
+		summarizeBy: none
+		sourceColumn: Country
+		dataCategory: Country
+
+		annotation SummarizationSetBy = Automatic
+
+	column State
+		dataType: string
+		lineageTag: c3955d75-9b07-4017-861a-30acf0bc2c1c
+		summarizeBy: none
+		sourceColumn: State
+		dataCategory: StateOrProvince
+
+		annotation SummarizationSetBy = Automatic
+
+	column City
+		dataType: string
+		lineageTag: 9f6ac820-9a5d-4740-8d32-56701d53b1d2
+		summarizeBy: none
+		sourceColumn: City
+		dataCategory: City
+
+		annotation SummarizationSetBy = Automatic
+
+	column 'Revenue Tier'
+		dataType: string
+		lineageTag: e2861403-bf77-47ef-ad35-47aa87a39388
+		summarizeBy: none
+		sourceColumn: revenue_tier
+
+		annotation SummarizationSetBy = Automatic
+
+	hierarchy Geography
+		lineageTag: ab1829e0-e5d5-44c3-bbdf-95985102d4ab
+
+		level Country
+			ordinal: 0
+			column: Country
+			lineageTag: ccc4a9fb-d531-4f44-8744-0636c1cd5960
+
+		level State
+			ordinal: 1
+			column: State
+			lineageTag: b18a0079-7233-4eb6-ae3e-1b4ffc9955e2
+
+		level City
+			ordinal: 2
+			column: City
+			lineageTag: d5acd85b-1496-4ddf-9c89-0af410d8751f
+
+
+	partition 'Orders-a9e20da2-b4af-46b2-87c3-c440c4359682' = entity
+		mode: directLake
+		entityName: orders
+		schemaName: dbo
+		expressionSource: DatabaseQuery
+
+	annotation PBI_ResultType = Table
+

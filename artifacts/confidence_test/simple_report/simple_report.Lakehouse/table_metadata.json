@@ -1,0 +1,38 @@
+{
+  "sales": {
+    "original_name": "Sales",
+    "source_type": "SQL Server",
+    "columns": {
+      "SaleID": {
+        "type": "INT",
+        "original_name": "SaleID",
+        "original_type": "integer"
+      },
+      "Category": {
+        "type": "STRING",
+        "original_name": "Category",
+        "original_type": "string"
+      },
+      "Product": {
+        "type": "STRING",
+        "original_name": "Product",
+        "original_type": "string"
+      },
+      "Amount": {
+        "type": "DOUBLE",
+        "original_name": "Amount",
+        "original_type": "real"
+      },
+      "Quantity": {
+        "type": "INT",
+        "original_name": "Quantity",
+        "original_type": "integer"
+      },
+      "SaleDate": {
+        "type": "DATE",
+        "original_name": "SaleDate",
+        "original_type": "date"
+      }
+    }
+  }
+}

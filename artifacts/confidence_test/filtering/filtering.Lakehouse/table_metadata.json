@@ -1,0 +1,208 @@
+{
+  "testdata": {
+    "original_name": "TestData",
+    "source_type": "SQL Server",
+    "columns": {
+      "Account_Account_Name": {
+        "type": "STRING",
+        "original_name": "Account Account Name",
+        "original_type": "string"
+      },
+      "Account_Number": {
+        "type": "DOUBLE",
+        "original_name": "Account Number",
+        "original_type": "real"
+      },
+      "Account_Number_Burst_Out_Account": {
+        "type": "STRING",
+        "original_name": "Account Number Burst Out Account",
+        "original_type": "string"
+      },
+      "Acct_Name": {
+        "type": "STRING",
+        "original_name": "Acct Name",
+        "original_type": "string"
+      },
+      "Burst_Out": {
+        "type": "STRING",
+        "original_name": "Burst Out",
+        "original_type": "string"
+      },
+      "Burst_Out_Join": {
+        "type": "STRING",
+        "original_name": "Burst Out Join",
+        "original_type": "string"
+      },
+      "Burst_Out_Set_list": {
+        "type": "DOUBLE",
+        "original_name": "Burst Out Set list",
+        "original_type": "real"
+      },
+      "Burst_Out_View": {
+        "type": "DOUBLE",
+        "original_name": "Burst Out View",
+        "original_type": "real"
+      },
+      "Count_JE_Number": {
+        "type": "DOUBLE",
+        "original_name": "Count JE Number",
+        "original_type": "real"
+      },
+      "Entity_ID": {
+        "type": "STRING",
+        "original_name": "Entity ID",
+        "original_type": "string"
+      },
+      "Filter": {
+        "type": "DOUBLE",
+        "original_name": "Filter",
+        "original_type": "real"
+      },
+      "Fiscal_Year": {
+        "type": "STRING",
+        "original_name": "Fiscal Year",
+        "original_type": "string"
+      },
+      "Flag": {
+        "type": "BOOLEAN",
+        "original_name": "Flag",
+        "original_type": "boolean"
+      },
+      "Flag_copy": {
+        "type": "BOOLEAN",
+        "original_name": "Flag__copy_",
+        "original_type": "boolean"
+      },
+      "FS_Line": {
+        "type": "DOUBLE",
+        "original_name": "FS Line",
+        "original_type": "real"
+      },
+      "FS_Line_Burst_Out_Account": {
+        "type": "STRING",
+        "original_name": "FS Line Burst Out Account",
+        "original_type": "string"
+      },
+      "Group_By": {
+        "type": "DOUBLE",
+        "original_name": "Group By",
+        "original_type": "real"
+      },
+      "Image": {
+        "type": "STRING",
+        "original_name": "Image",
+        "original_type": "string"
+      },
+      "Note_Line": {
+        "type": "DOUBLE",
+        "original_name": "Note Line",
+        "original_type": "real"
+      },
+      "Note_Line_Burst_Out_Account": {
+        "type": "STRING",
+        "original_name": "Note Line Burst Out Account",
+        "original_type": "string"
+      },
+      "Selection": {
+        "type": "DOUBLE",
+        "original_name": "Selection",
+        "original_type": "real"
+      },
+      "show": {
+        "type": "STRING",
+        "original_name": "show",
+        "original_type": "string"
+      },
+      "Show_Cycle_Based": {
+        "type": "STRING",
+        "original_name": "Show Cycle Based",
+        "original_type": "string"
+      },
+      "Sub_Class": {
+        "type": "DOUBLE",
+        "original_name": "Sub Class",
+        "original_type": "real"
+      },
+      "SubClass_Burst_Out_Account": {
+        "type": "STRING",
+        "original_name": "SubClass Burst Out Account",
+        "original_type": "string"
+      },
+      "Type": {
+        "type": "STRING",
+        "original_name": "Type",
+        "original_type": "string"
+      },
+      "Amount": {
+        "type": "STRING",
+        "original_name": "Amount",
+        "original_type": "string"
+      },
+      "Amount1": {
+        "type": "STRING",
+        "original_name": "Amount1",
+        "original_type": "string"
+      },
+      "Count_of_Amount_Calculation": {
+        "type": "DOUBLE",
+        "original_name": "Count of Amount Calculation",
+        "original_type": "real"
+      },
+      "Number_of_Records": {
+        "type": "DOUBLE",
+        "original_name": "Number of Records",
+        "original_type": "real"
+      },
+      "Number_of_Records1": {
+        "type": "DOUBLE",
+        "original_name": "Number of Records1",
+        "original_type": "real"
+      },
+      "Select_Burst_Out": {
+        "type": "DOUBLE",
+        "original_name": "Select Burst Out",
+        "original_type": "real"
+      },
+      "Select_Transaction_Analysis_view": {
+        "type": "DOUBLE",
+        "original_name": "Select Transaction Analysis view",
+        "original_type": "real"
+      },
+      "Sum_Cy": {
+        "type": "DOUBLE",
+        "original_name": "Sum Cy",
+        "original_type": "real"
+      },
+      "Sum_Py1": {
+        "type": "DOUBLE",
+        "original_name": "Sum Py1",
+        "original_type": "real"
+      },
+      "Sum_Py2": {
+        "type": "DOUBLE",
+        "original_name": "Sum Py2",
+        "original_type": "real"
+      },
+      "Sum_Py3": {
+        "type": "DOUBLE",
+        "original_name": "Sum Py3",
+        "original_type": "real"
+      },
+      "Sum_Py4": {
+        "type": "DOUBLE",
+        "original_name": "Sum Py4",
+        "original_type": "real"
+      },
+      "Total_Credits": {
+        "type": "DOUBLE",
+        "original_name": "Total Credits",
+        "original_type": "real"
+      },
+      "Total_Debits": {
+        "type": "DOUBLE",
+        "original_name": "Total Debits",
+        "original_type": "real"
+      }
+    }
+  }
+}

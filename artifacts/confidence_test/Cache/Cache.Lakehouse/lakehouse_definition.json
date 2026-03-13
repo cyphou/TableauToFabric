@@ -1,0 +1,62 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/lakehouse/definition/lakehouse/1.0.0/schema.json",
+  "properties": {
+    "displayName": "Cache_Lakehouse",
+    "description": "Lakehouse generated from Tableau workbook: Cache",
+    "created": "2026-03-05T10:46:41.161733",
+    "defaultSchema": "dbo"
+  },
+  "tables": [
+    {
+      "name": "extract",
+      "original_name": "Extract",
+      "columns": [
+        {
+          "name": "Category",
+          "datatype": "STRING",
+          "nullable": false,
+          "original_name": "Category",
+          "original_type": "string"
+        },
+        {
+          "name": "Number_of_Records",
+          "datatype": "INT",
+          "nullable": false,
+          "original_name": "Number of Records",
+          "original_type": "integer"
+        },
+        {
+          "name": "Order_Date",
+          "datatype": "DATE",
+          "nullable": false,
+          "original_name": "Order Date",
+          "original_type": "date"
+        },
+        {
+          "name": "Sales_Target",
+          "datatype": "INT",
+          "nullable": false,
+          "original_name": "Sales Target",
+          "original_type": "integer"
+        },
+        {
+          "name": "Segment",
+          "datatype": "STRING",
+          "nullable": false,
+          "original_name": "Segment",
+          "original_type": "string"
+        }
+      ],
+      "source_type": "DATAENGINE",
+      "source_connection": {
+        "class": "dataengine",
+        "dbname": "Data/en_US-US/Sales Target.tde",
+        "password": "",
+        "schema": "Extract",
+        "tablename": "Extract",
+        "workgroup-auth-mode": "as-is"
+      },
+      "format": "delta"
+    }
+  ]
+}

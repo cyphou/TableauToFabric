@@ -1,0 +1,53 @@
+table Extract
+	lineageTag: 0dcd53a8-564f-45c5-a6e6-c36898976fc4
+
+	column Category
+		dataType: string
+		lineageTag: c911cbe6-a8cd-4f4c-ab65-e99c703c9a94
+		summarizeBy: none
+		sourceColumn: Category
+
+		annotation SummarizationSetBy = Automatic
+
+	column 'Number of Records'
+		dataType: int64
+		lineageTag: 6e37ad1d-692d-49f0-9d0a-157e3bebeff5
+		summarizeBy: sum
+		sourceColumn: 'Number of Records'
+
+		annotation SummarizationSetBy = Automatic
+
+	column 'Order Date'
+		dataType: dateTime
+		formatString: General Date
+		lineageTag: 67635664-fa64-467f-8114-18c129ec13cc
+		summarizeBy: none
+		sourceColumn: 'Order Date'
+		dataCategory: DateTime
+
+		annotation SummarizationSetBy = Automatic
+
+	column 'Sales Target'
+		dataType: int64
+		lineageTag: a01f6eb0-527a-4fc0-b8fa-a3dff2557bb8
+		summarizeBy: sum
+		sourceColumn: 'Sales Target'
+
+		annotation SummarizationSetBy = Automatic
+
+	column Segment
+		dataType: string
+		lineageTag: 64fcfeb3-c439-49c5-b720-f191d76bffc9
+		summarizeBy: none
+		sourceColumn: Segment
+
+		annotation SummarizationSetBy = Automatic
+
+	partition 'Extract-2724a191-bb76-4a5c-9471-8fbf553dcc60' = entity
+		mode: directLake
+		entityName: extract
+		schemaName: dbo
+		expressionSource: DatabaseQuery
+
+	annotation PBI_ResultType = Table
+

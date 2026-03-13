@@ -1,0 +1,8 @@
+{
+  "displayName": "ephemeral_field",
+  "type": "Pipeline",
+  "generated_at": "2026-03-05T10:46:58.813306",
+  "activities": 3,
+  "stages": 3,
+  "lakehouse": "ephemeral_field"
+}

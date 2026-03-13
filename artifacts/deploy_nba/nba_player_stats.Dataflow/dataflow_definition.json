@@ -1,0 +1,25 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/dataflow/definition/dataflowGen2/1.0.0/schema.json",
+  "properties": {
+    "displayName": "nba_player_stats_Dataflow",
+    "description": "Dataflow Gen2 generated from Tableau workbook: nba_player_stats",
+    "type": "DataflowGen2",
+    "created": "2026-03-05T13:30:04.186224"
+  },
+  "mashupDocument": "\nsection Section1;\n\nshared Sheet1 = let\n    // Source Excel: Data/Datasets/nba_players.xlsx\n    Source = Excel.Workbook(File.Contents(DataFolder & \"\\Data\\Datasets\\nba_players.xlsx\"), null, true),\n    #\"Sheet1 Sheet\" = Source{[Item=\"Sheet1\",Kind=\"Sheet\"]}[Data],\n    #\"Promoted Headers\" = Table.PromoteHeaders(#\"Sheet1 Sheet\", [PromoteAllScalars=true]),\n    #\"Changed Types\" = Table.TransformColumnTypes(#\"Promoted Headers\", {\n        {\"Player\", type text},\n        {\"YR\", Int64.Type},\n        {\"TM\", type text},\n        {\"GP\", Int64.Type},\n        {\"MIN\", type number},\n        {\"FGM\", type number},\n        {\"FGA\", type number},\n        {\"FG%\", type number},\n        {\"3PT%\", type number},\n        {\"FT%\", type number},\n        {\"OFF\", type number},\n        {\"DEF\", type number},\n        {\"REB\", type number},\n        {\"ASST\", type number},\n        {\"STL\", type number},\n        {\"BLK\", type number},\n        {\"TO\", type number},\n        {\"PF\", type number},\n        {\"PTS\", type number}\n    }),\n    Result = #\"Changed Types\"\nin\n    Result;",
+  "queries": [
+    {
+      "name": "Sheet1",
+      "description": "Ingests data from Sheet1",
+      "queryId": "sheet1",
+      "resultType": "Table",
+      "loadEnabled": true,
+      "destination": {
+        "type": "Lakehouse",
+        "tableName": "sheet1",
+        "updateMethod": "Replace",
+        "schemaMapping": "Auto"
+      }
+    }
+  ]
+}

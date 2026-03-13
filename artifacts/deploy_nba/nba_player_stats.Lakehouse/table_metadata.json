@@ -1,0 +1,103 @@
+{
+  "sheet1": {
+    "original_name": "Sheet1",
+    "source_type": "Excel",
+    "columns": {
+      "Player": {
+        "type": "STRING",
+        "original_name": "Player",
+        "original_type": "string"
+      },
+      "YR": {
+        "type": "INT",
+        "original_name": "YR",
+        "original_type": "integer"
+      },
+      "TM": {
+        "type": "STRING",
+        "original_name": "TM",
+        "original_type": "string"
+      },
+      "GP": {
+        "type": "INT",
+        "original_name": "GP",
+        "original_type": "integer"
+      },
+      "MIN": {
+        "type": "DOUBLE",
+        "original_name": "MIN",
+        "original_type": "real"
+      },
+      "FGM": {
+        "type": "DOUBLE",
+        "original_name": "FGM",
+        "original_type": "real"
+      },
+      "FGA": {
+        "type": "DOUBLE",
+        "original_name": "FGA",
+        "original_type": "real"
+      },
+      "FG": {
+        "type": "DOUBLE",
+        "original_name": "FG%",
+        "original_type": "real"
+      },
+      "PT": {
+        "type": "DOUBLE",
+        "original_name": "3PT%",
+        "original_type": "real"
+      },
+      "FT": {
+        "type": "DOUBLE",
+        "original_name": "FT%",
+        "original_type": "real"
+      },
+      "OFF": {
+        "type": "DOUBLE",
+        "original_name": "OFF",
+        "original_type": "real"
+      },
+      "DEF": {
+        "type": "DOUBLE",
+        "original_name": "DEF",
+        "original_type": "real"
+      },
+      "REB": {
+        "type": "DOUBLE",
+        "original_name": "REB",
+        "original_type": "real"
+      },
+      "ASST": {
+        "type": "DOUBLE",
+        "original_name": "ASST",
+        "original_type": "real"
+      },
+      "STL": {
+        "type": "DOUBLE",
+        "original_name": "STL",
+        "original_type": "real"
+      },
+      "BLK": {
+        "type": "DOUBLE",
+        "original_name": "BLK",
+        "original_type": "real"
+      },
+      "TO": {
+        "type": "DOUBLE",
+        "original_name": "TO",
+        "original_type": "real"
+      },
+      "PF": {
+        "type": "DOUBLE",
+        "original_name": "PF",
+        "original_type": "real"
+      },
+      "PTS": {
+        "type": "DOUBLE",
+        "original_name": "PTS",
+        "original_type": "real"
+      }
+    }
+  }
+}

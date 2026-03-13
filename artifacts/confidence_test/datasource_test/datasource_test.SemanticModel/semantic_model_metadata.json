@@ -1,0 +1,14 @@
+{
+  "displayName": "datasource_test",
+  "type": "SemanticModel",
+  "mode": "DirectLake",
+  "lakehouse": "datasource_test",
+  "stats": {
+    "tables": 1,
+    "columns": 3,
+    "measures": 1,
+    "relationships": 0,
+    "hierarchies": 0,
+    "roles": 0
+  }
+}

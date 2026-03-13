@@ -1,0 +1,62 @@
+table Sales
+	lineageTag: ee4b5b25-2044-472a-9edf-3413b7d17385
+
+	column SaleID
+		dataType: int64
+		lineageTag: 7fd7bdec-4623-468b-8196-4f8053015672
+		summarizeBy: sum
+		sourceColumn: SaleID
+
+		annotation SummarizationSetBy = Automatic
+
+	column Category
+		dataType: string
+		lineageTag: 941e8640-bc6c-477d-8072-9b9836b8e4b2
+		summarizeBy: none
+		sourceColumn: Category
+
+		annotation SummarizationSetBy = Automatic
+
+	column Product
+		dataType: string
+		lineageTag: afc40c7a-f741-46be-87c0-a8307f8289a2
+		summarizeBy: none
+		sourceColumn: Product
+
+		annotation SummarizationSetBy = Automatic
+
+	column Amount
+		dataType: double
+		formatString: #,0.00
+		lineageTag: 91090e86-36c3-44e2-848e-79bf50f17e6d
+		summarizeBy: sum
+		sourceColumn: Amount
+
+		annotation SummarizationSetBy = Automatic
+
+	column Quantity
+		dataType: int64
+		lineageTag: 6a6c3299-00d1-46a2-966f-992658092c72
+		summarizeBy: sum
+		sourceColumn: Quantity
+
+		annotation SummarizationSetBy = Automatic
+
+	column SaleDate
+		dataType: dateTime
+		formatString: General Date
+		lineageTag: f239fdef-3a6e-4804-bf8f-8fbdbf354275
+		summarizeBy: none
+		sourceColumn: SaleDate
+		dataCategory: DateTime
+
+		annotation SummarizationSetBy = Automatic
+
+	partition 'Sales-e2336ce6-57cc-4b64-ad4e-e3fdd76c516a' = entity
+		mode: directLake
+		entityName: sales
+		schemaName: dbo
+		expressionSource: DatabaseQuery
+
+	annotation PBI_ResultType = Table
+

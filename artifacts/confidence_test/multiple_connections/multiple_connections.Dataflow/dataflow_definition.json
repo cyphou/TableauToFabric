@@ -1,0 +1,51 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/dataflow/definition/dataflowGen2/1.0.0/schema.json",
+  "properties": {
+    "displayName": "multiple_connections_Dataflow",
+    "description": "Dataflow Gen2 generated from Tableau workbook: multiple_connections",
+    "type": "DataflowGen2",
+    "created": "2026-03-05T10:47:16.110471"
+  },
+  "mashupDocument": "\nsection Section1;\n\nshared sqlproxy = let\n    // TODO: Configure the source for Unknown\n    // Connection type not automatically supported\n    Source = #table(\n        {},\n        {\n            {},\n            {}\n        }\n    )\nin\n    Source;\n\nshared xy = let\n    // Source MySQL: mysql55:\n    Source = MySQL.Database(\"mysql55:\", \"testv1\"),\n    #\"xy Table\" = Source{[Schema=\"testv1\", Item=\"xy\"]}[Data],\n    Result = #\"xy Table\"\nin\n    Result;\n\nshared xy1 = let\n    // Source SQL Server\n    Source = Sql.Database(\"mssql2012\", \"TestV1\"),\n    #\"xy1 Table\" = Source{[Schema=\"dbo\", Item=\"xy1\"]}[Data],\n    Result = #\"xy1 Table\"\nin\n    Result;",
+  "queries": [
+    {
+      "name": "sqlproxy",
+      "description": "Ingests data from sqlproxy",
+      "queryId": "sqlproxy",
+      "resultType": "Table",
+      "loadEnabled": true,
+      "destination": {
+        "type": "Lakehouse",
+        "tableName": "sqlproxy",
+        "updateMethod": "Replace",
+        "schemaMapping": "Auto"
+      }
+    },
+    {
+      "name": "xy",
+      "description": "Ingests data from xy",
+      "queryId": "xy",
+      "resultType": "Table",
+      "loadEnabled": true,
+      "destination": {
+        "type": "Lakehouse",
+        "tableName": "xy",
+        "updateMethod": "Replace",
+        "schemaMapping": "Auto"
+      }
+    },
+    {
+      "name": "xy1",
+      "description": "Ingests data from xy1",
+      "queryId": "xy1",
+      "resultType": "Table",
+      "loadEnabled": true,
+      "destination": {
+        "type": "Lakehouse",
+        "tableName": "xy1",
+        "updateMethod": "Replace",
+        "schemaMapping": "Auto"
+      }
+    }
+  ]
+}

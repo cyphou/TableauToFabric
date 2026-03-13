@@ -1,0 +1,22 @@
+{
+  "project_name": "superstore_sales_dashboard",
+  "source": "TableauToFabric",
+  "generated_at": "2026-03-05T10:47:43.391041",
+  "artifacts_generated": [
+    "lakehouse",
+    "dataflow",
+    "notebook",
+    "semanticmodel",
+    "pipeline",
+    "pbi"
+  ],
+  "stats": {
+    "lakehouse_tables": 2,
+    "dataflow_queries": 2,
+    "notebook_cells": 18,
+    "semanticmodel_tables": 2,
+    "pipeline_activities": 3,
+    "pbi_pages": 1,
+    "pbi_visuals": 20
+  }
+}

@@ -1,0 +1,379 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/lakehouse/definition/lakehouse/1.0.0/schema.json",
+  "properties": {
+    "displayName": "complex_report_Lakehouse",
+    "description": "Lakehouse generated from Tableau workbook: complex_report",
+    "created": "2026-03-05T10:46:29.828257",
+    "defaultSchema": "dbo"
+  },
+  "tables": [
+    {
+      "name": "orders",
+      "original_name": "Orders",
+      "columns": [
+        {
+          "name": "OrderID",
+          "datatype": "INT",
+          "nullable": true,
+          "original_name": "OrderID",
+          "original_type": "integer"
+        },
+        {
+          "name": "CustomerID",
+          "datatype": "INT",
+          "nullable": true,
+          "original_name": "CustomerID",
+          "original_type": "integer"
+        },
+        {
+          "name": "ProductID",
+          "datatype": "INT",
+          "nullable": true,
+          "original_name": "ProductID",
+          "original_type": "integer"
+        },
+        {
+          "name": "RegionID",
+          "datatype": "INT",
+          "nullable": true,
+          "original_name": "RegionID",
+          "original_type": "integer"
+        },
+        {
+          "name": "OrderDate",
+          "datatype": "DATE",
+          "nullable": true,
+          "original_name": "OrderDate",
+          "original_type": "date"
+        },
+        {
+          "name": "ShipDate",
+          "datatype": "DATE",
+          "nullable": true,
+          "original_name": "ShipDate",
+          "original_type": "date"
+        },
+        {
+          "name": "Revenue",
+          "datatype": "DOUBLE",
+          "nullable": true,
+          "original_name": "Revenue",
+          "original_type": "real"
+        },
+        {
+          "name": "Cost",
+          "datatype": "DOUBLE",
+          "nullable": true,
+          "original_name": "Cost",
+          "original_type": "real"
+        },
+        {
+          "name": "Quantity",
+          "datatype": "INT",
+          "nullable": true,
+          "original_name": "Quantity",
+          "original_type": "integer"
+        },
+        {
+          "name": "Discount",
+          "datatype": "DOUBLE",
+          "nullable": true,
+          "original_name": "Discount",
+          "original_type": "real"
+        },
+        {
+          "name": "OrderStatus",
+          "datatype": "STRING",
+          "nullable": true,
+          "original_name": "OrderStatus",
+          "original_type": "string"
+        },
+        {
+          "name": "ShipMode",
+          "datatype": "STRING",
+          "nullable": true,
+          "original_name": "ShipMode",
+          "original_type": "string"
+        },
+        {
+          "name": "Priority",
+          "datatype": "STRING",
+          "nullable": true,
+          "original_name": "Priority",
+          "original_type": "string"
+        },
+        {
+          "name": "profit",
+          "datatype": "DOUBLE",
+          "nullable": true,
+          "original_name": "Profit",
+          "original_type": "real",
+          "is_calculated": true,
+          "formula": "[Revenue] - [Cost]"
+        },
+        {
+          "name": "priority_label",
+          "datatype": "STRING",
+          "nullable": true,
+          "original_name": "Priority Label",
+          "original_type": "string",
+          "is_calculated": true,
+          "formula": "CASE [Priority] WHEN \"Critical\" THEN \"🔴 Critical\" WHEN \"High\" THEN \"🟠 High\" WHEN \"Medium\" THEN \"🟡 Medium\" WHEN \"Low\" THEN \"🟢 Low\" ELSE \"⚪ Unknown\" END"
+        },
+        {
+          "name": "revenue_tier",
+          "datatype": "STRING",
+          "nullable": true,
+          "original_name": "Revenue Tier",
+          "original_type": "string",
+          "is_calculated": true,
+          "formula": "IF [Revenue] > 10000 THEN \"Platinum\" ELSEIF [Revenue] > 5000 THEN \"Gold\" ELSEIF [Revenue] > 1000 THEN \"Silver\" ELSE \"Bronze\" END"
+        },
+        {
+          "name": "days_to_ship",
+          "datatype": "INT",
+          "nullable": true,
+          "original_name": "Days to Ship",
+          "original_type": "integer",
+          "is_calculated": true,
+          "formula": "DATEDIFF('day', [OrderDate], [ShipDate])"
+        },
+        {
+          "name": "has_discount",
+          "datatype": "STRING",
+          "nullable": true,
+          "original_name": "Has Discount",
+          "original_type": "string",
+          "is_calculated": true,
+          "formula": "IF ZN([Discount]) > 0 THEN \"Yes\" ELSE \"No\" END"
+        }
+      ],
+      "source_type": "SQL Server",
+      "source_connection": {
+        "server": "sql-finance.contoso.com",
+        "database": "FinanceDB",
+        "authentication": "sspi",
+        "username": ""
+      },
+      "format": "delta"
+    },
+    {
+      "name": "customers",
+      "original_name": "Customers",
+      "columns": [
+        {
+          "name": "CustomerID",
+          "datatype": "INT",
+          "nullable": true,
+          "original_name": "CustomerID",
+          "original_type": "integer"
+        },
+        {
+          "name": "CustomerName",
+          "datatype": "STRING",
+          "nullable": true,
+          "original_name": "CustomerName",
+          "original_type": "string"
+        },
+        {
+          "name": "Segment",
+          "datatype": "STRING",
+          "nullable": true,
+          "original_name": "Segment",
+          "original_type": "string"
+        },
+        {
+          "name": "Email",
+          "datatype": "STRING",
+          "nullable": true,
+          "original_name": "Email",
+          "original_type": "string"
+        },
+        {
+          "name": "JoinDate",
+          "datatype": "DATE",
+          "nullable": true,
+          "original_name": "JoinDate",
+          "original_type": "date"
+        }
+      ],
+      "source_type": "SQL Server",
+      "source_connection": {
+        "server": "sql-finance.contoso.com",
+        "database": "FinanceDB",
+        "authentication": "sspi",
+        "username": ""
+      },
+      "format": "delta"
+    },
+    {
+      "name": "products",
+      "original_name": "Products",
+      "columns": [
+        {
+          "name": "ProductID",
+          "datatype": "INT",
+          "nullable": true,
+          "original_name": "ProductID",
+          "original_type": "integer"
+        },
+        {
+          "name": "ProductName",
+          "datatype": "STRING",
+          "nullable": true,
+          "original_name": "ProductName",
+          "original_type": "string"
+        },
+        {
+          "name": "Category",
+          "datatype": "STRING",
+          "nullable": true,
+          "original_name": "Category",
+          "original_type": "string"
+        },
+        {
+          "name": "SubCategory",
+          "datatype": "STRING",
+          "nullable": true,
+          "original_name": "SubCategory",
+          "original_type": "string"
+        },
+        {
+          "name": "UnitPrice",
+          "datatype": "DOUBLE",
+          "nullable": true,
+          "original_name": "UnitPrice",
+          "original_type": "real"
+        }
+      ],
+      "source_type": "SQL Server",
+      "source_connection": {
+        "server": "sql-finance.contoso.com",
+        "database": "FinanceDB",
+        "authentication": "sspi",
+        "username": ""
+      },
+      "format": "delta"
+    },
+    {
+      "name": "regions",
+      "original_name": "Regions",
+      "columns": [
+        {
+          "name": "RegionID",
+          "datatype": "INT",
+          "nullable": true,
+          "original_name": "RegionID",
+          "original_type": "integer"
+        },
+        {
+          "name": "RegionName",
+          "datatype": "STRING",
+          "nullable": true,
+          "original_name": "RegionName",
+          "original_type": "string"
+        },
+        {
+          "name": "Country",
+          "datatype": "STRING",
+          "nullable": true,
+          "original_name": "Country",
+          "original_type": "string"
+        },
+        {
+          "name": "State",
+          "datatype": "STRING",
+          "nullable": true,
+          "original_name": "State",
+          "original_type": "string"
+        },
+        {
+          "name": "City",
+          "datatype": "STRING",
+          "nullable": true,
+          "original_name": "City",
+          "original_type": "string"
+        },
+        {
+          "name": "Latitude",
+          "datatype": "DOUBLE",
+          "nullable": true,
+          "original_name": "Latitude",
+          "original_type": "real"
+        },
+        {
+          "name": "Longitude",
+          "datatype": "DOUBLE",
+          "nullable": true,
+          "original_name": "Longitude",
+          "original_type": "real"
+        }
+      ],
+      "source_type": "SQL Server",
+      "source_connection": {
+        "server": "sql-finance.contoso.com",
+        "database": "FinanceDB",
+        "authentication": "sspi",
+        "username": ""
+      },
+      "format": "delta"
+    },
+    {
+      "name": "targets",
+      "original_name": "Targets",
+      "columns": [
+        {
+          "name": "Category",
+          "datatype": "STRING",
+          "nullable": true,
+          "original_name": "Category",
+          "original_type": "string"
+        },
+        {
+          "name": "Region",
+          "datatype": "STRING",
+          "nullable": true,
+          "original_name": "Region",
+          "original_type": "string"
+        },
+        {
+          "name": "TargetRevenue",
+          "datatype": "DOUBLE",
+          "nullable": true,
+          "original_name": "TargetRevenue",
+          "original_type": "real"
+        },
+        {
+          "name": "TargetProfit",
+          "datatype": "DOUBLE",
+          "nullable": true,
+          "original_name": "TargetProfit",
+          "original_type": "real"
+        },
+        {
+          "name": "FiscalYear",
+          "datatype": "INT",
+          "nullable": true,
+          "original_name": "FiscalYear",
+          "original_type": "integer"
+        }
+      ],
+      "source_type": "Excel",
+      "source_connection": {
+        "filename": "\\\\\\\\fileserver\\\\data\\\\Budget_2024.xlsx",
+        "caption": "Excel - Budget",
+        "cleaning": "yes",
+        "compat": "no"
+      },
+      "format": "delta"
+    },
+    {
+      "name": "monthlysummary",
+      "original_name": "MonthlySummary",
+      "columns": [],
+      "source_type": "Custom SQL",
+      "custom_sql": "SELECT\n              YEAR(OrderDate)  AS OrderYear,\n              MONTH(OrderDate) AS OrderMonth,\n              Category,\n              SUM(Revenue)     AS TotalRevenue,\n              SUM(Cost)        AS TotalCost,\n              COUNT(*)         AS OrderCount\n          FROM Orders\n          GROUP BY YEAR(OrderDate), MONTH(OrderDate), Category",
+      "format": "delta"
+    }
+  ]
+}

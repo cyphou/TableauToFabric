@@ -1,0 +1,14 @@
+{
+  "displayName": "filtering",
+  "type": "SemanticModel",
+  "mode": "DirectLake",
+  "lakehouse": "filtering",
+  "stats": {
+    "tables": 1,
+    "columns": 42,
+    "measures": 0,
+    "relationships": 0,
+    "hierarchies": 0,
+    "roles": 0
+  }
+}

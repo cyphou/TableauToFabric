@@ -1,0 +1,169 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/lakehouse/definition/lakehouse/1.0.0/schema.json",
+  "properties": {
+    "displayName": "medium_report_Lakehouse",
+    "description": "Lakehouse generated from Tableau workbook: medium_report",
+    "created": "2026-03-05T10:46:35.686710",
+    "defaultSchema": "dbo"
+  },
+  "tables": [
+    {
+      "name": "orders",
+      "original_name": "Orders",
+      "columns": [
+        {
+          "name": "OrderID",
+          "datatype": "INT",
+          "nullable": true,
+          "original_name": "OrderID",
+          "original_type": "integer"
+        },
+        {
+          "name": "CustomerID",
+          "datatype": "INT",
+          "nullable": true,
+          "original_name": "CustomerID",
+          "original_type": "integer"
+        },
+        {
+          "name": "OrderDate",
+          "datatype": "DATE",
+          "nullable": true,
+          "original_name": "OrderDate",
+          "original_type": "date"
+        },
+        {
+          "name": "Category",
+          "datatype": "STRING",
+          "nullable": true,
+          "original_name": "Category",
+          "original_type": "string"
+        },
+        {
+          "name": "Product",
+          "datatype": "STRING",
+          "nullable": true,
+          "original_name": "Product",
+          "original_type": "string"
+        },
+        {
+          "name": "Sales",
+          "datatype": "DOUBLE",
+          "nullable": true,
+          "original_name": "Sales",
+          "original_type": "real"
+        },
+        {
+          "name": "Profit",
+          "datatype": "DOUBLE",
+          "nullable": true,
+          "original_name": "Profit",
+          "original_type": "real"
+        },
+        {
+          "name": "Quantity",
+          "datatype": "INT",
+          "nullable": true,
+          "original_name": "Quantity",
+          "original_type": "integer"
+        },
+        {
+          "name": "Discount",
+          "datatype": "DOUBLE",
+          "nullable": true,
+          "original_name": "Discount",
+          "original_type": "real"
+        },
+        {
+          "name": "Region",
+          "datatype": "STRING",
+          "nullable": true,
+          "original_name": "Region",
+          "original_type": "string"
+        },
+        {
+          "name": "Country",
+          "datatype": "STRING",
+          "nullable": true,
+          "original_name": "Country",
+          "original_type": "string"
+        },
+        {
+          "name": "State",
+          "datatype": "STRING",
+          "nullable": true,
+          "original_name": "State",
+          "original_type": "string"
+        },
+        {
+          "name": "City",
+          "datatype": "STRING",
+          "nullable": true,
+          "original_name": "City",
+          "original_type": "string"
+        },
+        {
+          "name": "revenue_tier",
+          "datatype": "STRING",
+          "nullable": true,
+          "original_name": "Revenue Tier",
+          "original_type": "string",
+          "is_calculated": true,
+          "formula": "IF [Sales] > 500 THEN \"High\" ELSEIF [Sales] > 100 THEN \"Medium\" ELSE \"Low\" END"
+        }
+      ],
+      "source_type": "PostgreSQL",
+      "source_connection": {
+        "server": "pg-analytics.contoso.com",
+        "port": "5432",
+        "database": "ecommerce",
+        "username": "analytics_user",
+        "sslmode": "require"
+      },
+      "format": "delta"
+    },
+    {
+      "name": "customers",
+      "original_name": "Customers",
+      "columns": [
+        {
+          "name": "CustomerID",
+          "datatype": "INT",
+          "nullable": true,
+          "original_name": "CustomerID",
+          "original_type": "integer"
+        },
+        {
+          "name": "CustomerName",
+          "datatype": "STRING",
+          "nullable": true,
+          "original_name": "CustomerName",
+          "original_type": "string"
+        },
+        {
+          "name": "Segment",
+          "datatype": "STRING",
+          "nullable": true,
+          "original_name": "Segment",
+          "original_type": "string"
+        },
+        {
+          "name": "Email",
+          "datatype": "STRING",
+          "nullable": true,
+          "original_name": "Email",
+          "original_type": "string"
+        }
+      ],
+      "source_type": "PostgreSQL",
+      "source_connection": {
+        "server": "pg-analytics.contoso.com",
+        "port": "5432",
+        "database": "ecommerce",
+        "username": "analytics_user",
+        "sslmode": "require"
+      },
+      "format": "delta"
+    }
+  ]
+}

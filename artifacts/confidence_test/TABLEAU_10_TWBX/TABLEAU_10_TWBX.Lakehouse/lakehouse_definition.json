@@ -1,0 +1,83 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/lakehouse/definition/lakehouse/1.0.0/schema.json",
+  "properties": {
+    "displayName": "TABLEAU_10_TWBX_Lakehouse",
+    "description": "Lakehouse generated from Tableau workbook: TABLEAU_10_TWBX",
+    "created": "2026-03-05T10:46:46.777869",
+    "defaultSchema": "dbo"
+  },
+  "tables": [
+    {
+      "name": "xy",
+      "original_name": "xy",
+      "columns": [
+        {
+          "name": "a",
+          "datatype": "STRING",
+          "nullable": true,
+          "original_name": "a",
+          "original_type": "string"
+        },
+        {
+          "name": "x",
+          "datatype": "INT",
+          "nullable": true,
+          "original_name": "x",
+          "original_type": "integer"
+        },
+        {
+          "name": "y",
+          "datatype": "INT",
+          "nullable": true,
+          "original_name": "y",
+          "original_type": "integer"
+        }
+      ],
+      "source_type": "SQL Server",
+      "source_connection": {
+        "server": "mssql2012.test.tsi.lan",
+        "database": "TestV1",
+        "authentication": "sqlserver",
+        "username": "test"
+      },
+      "format": "delta"
+    },
+    {
+      "name": "extract",
+      "original_name": "Extract",
+      "columns": [
+        {
+          "name": "Number_of_Records",
+          "datatype": "INT",
+          "nullable": false,
+          "original_name": "Number of Records",
+          "original_type": "integer"
+        },
+        {
+          "name": "a",
+          "datatype": "STRING",
+          "nullable": false,
+          "original_name": "a",
+          "original_type": "string"
+        },
+        {
+          "name": "x",
+          "datatype": "INT",
+          "nullable": false,
+          "original_name": "x",
+          "original_type": "integer"
+        },
+        {
+          "name": "y",
+          "datatype": "INT",
+          "nullable": false,
+          "original_name": "y",
+          "original_type": "integer"
+        }
+      ],
+      "source_type": "SQL Server",
+      "source_connection": {},
+      "format": "delta"
+    }
+  ]
+}

@@ -1,0 +1,218 @@
+table Orders
+	lineageTag: 70548d07-450d-4821-ade5-ad75534b4031
+
+	measure 'Profit Margin' = SUMX('Orders', 'Orders'[Revenue] - 'Orders'[Cost]) / SUM('Orders'[Revenue])
+		formatString: #,0.00
+		displayFolder: Measures
+		lineageTag: 8942c3e3-5466-4bb5-bb6c-60e0360ee0a1
+
+	measure 'Net Revenue' = SUMX('Orders', IF('Orders'[OrderStatus] <> "Cancelled", 'Orders'[Revenue] * (1 - 'Orders'[Discount]), 0))
+		formatString: #,0.00
+		displayFolder: Measures
+		lineageTag: b2b38227-b685-4685-8421-3de4bcacafe1
+
+	measure 'Customer LTV' = CALCULATE(SUM('Orders'[Revenue]), ALLEXCEPT('Orders', 'Orders'[CustomerID]))
+		formatString: #,0.00
+		displayFolder: Measures
+		lineageTag: 12f694dc-4d12-4c46-8cef-6dbda5790bf6
+
+	measure 'Avg Sales excl Region' = CALCULATE(AVERAGE('Orders'[Revenue]), REMOVEFILTERS('Regions'[RegionName]))
+		formatString: #,0.00
+		displayFolder: Measures
+		lineageTag: ca38ce64-aa01-4b54-b758-5f95dd038e14
+
+	measure 'Running Revenue' = CALCULATE(SUM('Orders'[Revenue]))
+		formatString: #,0.00
+		displayFolder: Measures
+		lineageTag: 9188006a-5ef9-404b-944e-6a91f5695fef
+
+	measure 'Budget Variance' = (SUM('Orders'[Revenue]) - SUM('Targets'[TargetRevenue])) / SUM('Targets'[TargetRevenue])
+		formatString: #,0.00
+		displayFolder: Measures
+		lineageTag: 57e8a58d-d6cf-4c83-8bf1-274b873403cd
+
+	column OrderID
+		dataType: int64
+		lineageTag: e3c0d8bc-516b-45cc-85d7-e652df42ccbf
+		summarizeBy: sum
+		sourceColumn: OrderID
+
+		annotation SummarizationSetBy = Automatic
+
+	column CustomerID
+		dataType: int64
+		lineageTag: a55fd025-4b3a-4fec-829e-a7d9ef377f93
+		summarizeBy: sum
+		sourceColumn: CustomerID
+
+		annotation SummarizationSetBy = Automatic
+
+	column ProductID
+		dataType: int64
+		lineageTag: 154be12e-a0ab-44c7-811d-8cc366d1959e
+		summarizeBy: sum
+		sourceColumn: ProductID
+
+		annotation SummarizationSetBy = Automatic
+
+	column RegionID
+		dataType: int64
+		lineageTag: 03b6132d-3041-4e80-bcc5-19c2e6a37fa8
+		summarizeBy: sum
+		sourceColumn: RegionID
+		dataCategory: StateOrProvince
+
+		annotation SummarizationSetBy = Automatic
+
+	column OrderDate
+		dataType: dateTime
+		formatString: General Date
+		lineageTag: e4255123-cca9-4865-849c-54f1fe955363
+		summarizeBy: none
+		sourceColumn: OrderDate
+		dataCategory: DateTime
+
+		annotation SummarizationSetBy = Automatic
+
+	column ShipDate
+		dataType: dateTime
+		formatString: General Date
+		lineageTag: 50745a38-77b9-43d1-8d0a-e3b7c373092d
+		summarizeBy: none
+		sourceColumn: ShipDate
+		dataCategory: DateTime
+
+		annotation SummarizationSetBy = Automatic
+
+	column Revenue
+		dataType: double
+		formatString: #,0.00
+		lineageTag: ae766e13-e7cc-4791-bb00-6e3f52cc1e1b
+		summarizeBy: sum
+		sourceColumn: Revenue
+
+		annotation SummarizationSetBy = Automatic
+
+	column Cost
+		dataType: double
+		formatString: #,0.00
+		lineageTag: c36255a2-7069-40f1-ac27-8f3e271cd44b
+		summarizeBy: sum
+		sourceColumn: Cost
+
+		annotation SummarizationSetBy = Automatic
+
+	column Quantity
+		dataType: int64
+		lineageTag: 621fd1ec-8668-4757-b7c5-4cbccc808b44
+		summarizeBy: sum
+		sourceColumn: Quantity
+
+		annotation SummarizationSetBy = Automatic
+
+	column Discount
+		dataType: double
+		formatString: #,0.00
+		lineageTag: 50c8b5fc-5667-4fb6-bed3-2a3223701365
+		summarizeBy: sum
+		sourceColumn: Discount
+
+		annotation SummarizationSetBy = Automatic
+
+	column OrderStatus
+		dataType: string
+		lineageTag: 0913b1c1-e379-487b-aa1c-02bfdd3ae56a
+		summarizeBy: none
+		sourceColumn: OrderStatus
+
+		annotation SummarizationSetBy = Automatic
+
+	column ShipMode
+		dataType: string
+		lineageTag: 63f00c8a-0659-4291-a72a-669f52cfdd70
+		summarizeBy: none
+		sourceColumn: ShipMode
+
+		annotation SummarizationSetBy = Automatic
+
+	column Priority
+		dataType: string
+		lineageTag: d1cfa4c9-33fa-4f17-bb18-d469cdd96bf4
+		summarizeBy: none
+		sourceColumn: Priority
+
+		annotation SummarizationSetBy = Automatic
+
+	column Profit
+		dataType: double
+		formatString: #,0.00
+		lineageTag: e78a9750-d524-443e-b107-02320cc47ef0
+		summarizeBy: none
+		sourceColumn: profit
+
+		annotation SummarizationSetBy = Automatic
+
+	column 'Priority Label'
+		dataType: string
+		lineageTag: b51c0168-da36-46bd-a5c1-5f614e2077c3
+		summarizeBy: none
+		sourceColumn: priority_label
+
+		annotation SummarizationSetBy = Automatic
+
+	column 'Revenue Tier'
+		dataType: string
+		lineageTag: 5aace61c-6d11-4605-a3c0-eb2278de06e2
+		summarizeBy: none
+		sourceColumn: revenue_tier
+
+		annotation SummarizationSetBy = Automatic
+
+	column 'Days to Ship'
+		dataType: int64
+		lineageTag: 6e79d726-8468-4154-95a1-17ba39586cb3
+		summarizeBy: none
+		sourceColumn: days_to_ship
+
+		annotation SummarizationSetBy = Automatic
+
+	column 'Has Discount'
+		dataType: string
+		lineageTag: c30e0ea6-c10f-437f-ab95-1d926dab4047
+		summarizeBy: none
+		sourceColumn: has_discount
+
+		annotation SummarizationSetBy = Automatic
+
+	column 'Top Customers' = [Revenue] > 5000
+		dataType: boolean
+		lineageTag: 7c0cf0f0-7f1d-4de6-8cde-2fcce7a6f5a5
+		summarizeBy: none
+		displayFolder: Sets
+
+		annotation SummarizationSetBy = Automatic
+
+	column 'Segment Group' = SWITCH('Customers'[Segment], "Consumer", "Consumer", "Home Office", "Home Office", "Other")
+		dataType: string
+		lineageTag: a260899a-6183-4070-a72f-f5b7c9f5d24a
+		summarizeBy: none
+		displayFolder: Groups
+
+		annotation SummarizationSetBy = Automatic
+
+	column 'Revenue Bin' = FLOOR('Orders'[Revenue], 500)
+		dataType: double
+		lineageTag: d27e4c7f-a8be-4aaf-a166-f64fd3653193
+		summarizeBy: none
+		displayFolder: Bins
+
+		annotation SummarizationSetBy = Automatic
+
+	partition 'Orders-864796f0-72ad-4937-b957-cbfe60905a68' = entity
+		mode: directLake
+		entityName: orders
+		schemaName: dbo
+		expressionSource: DatabaseQuery
+
+	annotation PBI_ResultType = Table
+

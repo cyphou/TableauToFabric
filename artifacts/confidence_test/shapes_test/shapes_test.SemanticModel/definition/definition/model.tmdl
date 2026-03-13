@@ -1,0 +1,23 @@
+model Model
+	culture: fr-FR
+	defaultPowerBIDataSourceVersion: powerBI_V3
+	defaultMode: directLake
+	sourceQueryCulture: en-US
+	dataAccessOptions
+		legacyRedirects
+		returnErrorValuesAsNull
+
+annotation PBI_QueryOrder = ["Orders","People","Returns","Top Customers","Profit Bin Size"]
+
+ref table Orders
+ref table People
+ref table Returns
+ref table 'Top Customers'
+ref table 'Profit Bin Size'
+
+ref expression DatabaseQuery
+
+ref perspective 'Full Model'
+
+ref culture 'fr-FR'
+

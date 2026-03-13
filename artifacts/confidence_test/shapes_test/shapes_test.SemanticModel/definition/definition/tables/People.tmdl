@@ -1,0 +1,29 @@
+table People
+	lineageTag: 23e01010-1191-40bd-be65-09ec6449988d
+
+	column 'Regional Manager'
+		dataType: string
+		lineageTag: c96c992c-5782-4c56-adf2-01ac5a0de076
+		summarizeBy: none
+		sourceColumn: 'Regional Manager'
+		dataCategory: StateOrProvince
+
+		annotation SummarizationSetBy = Automatic
+
+	column Region
+		dataType: string
+		lineageTag: 54b99025-a319-41ca-9a6a-3e52b1e52be2
+		summarizeBy: none
+		sourceColumn: Region
+		dataCategory: StateOrProvince
+
+		annotation SummarizationSetBy = Automatic
+
+	partition 'People-0ebadeec-7b71-4db5-a176-68cb81b63d84' = entity
+		mode: directLake
+		entityName: people
+		schemaName: dbo
+		expressionSource: DatabaseQuery
+
+	annotation PBI_ResultType = Table
+
